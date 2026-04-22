@@ -739,8 +739,6 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if self.path == "/api/generate_store":
-            if not _check_admin(self, expected_token=STATE.settings.admin_token):
-                return
             try:
                 length = int(self.headers.get("content-length") or "0")
                 raw = self.rfile.read(length)
@@ -775,8 +773,6 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if self.path == "/api/inpaint":
-            if not _check_admin(self, expected_token=STATE.settings.admin_token):
-                return
             try:
                 length = int(self.headers.get("content-length") or "0")
                 raw = self.rfile.read(length)

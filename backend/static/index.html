@@ -1506,9 +1506,19 @@
         }
       }
 
-      generateStoreBtn.addEventListener("click", () => generateWithStore());
+      generateStoreBtn.addEventListener("click", () => {
+        generateWithStore().catch(e => {
+          setError(String(e));
+          setStatus("");
+        });
+      });
       openInpaintEditorBtn.addEventListener("click", () => openInpaintEditor());
-      executeInpaintBtn.addEventListener("click", () => executeInpaint());
+      executeInpaintBtn.addEventListener("click", () => {
+        executeInpaint().catch(e => {
+          setError("Inpainting 失败: " + String(e));
+          inpaintStatus.textContent = "";
+        });
+      });
     </script>
   </body>
 </html>
