@@ -6,11 +6,11 @@
     <title>you2music</title>
     <style>
       :root { color-scheme: light dark; }
-      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 24px; max-width: 980px; }
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 24px; max-width: 1200px; }
       .row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
       @media (max-width: 860px) { .row { grid-template-columns: 1fr; } }
       textarea, input, select, button { width: 100%; padding: 10px; font-size: 14px; box-sizing: border-box; }
-      textarea { min-height: 120px; }
+      textarea { min-height: 80px; }
       label { display:block; margin: 10px 0 6px; font-weight: 600; }
       .card { border: 1px solid rgba(127,127,127,.35); border-radius: 12px; padding: 16px; }
       .actions { display: flex; gap: 12px; align-items: center; }
@@ -20,6 +20,52 @@
       audio { width: 100%; margin-top: 10px; }
       .ok { color: #1b7f3a; }
       .err { color: #b00020; white-space: pre-wrap; }
+
+      /* Composition Plan Editor Styles */
+      .cp-editor { display: none; margin-top: 16px; padding: 16px; border: 1px solid rgba(127,127,127,.25); border-radius: 10px; background: rgba(127,127,127,.05); }
+      .cp-editor.visible { display: block; }
+      .cp-section { border: 1px solid rgba(127,127,127,.2); border-radius: 8px; padding: 12px; margin-top: 12px; background: rgba(255,255,255,.02); cursor: grab; transition: transform 0.2s, box-shadow 0.2s; }
+      .cp-section:active { cursor: grabbing; }
+      .cp-section.dragging { opacity: 0.5; transform: scale(1.02); box-shadow: 0 4px 12px rgba(0,0,0,.15); }
+      .cp-section.drag-over { border-color: #4a90d9; background: rgba(74,144,217,.1); }
+      .cp-section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+      .cp-section-title { font-weight: 600; font-size: 14px; display: flex; align-items: center; gap: 8px; }
+      .cp-section-drag { cursor: grab; opacity: 0.5; font-size: 16px; }
+      .cp-section-time { font-size: 12px; opacity: 0.7; margin-left: 8px; }
+      .cp-section-actions { display: flex; gap: 6px; }
+      .cp-section-move { padding: 4px 8px; font-size: 12px; background: rgba(127,127,127,.1); border: none; border-radius: 4px; cursor: pointer; width: auto; }
+      .cp-section-move:hover { background: rgba(127,127,127,.2); }
+      .cp-section-move:disabled { opacity: 0.3; cursor: not-allowed; }
+      .cp-section-remove { padding: 4px 10px; font-size: 12px; background: rgba(180,0,0,.1); border: none; border-radius: 4px; cursor: pointer; color: #b00020; width: auto; }
+      .cp-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+      .cp-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+      .cp-tag { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; background: rgba(100,100,255,.15); border-radius: 14px; font-size: 12px; }
+      .cp-tag-remove { cursor: pointer; opacity: .6; font-weight: bold; }
+      .cp-tag-remove:hover { opacity: 1; }
+      .cp-add-tag { display: flex; gap: 6px; margin-top: 6px; }
+      .cp-add-tag input { flex: 1; padding: 6px 10px; font-size: 13px; }
+      .cp-add-tag button { padding: 6px 12px; font-size: 13px; width: auto; }
+      .cp-presets { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+      .cp-preset-btn { padding: 4px 10px; font-size: 12px; border-radius: 14px; border: 1px solid rgba(127,127,127,.3); background: transparent; cursor: pointer; width: auto; }
+      .cp-preset-btn:hover { background: rgba(127,127,127,.1); }
+      .cp-preset-btn.active { background: rgba(100,100,255,.2); border-color: rgba(100,100,255,.4); }
+
+      /* Timeline */
+      .cp-timeline { display: flex; align-items: center; gap: 4px; margin-top: 12px; padding: 10px; background: rgba(127,127,127,.05); border-radius: 6px; overflow-x: auto; }
+      .cp-timeline-segment { padding: 6px 12px; border-radius: 4px; font-size: 12px; white-space: nowrap; cursor: pointer; transition: all 0.2s; }
+      .cp-timeline-segment:hover { transform: translateY(-2px); }
+      .cp-timeline-segment.intro { background: rgba(100,200,100,.2); }
+      .cp-timeline-segment.verse { background: rgba(100,100,200,.2); }
+      .cp-timeline-segment.chorus { background: rgba(200,100,100,.2); }
+      .cp-timeline-segment.bridge { background: rgba(200,150,50,.2); }
+      .cp-timeline-segment.outro { background: rgba(150,100,200,.2); }
+      .cp-timeline-total { margin-left: auto; font-weight: 600; font-size: 13px; }
+
+      /* Genre presets */
+      .cp-genre-presets { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; padding: 12px; background: rgba(127,127,127,.03); border-radius: 8px; }
+      .cp-genre-btn { padding: 8px 16px; font-size: 13px; border-radius: 20px; border: 1px solid rgba(127,127,127,.3); background: transparent; cursor: pointer; width: auto; transition: all 0.2s; }
+      .cp-genre-btn:hover { background: rgba(127,127,127,.1); border-color: rgba(127,127,127,.5); }
+      .cp-genre-btn.active { background: rgba(100,100,255,.15); border-color: rgba(100,100,255,.4); }
     </style>
   </head>
   <body>
@@ -49,7 +95,101 @@
           <div class="muted">Provider 参数加载中…</div>
         </div>
 
-        <label for="lyrics">歌词（可选，会注入到 Prompt 里）</label>
+        <!-- Composition Plan Editor -->
+        <div id="compositionPlanEditor" class="cp-editor">
+          <h4 style="margin: 0 0 12px;">Composition Plan 编辑器</h4>
+          <p class="muted" style="margin-bottom: 12px;">通过段落、风格、歌词精细控制生成结果。启用后将替代普通 Prompt。</p>
+
+          <!-- Genre Presets -->
+          <div class="cp-genre-presets">
+            <span class="muted" style="margin-right: 8px;">快速模板：</span>
+            <button class="cp-genre-btn" onclick="applyGenrePreset('pop')">流行歌曲</button>
+            <button class="cp-genre-btn" onclick="applyGenrePreset('ballad')">抒情慢歌</button>
+            <button class="cp-genre-btn" onclick="applyGenrePreset('electronic')">电子舞曲</button>
+            <button class="cp-genre-btn" onclick="applyGenrePreset('rock')">摇滚</button>
+            <button class="cp-genre-btn" onclick="applyGenrePreset('ambient')">氛围音乐</button>
+            <button class="cp-genre-btn" onclick="clearCompositionPlan()">清空</button>
+          </div>
+
+          <div class="cp-row">
+            <div>
+              <label>正向风格（全局）</label>
+              <div id="positiveStyles" class="cp-tags"></div>
+              <div class="cp-add-tag">
+                <input type="text" id="positiveStyleInput" placeholder="例如：acoustic guitar, light synths" />
+                <button onclick="addPositiveStyle()">添加</button>
+              </div>
+              <div class="cp-presets">
+                <button class="cp-preset-btn" onclick="addPresetStyle('positive', 'acoustic guitar')">木吉他</button>
+                <button class="cp-preset-btn" onclick="addPresetStyle('positive', 'piano')">钢琴</button>
+                <button class="cp-preset-btn" onclick="addPresetStyle('positive', 'synths')">合成器</button>
+                <button class="cp-preset-btn" onclick="addPresetStyle('positive', 'drums')">鼓组</button>
+                <button class="cp-preset-btn" onclick="addPresetStyle('positive', 'bass')">贝斯</button>
+                <button class="cp-preset-btn" onclick="addPresetStyle('positive', 'strings')">弦乐</button>
+                <button class="cp-preset-btn" onclick="addPresetStyle('positive', 'electric guitar')">电吉他</button>
+                <button class="cp-preset-btn" onclick="addPresetStyle('positive', 'saxophone')">萨克斯</button>
+              </div>
+            </div>
+            <div>
+              <label>负向风格（避免）</label>
+              <div id="negativeStyles" class="cp-tags"></div>
+              <div class="cp-add-tag">
+                <input type="text" id="negativeStyleInput" placeholder="例如：heavy metal, aggressive" />
+                <button onclick="addNegativeStyle()">添加</button>
+              </div>
+              <div class="cp-presets">
+                <button class="cp-preset-btn" onclick="addPresetStyle('negative', 'heavy metal')">重金属</button>
+                <button class="cp-preset-btn" onclick="addPresetStyle('negative', 'aggressive')">激进</button>
+                <button class="cp-preset-btn" onclick="addPresetStyle('negative', 'distorted')">失真</button>
+                <button class="cp-preset-btn" onclick="addPresetStyle('negative', 'chaotic')">混乱</button>
+                <button class="cp-preset-btn" onclick="addPresetStyle('negative', 'dissonant')">不协和</button>
+              </div>
+            </div>
+          </div>
+
+          <div style="margin-top: 16px;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <label style="margin: 0;">段落（可拖拽排序）</label>
+              <div style="display: flex; gap: 8px;">
+                <button onclick="addSection('intro')" style="width: auto; padding: 6px 12px; font-size: 13px;">+ Intro</button>
+                <button onclick="addSection('verse')" style="width: auto; padding: 6px 12px; font-size: 13px;">+ Verse</button>
+                <button onclick="addSection('chorus')" style="width: auto; padding: 6px 12px; font-size: 13px;">+ Chorus</button>
+                <button onclick="addSection()" style="width: auto; padding: 6px 14px; font-size: 13px;">+ 自定义</button>
+              </div>
+            </div>
+            <div id="sectionsContainer"></div>
+
+            <!-- Timeline -->
+            <div id="timeline" class="cp-timeline" style="display: none;">
+              <span class="muted">时间轴：</span>
+            </div>
+          </div>
+
+          <div class="cp-row" style="margin-top: 12px;">
+            <div>
+              <label>BPM（可选）</label>
+              <input type="number" id="cpBpm" min="40" max="240" placeholder="例如：120" />
+              <div class="cp-presets">
+                <button class="cp-preset-btn" onclick="setBpm(60)">慢板 60</button>
+                <button class="cp-preset-btn" onclick="setBpm(90)">中板 90</button>
+                <button class="cp-preset-btn" onclick="setBpm(120)">快板 120</button>
+                <button class="cp-preset-btn" onclick="setBpm(140)">舞曲 140</button>
+              </div>
+            </div>
+            <div>
+              <label>调式（可选）</label>
+              <input type="text" id="cpKey" placeholder="例如：C major, A minor" />
+              <div class="cp-presets">
+                <button class="cp-preset-btn" onclick="setKey('C major')">C 大调</button>
+                <button class="cp-preset-btn" onclick="setKey('A minor')">A 小调</button>
+                <button class="cp-preset-btn" onclick="setKey('G major')">G 大调</button>
+                <button class="cp-preset-btn" onclick="setKey('D major')">D 大调</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <label for="lyrics">歌词（可选，普通模式下会注入到 Prompt 里）</label>
         <textarea id="lyrics" placeholder="可粘贴歌词。建议分段：主歌/副歌/桥段。"></textarea>
 
         <div class="row">
@@ -101,12 +241,23 @@
           <button id="extendBtn" style="display:none;">延长当前</button>
         </div>
 
+        <!-- Stems Section -->
+        <div id="stemsSection" style="margin-top: 12px; display: none;">
+          <div class="muted" style="margin-bottom: 6px;">分轨下载（人声/伴奏）：</div>
+          <div class="actions">
+            <button id="getStemsBtn" style="width: auto; padding: 8px 14px;">获取分轨</button>
+            <a id="vocalsLink" href="#" style="display:none;">下载人声</a>
+            <a id="instrumentalLink" href="#" style="display:none;">下载伴奏</a>
+            <span id="stemsStatus" class="muted"></span>
+          </div>
+        </div>
+
         <div style="margin-top: 14px;">
           <div class="muted">候选列表（点击可切换播放）</div>
           <div id="list"></div>
         </div>
         <div class="muted" style="margin-top: 12px;">
-          提示：如果你想更稳定地产生“唱歌”，请在 Prompt 里明确写：<span class="mono">with vocals, singing</span>，并提供歌词段落。
+          提示：如果你想更稳定地产生"唱歌"，请在 Prompt 里明确写：<span class="mono">with vocals, singing</span>，并提供歌词段落。
         </div>
       </div>
     </div>
@@ -120,14 +271,34 @@
       const refreshBtn = document.getElementById("refreshBtn");
       const extendBtn = document.getElementById("extendBtn");
       const listEl = document.getElementById("list");
+      const stemsSection = document.getElementById("stemsSection");
+      const getStemsBtn = document.getElementById("getStemsBtn");
+      const vocalsLink = document.getElementById("vocalsLink");
+      const instrumentalLink = document.getElementById("instrumentalLink");
+      const stemsStatus = document.getElementById("stemsStatus");
       const providerEl = document.getElementById("provider");
       const advancedEl = document.getElementById("advanced");
       const providerFieldsEl = document.getElementById("providerFields");
+      const cpEditorEl = document.getElementById("compositionPlanEditor");
 
       let currentJobId = null;
       let currentJobs = [];
+      let currentJobSongId = null;
+      let currentJobProvider = null;
       let pollTimer = null;
       let providersMeta = null;
+
+      // Composition Plan State
+      let cpState = {
+        positive_global_styles: [],
+        negative_global_styles: [],
+        sections: [],
+        bpm: null,
+        key: null
+      };
+
+      // Drag state
+      let draggedSection = null;
 
       function setStatus(msg, kind) {
         statusEl.textContent = msg || "";
@@ -180,10 +351,447 @@
         if (field.kind === "number") return raw === "" || raw === null ? null : parseFloat(raw);
         if (field.kind === "json") {
           if (raw === "" || raw === null) return null;
-          // Allow either JSON text or a raw object (not applicable in the browser).
           try { return JSON.parse(raw); } catch { return raw; }
         }
         return raw === "" ? null : raw;
+      }
+
+      // Composition Plan Functions
+      function renderTags(containerId, tags, removeFn) {
+        const container = document.getElementById(containerId);
+        container.innerHTML = tags.map((tag, i) =>
+          `<span class="cp-tag">${tag}<span class="cp-tag-remove" onclick="${removeFn}(${i})">×</span></span>`
+        ).join("");
+      }
+
+      function addPositiveStyle() {
+        const input = document.getElementById("positiveStyleInput");
+        const val = input.value.trim();
+        if (val && !cpState.positive_global_styles.includes(val)) {
+          cpState.positive_global_styles.push(val);
+          renderTags("positiveStyles", cpState.positive_global_styles, "removePositiveStyle");
+        }
+        input.value = "";
+      }
+
+      function removePositiveStyle(i) {
+        cpState.positive_global_styles.splice(i, 1);
+        renderTags("positiveStyles", cpState.positive_global_styles, "removePositiveStyle");
+      }
+
+      function addNegativeStyle() {
+        const input = document.getElementById("negativeStyleInput");
+        const val = input.value.trim();
+        if (val && !cpState.negative_global_styles.includes(val)) {
+          cpState.negative_global_styles.push(val);
+          renderTags("negativeStyles", cpState.negative_global_styles, "removeNegativeStyle");
+        }
+        input.value = "";
+      }
+
+      function removeNegativeStyle(i) {
+        cpState.negative_global_styles.splice(i, 1);
+        renderTags("negativeStyles", cpState.negative_global_styles, "removeNegativeStyle");
+      }
+
+      function addPresetStyle(type, style) {
+        if (type === 'positive' && !cpState.positive_global_styles.includes(style)) {
+          cpState.positive_global_styles.push(style);
+          renderTags("positiveStyles", cpState.positive_global_styles, "removePositiveStyle");
+        } else if (type === 'negative' && !cpState.negative_global_styles.includes(style)) {
+          cpState.negative_global_styles.push(style);
+          renderTags("negativeStyles", cpState.negative_global_styles, "removeNegativeStyle");
+        }
+      }
+
+      function setBpm(val) {
+        document.getElementById("cpBpm").value = val;
+      }
+
+      function setKey(val) {
+        document.getElementById("cpKey").value = val;
+      }
+
+      function addSection(type = null) {
+        const section = {
+          local_styles: type ? [type] : [],
+          duration_ms: type ? getDefaultDurationForType(type) : null,
+          lyrics: ""
+        };
+        cpState.sections.push(section);
+        renderSections();
+      }
+
+      function getDefaultDurationForType(type) {
+        const defaults = {
+          'intro': 15000,
+          'verse': 30000,
+          'chorus': 30000,
+          'bridge': 20000,
+          'outro': 15000
+        };
+        return defaults[type] || null;
+      }
+
+      function removeSection(i) {
+        cpState.sections.splice(i, 1);
+        renderSections();
+      }
+
+      function moveSection(i, direction) {
+        const newIndex = i + direction;
+        if (newIndex < 0 || newIndex >= cpState.sections.length) return;
+        const temp = cpState.sections[i];
+        cpState.sections[i] = cpState.sections[newIndex];
+        cpState.sections[newIndex] = temp;
+        renderSections();
+      }
+
+      function formatTime(ms) {
+        if (!ms) return "--:--";
+        const totalSec = Math.floor(ms / 1000);
+        const min = Math.floor(totalSec / 60);
+        const sec = totalSec % 60;
+        return `${min}:${sec.toString().padStart(2, '0')}`;
+      }
+
+      function getTotalDuration() {
+        return cpState.sections.reduce((sum, sec) => sum + (sec.duration_ms || 0), 0);
+      }
+
+      function getSectionType(sec) {
+        const styles = sec.local_styles || [];
+        const typeOrder = ['intro', 'verse', 'chorus', 'bridge', 'outro'];
+        for (const t of typeOrder) {
+          if (styles.includes(t)) return t;
+        }
+        return 'custom';
+      }
+
+      function renderSections() {
+        const container = document.getElementById("sectionsContainer");
+        if (cpState.sections.length === 0) {
+          container.innerHTML = '<p class="muted" style="margin-top: 12px;">点击上方按钮添加段落（Intro/Verse/Chorus 等）</p>';
+          updateTimeline();
+          return;
+        }
+
+        // Calculate start times
+        let startMs = 0;
+        const sectionsWithTime = cpState.sections.map(sec => {
+          const info = { ...sec, startMs };
+          startMs += sec.duration_ms || 0;
+          return info;
+        });
+
+        const sectionTypes = ['intro', 'verse', 'chorus', 'bridge', 'outro'];
+        container.innerHTML = sectionsWithTime.map((sec, i) => {
+          const sectionType = getSectionType(sec);
+          return `
+          <div class="cp-section" draggable="true" data-index="${i}">
+            <div class="cp-section-header">
+              <span class="cp-section-title">
+                <span class="cp-section-drag">⋮⋮</span>
+                段落 ${i + 1}
+                <span class="cp-section-time">${formatTime(sec.startMs)} - ${formatTime(sec.startMs + (sec.duration_ms || 0))}</span>
+              </span>
+              <div class="cp-section-actions">
+                <button class="cp-section-move" onclick="moveSection(${i}, -1)" ${i === 0 ? 'disabled' : ''}>↑</button>
+                <button class="cp-section-move" onclick="moveSection(${i}, 1)" ${i === cpState.sections.length - 1 ? 'disabled' : ''}>↓</button>
+                <button class="cp-section-remove" onclick="removeSection(${i})">删除</button>
+              </div>
+            </div>
+            <div class="cp-row">
+              <div>
+                <label>类型/风格</label>
+                <div id="sectionStyles${i}" class="cp-tags"></div>
+                <div class="cp-add-tag">
+                  <input type="text" id="sectionStyleInput${i}" placeholder="例如：energetic, emotional" onkeypress="if(event.key==='Enter'){event.preventDefault();addSectionStyle(${i});}" />
+                  <button onclick="addSectionStyle(${i})">添加</button>
+                </div>
+                <div class="cp-presets">
+                  ${sectionTypes.map(t => `<button class="cp-preset-btn ${sectionType === t ? 'active' : ''}" onclick="setSectionType(${i}, '${t}')">${t.charAt(0).toUpperCase() + t.slice(1)}</button>`).join('')}
+                </div>
+              </div>
+              <div>
+                <label>时长（秒）</label>
+                <input type="number" min="3" max="120" value="${sec.duration_ms ? sec.duration_ms / 1000 : ''}" onchange="updateSectionDuration(${i}, this.value)" placeholder="留空则自动" />
+              </div>
+            </div>
+            <div style="margin-top: 8px;">
+              <label>歌词（可选）</label>
+              <textarea style="min-height: 60px;" placeholder="在此段歌词..." onchange="updateSectionLyrics(${i}, this.value)">${sec.lyrics || ''}</textarea>
+            </div>
+          </div>
+        `}).join("");
+
+        // Render tags for each section
+        cpState.sections.forEach((sec, i) => {
+          renderSectionTags(i);
+        });
+
+        // Setup drag and drop
+        setupDragAndDrop();
+
+        // Update timeline
+        updateTimeline();
+      }
+
+      function setupDragAndDrop() {
+        const sections = document.querySelectorAll('.cp-section');
+        sections.forEach(section => {
+          section.addEventListener('dragstart', (e) => {
+            draggedSection = section;
+            section.classList.add('dragging');
+            e.dataTransfer.effectAllowed = 'move';
+          });
+
+          section.addEventListener('dragend', () => {
+            section.classList.remove('dragging');
+            document.querySelectorAll('.cp-section').forEach(s => s.classList.remove('drag-over'));
+            draggedSection = null;
+          });
+
+          section.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            if (draggedSection && draggedSection !== section) {
+              section.classList.add('drag-over');
+            }
+          });
+
+          section.addEventListener('dragleave', () => {
+            section.classList.remove('drag-over');
+          });
+
+          section.addEventListener('drop', (e) => {
+            e.preventDefault();
+            section.classList.remove('drag-over');
+            if (draggedSection && draggedSection !== section) {
+              const fromIndex = parseInt(draggedSection.dataset.index);
+              const toIndex = parseInt(section.dataset.index);
+              const item = cpState.sections.splice(fromIndex, 1)[0];
+              cpState.sections.splice(toIndex, 0, item);
+              renderSections();
+            }
+          });
+        });
+      }
+
+      function updateTimeline() {
+        const timeline = document.getElementById("timeline");
+        if (cpState.sections.length === 0) {
+          timeline.style.display = 'none';
+          return;
+        }
+
+        timeline.style.display = 'flex';
+        let currentMs = 0;
+        const segments = cpState.sections.map((sec, i) => {
+          const type = getSectionType(sec);
+          const duration = sec.duration_ms || 0;
+          const start = currentMs;
+          currentMs += duration;
+          return `<div class="cp-timeline-segment ${type}" onclick="scrollToSection(${i})">${type || '段落 ' + (i+1)} (${formatTime(duration)})</div>`;
+        }).join("");
+
+        timeline.innerHTML = `
+          <span class="muted">时间轴：</span>
+          ${segments}
+          <span class="cp-timeline-total">总计: ${formatTime(getTotalDuration())}</span>
+        `;
+      }
+
+      function scrollToSection(i) {
+        const sections = document.querySelectorAll('.cp-section');
+        if (sections[i]) {
+          sections[i].scrollIntoView({ behavior: 'smooth', block: 'center' });
+          sections[i].style.outline = '2px solid #4a90d9';
+          setTimeout(() => { sections[i].style.outline = ''; }, 1000);
+        }
+      }
+
+      function setSectionType(i, type) {
+        const sec = cpState.sections[i];
+        // Remove existing type
+        const typeOrder = ['intro', 'verse', 'chorus', 'bridge', 'outro'];
+        sec.local_styles = sec.local_styles.filter(s => !typeOrder.includes(s));
+        // Add new type at beginning
+        sec.local_styles.unshift(type);
+        // Set default duration if not set
+        if (!sec.duration_ms) {
+          sec.duration_ms = getDefaultDurationForType(type);
+        }
+        renderSections();
+      }
+
+      function addSectionStyle(i) {
+        const input = document.getElementById(`sectionStyleInput${i}`);
+        const val = input.value.trim();
+        if (val && !cpState.sections[i].local_styles.includes(val)) {
+          cpState.sections[i].local_styles.push(val);
+          renderSectionTags(i);
+        }
+        input.value = "";
+      }
+
+      function removeSectionStyle(i, j) {
+        cpState.sections[i].local_styles.splice(j, 1);
+        renderSectionTags(i);
+        updateTimeline();
+      }
+
+      function renderSectionTags(i) {
+        const container = document.getElementById(`sectionStyles${i}`);
+        if (!container) return;
+        const typeOrder = ['intro', 'verse', 'chorus', 'bridge', 'outro'];
+        container.innerHTML = cpState.sections[i].local_styles.map((tag, j) =>
+          `<span class="cp-tag ${typeOrder.includes(tag) ? '' : ''}">${tag}<span class="cp-tag-remove" onclick="removeSectionStyle(${i}, ${j})">×</span></span>`
+        ).join("");
+      }
+
+      function addSectionPreset(i, preset) {
+        if (!cpState.sections[i].local_styles.includes(preset)) {
+          cpState.sections[i].local_styles.push(preset);
+          renderSectionTags(i);
+        }
+      }
+
+      function updateSectionDuration(i, val) {
+        const sec = parseInt(val, 10);
+        cpState.sections[i].duration_ms = sec > 0 ? sec * 1000 : null;
+        renderSections();
+      }
+
+      function updateSectionLyrics(i, val) {
+        cpState.sections[i].lyrics = val.trim() || "";
+      }
+
+      // Genre presets
+      function applyGenrePreset(genre) {
+        clearCompositionPlan();
+        const presets = {
+          pop: {
+            positive_global_styles: ['synths', 'drums', 'bass'],
+            bpm: 120,
+            sections: [
+              { local_styles: ['intro'], duration_ms: 15000, lyrics: '' },
+              { local_styles: ['verse'], duration_ms: 30000, lyrics: '' },
+              { local_styles: ['chorus'], duration_ms: 30000, lyrics: '' },
+              { local_styles: ['verse'], duration_ms: 30000, lyrics: '' },
+              { local_styles: ['chorus'], duration_ms: 30000, lyrics: '' },
+              { local_styles: ['outro'], duration_ms: 15000, lyrics: '' }
+            ]
+          },
+          ballad: {
+            positive_global_styles: ['piano', 'strings'],
+            bpm: 70,
+            sections: [
+              { local_styles: ['intro'], duration_ms: 20000, lyrics: '' },
+              { local_styles: ['verse'], duration_ms: 40000, lyrics: '' },
+              { local_styles: ['chorus'], duration_ms: 45000, lyrics: '' },
+              { local_styles: ['bridge'], duration_ms: 30000, lyrics: '' },
+              { local_styles: ['chorus'], duration_ms: 45000, lyrics: '' },
+              { local_styles: ['outro'], duration_ms: 20000, lyrics: '' }
+            ]
+          },
+          electronic: {
+            positive_global_styles: ['synths', 'drums', 'bass'],
+            bpm: 128,
+            sections: [
+              { local_styles: ['intro'], duration_ms: 30000, lyrics: '' },
+              { local_styles: ['verse'], duration_ms: 30000, lyrics: '' },
+              { local_styles: ['chorus'], duration_ms: 45000, lyrics: '' },
+              { local_styles: ['bridge'], duration_ms: 20000, lyrics: '' },
+              { local_styles: ['chorus'], duration_ms: 45000, lyrics: '' },
+              { local_styles: ['outro'], duration_ms: 30000, lyrics: '' }
+            ]
+          },
+          rock: {
+            positive_global_styles: ['electric guitar', 'drums', 'bass'],
+            bpm: 110,
+            sections: [
+              { local_styles: ['intro'], duration_ms: 15000, lyrics: '' },
+              { local_styles: ['verse'], duration_ms: 25000, lyrics: '' },
+              { local_styles: ['chorus'], duration_ms: 30000, lyrics: '' },
+              { local_styles: ['verse'], duration_ms: 25000, lyrics: '' },
+              { local_styles: ['chorus'], duration_ms: 30000, lyrics: '' },
+              { local_styles: ['bridge'], duration_ms: 25000, lyrics: '' },
+              { local_styles: ['chorus'], duration_ms: 30000, lyrics: '' },
+              { local_styles: ['outro'], duration_ms: 15000, lyrics: '' }
+            ]
+          },
+          ambient: {
+            positive_global_styles: ['synths', 'strings'],
+            bpm: 60,
+            sections: [
+              { local_styles: ['intro'], duration_ms: 60000, lyrics: '' },
+              { local_styles: ['verse'], duration_ms: 90000, lyrics: '' },
+              { local_styles: ['outro'], duration_ms: 60000, lyrics: '' }
+            ]
+          }
+        };
+
+        const preset = presets[genre];
+        if (preset) {
+          cpState.positive_global_styles = [...preset.positive_global_styles];
+          cpState.sections = preset.sections.map(s => ({ ...s }));
+          document.getElementById("cpBpm").value = preset.bpm;
+          renderTags("positiveStyles", cpState.positive_global_styles, "removePositiveStyle");
+          renderSections();
+        }
+      }
+
+      function clearCompositionPlan() {
+        cpState = {
+          positive_global_styles: [],
+          negative_global_styles: [],
+          sections: [],
+          bpm: null,
+          key: null
+        };
+        document.getElementById("cpBpm").value = "";
+        document.getElementById("cpKey").value = "";
+        renderTags("positiveStyles", [], "removePositiveStyle");
+        renderTags("negativeStyles", [], "removeNegativeStyle");
+        renderSections();
+      }
+
+      function buildCompositionPlan() {
+        const bpm = parseInt(document.getElementById("cpBpm").value, 10);
+        const key = document.getElementById("cpKey").value.trim();
+
+        const plan = {};
+
+        if (cpState.positive_global_styles.length > 0) {
+          plan.positive_global_styles = cpState.positive_global_styles;
+        }
+        if (cpState.negative_global_styles.length > 0) {
+          plan.negative_global_styles = cpState.negative_global_styles;
+        }
+        if (bpm > 0) {
+          plan.bpm = bpm;
+        }
+        if (key) {
+          plan.key = key;
+        }
+        if (cpState.sections.length > 0) {
+          plan.sections = cpState.sections.map(sec => {
+            const s = {};
+            if (sec.local_styles.length > 0) {
+              s.local_styles = sec.local_styles;
+            }
+            if (sec.duration_ms) {
+              s.duration_ms = sec.duration_ms;
+            }
+            if (sec.lyrics) {
+              s.lyrics = sec.lyrics;
+            }
+            return s;
+          });
+        }
+
+        return Object.keys(plan).length > 0 ? plan : null;
       }
 
       function collectProviderParams() {
@@ -208,7 +816,6 @@
           providerFieldsEl.innerHTML = `<div class="err">Provider 不存在：${providerId}</div>`;
           return;
         }
-        // disable/force vocals if provider doesn't support it
         const caps = meta.capabilities || {};
         const vocalsSelect = document.getElementById("vocals");
         if (caps.supports_vocals === false) {
@@ -219,12 +826,17 @@
         }
         const advancedMode = advancedEl.value === "advanced";
 
-        // Build current values map (for visible_if)
+        // Show/hide Composition Plan Editor
+        if (providerId === "elevenlabs" && advancedMode) {
+          cpEditorEl.classList.add("visible");
+        } else {
+          cpEditorEl.classList.remove("visible");
+        }
+
         const values = {};
         for (const field of (meta.fields || [])) {
           values[field.key] = field.default ?? null;
         }
-        // If user already typed values, keep them.
         for (const field of (meta.fields || [])) {
           const existing = providerFieldsEl.querySelector(`[data-key="${field.key}"]`);
           if (existing) {
@@ -267,10 +879,8 @@
 
         providerFieldsEl.innerHTML = html;
 
-        // Re-render on any field change to apply visible_if logic.
         providerFieldsEl.querySelectorAll("input,select,textarea").forEach(el => {
           el.addEventListener("change", () => {
-            // update values and re-render
             renderProviderFields();
           });
         });
@@ -289,6 +899,7 @@
           const def = providersMeta.default_provider || (readyFirst ? readyFirst.id : (ps[0] ? ps[0].id : ""));
           providerEl.value = def;
           renderProviderFields();
+          renderSections();
         } catch (e) {
           providerFieldsEl.innerHTML = `<div class="err">加载 provider 失败：${String(e)}</div>`;
         }
@@ -354,9 +965,37 @@
         const vocals = document.getElementById("vocals").value === "on";
         const seedRaw = document.getElementById("seed").value.trim();
         const modelId = document.getElementById("modelId").value.trim();
+        const providerId = getSelectedProviderId();
+        const advancedMode = advancedEl.value === "advanced";
 
-        if (!prompt) {
-          setError("请填写 Prompt。");
+        // Build payload
+        const payload = {
+          prompt,
+          lyrics: lyrics || null,
+          duration_sec: duration,
+          vocals,
+          seed: seedRaw ? parseInt(seedRaw, 10) : null,
+          model_id: modelId || null,
+          provider: providerId || null,
+          provider_params: collectProviderParams()
+        };
+
+        // If using Composition Plan (ElevenLabs + advanced mode)
+        if (providerId === "elevenlabs" && advancedMode) {
+          const plan = buildCompositionPlan();
+          if (plan) {
+            payload.provider_params = payload.provider_params || {};
+            payload.provider_params.use_composition_plan = true;
+            payload.provider_params.composition_plan_json = plan;
+            // When using composition plan, prompt is optional
+            if (!prompt) {
+              payload.prompt = ""; // Will be ignored by backend
+            }
+          }
+        }
+
+        if (!payload.prompt && !payload.provider_params?.composition_plan_json) {
+          setError("请填写 Prompt 或在高级模式下配置 Composition Plan。");
           setStatus("");
           return;
         }
@@ -365,17 +1004,6 @@
           setStatus("");
           return;
         }
-
-        const payload = {
-          prompt,
-          lyrics: lyrics || null,
-          duration_sec: duration,
-          vocals,
-          seed: seedRaw ? parseInt(seedRaw, 10) : null,
-          model_id: modelId || null,
-          provider: getSelectedProviderId() || null,
-          provider_params: collectProviderParams()
-        };
 
         const data = await fetchJson("/api/generate", {
           method: "POST",
@@ -401,10 +1029,11 @@
           const jobs = (data.jobs || []);
           renderList(jobs);
 
-          // Choose a "current" job: keep currentJobId if present, else pick first.
           const current = jobs.find(j => j.job_id === currentJobId) || jobs[0];
           if (current) {
             currentJobId = current.job_id;
+            currentJobSongId = current.song_id || null;
+            currentJobProvider = current.provider || null;
             jobIdEl.textContent = currentJobId;
           }
 
@@ -423,17 +1052,50 @@
             downloadLink.href = current.audio_url;
             downloadLink.style.display = "inline-block";
             extendBtn.style.display = "inline-block";
+
+            // Show stems section for ElevenLabs jobs with song_id
+            if (currentJobProvider === "elevenlabs" && currentJobSongId) {
+              stemsSection.style.display = "block";
+              vocalsLink.style.display = "none";
+              instrumentalLink.style.display = "none";
+              stemsStatus.textContent = "";
+            } else {
+              stemsSection.style.display = "none";
+            }
           } else {
             downloadLink.style.display = "none";
             extendBtn.style.display = "none";
+            stemsSection.style.display = "none";
           }
 
-          // If single job failed, show error directly.
           if (jobs.length === 1 && jobs[0].status === "failed") {
             setError(jobs[0].error || "未知错误");
           }
         } catch (e) {
           setError(String(e));
+        }
+      }
+
+      async function getStems() {
+        if (!currentJobId) return;
+        stemsStatus.textContent = "获取分轨中…";
+        getStemsBtn.disabled = true;
+
+        try {
+          const data = await fetchJson(`/api/stems/${currentJobId}`);
+          if (data.vocals_url) {
+            vocalsLink.href = data.vocals_url;
+            vocalsLink.style.display = "inline-block";
+          }
+          if (data.instrumental_url) {
+            instrumentalLink.href = data.instrumental_url;
+            instrumentalLink.style.display = "inline-block";
+          }
+          stemsStatus.textContent = data.vocals_url || data.instrumental_url ? "" : "无可用的分轨";
+        } catch (e) {
+          stemsStatus.textContent = "获取失败: " + String(e);
+        } finally {
+          getStemsBtn.disabled = false;
         }
       }
 
@@ -454,9 +1116,8 @@
         const seedRaw = document.getElementById("seed").value.trim();
         const modelId = document.getElementById("modelId").value.trim();
         const count = parseInt(document.getElementById("count").value, 10);
-
-        if (!prompt) { setError("请填写 Prompt。"); setStatus(""); return; }
-        if (!Number.isFinite(duration) || duration < 3 || duration > 300) { setError("时长建议 3–300 秒。"); setStatus(""); return; }
+        const providerId = getSelectedProviderId();
+        const advancedMode = advancedEl.value === "advanced";
 
         const payload = {
           prompt,
@@ -466,9 +1127,21 @@
           seed: seedRaw ? parseInt(seedRaw, 10) : null,
           model_id: modelId || null,
           count,
-          provider: getSelectedProviderId() || null,
+          provider: providerId || null,
           provider_params: collectProviderParams()
         };
+
+        if (providerId === "elevenlabs" && advancedMode) {
+          const plan = buildCompositionPlan();
+          if (plan) {
+            payload.provider_params = payload.provider_params || {};
+            payload.provider_params.use_composition_plan = true;
+            payload.provider_params.composition_plan_json = plan;
+          }
+        }
+
+        if (!payload.prompt && !payload.provider_params?.composition_plan_json) { setError("请填写 Prompt 或在高级模式下配置 Composition Plan。"); setStatus(""); return; }
+        if (!Number.isFinite(duration) || duration < 3 || duration > 300) { setError("时长建议 3–300 秒。"); setStatus(""); return; }
 
         const data = await fetchJson("/api/generate_many", {
           method: "POST",
@@ -544,6 +1217,20 @@
 
       extendBtn.addEventListener("click", () => {
         extendCurrent().catch(e => setError(String(e)));
+      });
+
+      getStemsBtn.addEventListener("click", () => {
+        getStems().catch(e => {
+          stemsStatus.textContent = "获取失败: " + String(e);
+        });
+      });
+
+      // Enter key support for style inputs
+      document.getElementById("positiveStyleInput").addEventListener("keypress", (e) => {
+        if (e.key === "Enter") { e.preventDefault(); addPositiveStyle(); }
+      });
+      document.getElementById("negativeStyleInput").addEventListener("keypress", (e) => {
+        if (e.key === "Enter") { e.preventDefault(); addNegativeStyle(); }
       });
     </script>
   </body>

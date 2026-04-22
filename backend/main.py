@@ -514,6 +514,7 @@ def get_job(job_id: str) -> dict[str, Any]:
         "params": json.loads(rec.params_json),
         "audio_url": audio_url,
         "error": rec.error,
+        "song_id": rec.song_id,
     }
 
 
@@ -573,6 +574,70 @@ def get_audio_mp3_compat(job_id: str):
     return get_audio(job_id)
 
 
+@app.get("/api/stems/{job_id}")
+async def get_stems(job_id: str) -> dict[str, Any]:
+    """Get stems (vocals and instrumental) for a completed ElevenLabs job."""
+    rec = STATE.store.get(job_id)
+    if not rec:
+        raise HTTPException(status_code=404, detail="job not found")
+    if rec.status != "succeeded":
+        raise HTTPException(status_code=409, detail="job not succeeded")
+    if rec.provider != "elevenlabs":
+        raise HTTPException(status_code=400, detail="stems only available for elevenlabs provider")
+    if not rec.song_id:
+        raise HTTPException(status_code=404, detail="song_id not available for this job")
+
+    provider = ElevenLabsMusicProvider(
+        api_key=STATE.settings.elevenlabs_api_key,
+        base_url=STATE.settings.elevenlabs_base_url,
+        timeout_s=STATE.settings.request_timeout_s,
+    )
+
+    try:
+        stems = await provider.get_stems(song_id=rec.song_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"stems separation failed: {e}")
+
+    # Save stems to disk
+    STATE.audio_dir.mkdir(parents=True, exist_ok=True)
+    vocals_url = None
+    instrumental_url = None
+
+    if stems.vocals_bytes:
+        vocals_path = STATE.audio_dir / f"{job_id}_vocals.mp3"
+        vocals_path.write_bytes(stems.vocals_bytes)
+        vocals_url = f"/api/audio/{job_id}_vocals"
+
+    if stems.instrumental_bytes:
+        instrumental_path = STATE.audio_dir / f"{job_id}_instrumental.mp3"
+        instrumental_path.write_bytes(stems.instrumental_bytes)
+        instrumental_url = f"/api/audio/{job_id}_instrumental"
+
+    return {
+        "job_id": job_id,
+        "vocals_url": vocals_url,
+        "instrumental_url": instrumental_url,
+    }
+
+
+@app.get("/api/audio/{job_id}_vocals")
+def get_audio_vocals(job_id: str):
+    """Get vocals stem for a job."""
+    path = STATE.audio_dir / f"{job_id}_vocals.mp3"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="vocals stem not found")
+    return FileResponse(str(path), media_type="audio/mpeg", filename=f"{job_id}_vocals.mp3")
+
+
+@app.get("/api/audio/{job_id}_instrumental")
+def get_audio_instrumental(job_id: str):
+    """Get instrumental stem for a job."""
+    path = STATE.audio_dir / f"{job_id}_instrumental.mp3"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="instrumental stem not found")
+    return FileResponse(str(path), media_type="audio/mpeg", filename=f"{job_id}_instrumental.mp3")
+
+
 async def _run_job(*, job_id: str, prompt: str, params: dict[str, Any]) -> None:
     try:
         STATE.store.set_status(job_id, status="running")
@@ -585,6 +650,7 @@ async def _run_job(*, job_id: str, prompt: str, params: dict[str, Any]) -> None:
 
         out_bytes: bytes
         out_ext = "mp3"
+        song_id: str | None = None
 
         if provider_name == "elevenlabs":
             provider = ElevenLabsMusicProvider(
@@ -604,6 +670,7 @@ async def _run_job(*, job_id: str, prompt: str, params: dict[str, Any]) -> None:
             )
             out_bytes = result.audio_bytes
             out_ext = "mp3"
+            song_id = result.song_id  # Save for stems separation
         elif provider_name == "fal":
             client = FalQueueClient(
                 key=STATE.settings.fal_key,
@@ -695,7 +762,7 @@ async def _run_job(*, job_id: str, prompt: str, params: dict[str, Any]) -> None:
 
         out_path = STATE.audio_dir / f"{job_id}.{out_ext}"
         out_path.write_bytes(out_bytes)
-        STATE.store.set_status(job_id, status="succeeded", output_path=str(out_path))
+        STATE.store.set_status(job_id, status="succeeded", output_path=str(out_path), song_id=song_id)
     except Exception as e:
         STATE.store.set_status(job_id, status="failed", error=str(e))
 

@@ -213,6 +213,7 @@ class AppState:
 
             out_bytes: bytes
             out_ext = "mp3"
+            song_id: str | None = None
 
             if provider_name == "elevenlabs":
                 provider = ElevenLabsMusicProviderStdlib(
@@ -231,6 +232,7 @@ class AppState:
                 )
                 out_bytes = result.audio_bytes
                 out_ext = "mp3"
+                song_id = result.song_id
             elif provider_name == "fal":
                 client = FalQueueClientStdlib(
                     key=self.settings.fal_key,
@@ -323,7 +325,7 @@ class AppState:
             out_path = self.audio_dir / f"{job_id}.{out_ext}"
             out_path.write_bytes(out_bytes)
 
-            self.store.set_status(job_id, status="succeeded", output_path=str(out_path))
+            self.store.set_status(job_id, status="succeeded", output_path=str(out_path), song_id=song_id)
         except Exception as e:
             self.store.set_status(job_id, status="failed", error=str(e))
 
@@ -377,6 +379,7 @@ class Handler(BaseHTTPRequestHandler):
                     "params": json.loads(rec.params_json),
                     "audio_url": audio_url,
                     "error": rec.error,
+                    "song_id": rec.song_id,
                 },
             )
             return
@@ -402,6 +405,7 @@ class Handler(BaseHTTPRequestHandler):
                         "params": json.loads(rec.params_json),
                         "audio_url": audio_url,
                         "error": rec.error,
+                        "song_id": rec.song_id,
                     }
                 )
             _json_response(self, 200, {"jobs": out})
@@ -447,6 +451,71 @@ class Handler(BaseHTTPRequestHandler):
             elif path.suffix.lower() == ".wav":
                 ctype = "audio/wav"
             self.send_header("content-type", ctype)
+            self.send_header("content-length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return
+
+        # Stems endpoint
+        if self.path.startswith("/api/stems/"):
+            job_id = self.path.split("/api/stems/", 1)[1].strip().split("?", 1)[0]
+            rec = STATE.store.get(job_id)
+            if not rec:
+                _error(self, 404, "job not found")
+                return
+            if rec.status != "succeeded":
+                _error(self, 409, "job not succeeded")
+                return
+            if rec.provider != "elevenlabs":
+                _error(self, 400, "stems only available for elevenlabs provider")
+                return
+            if not rec.song_id:
+                _error(self, 404, "song_id not available for this job")
+                return
+
+            try:
+                provider = ElevenLabsMusicProviderStdlib(
+                    api_key=STATE.settings.elevenlabs_api_key,
+                    base_url=STATE.settings.elevenlabs_base_url,
+                    timeout_s=STATE.settings.request_timeout_s,
+                )
+                stems = provider.get_stems(song_id=rec.song_id)
+            except Exception as e:
+                _error(self, 500, f"stems separation failed: {e}")
+                return
+
+            vocals_url = None
+            instrumental_url = None
+
+            if stems.vocals_bytes:
+                vocals_path = STATE.audio_dir / f"{job_id}_vocals.mp3"
+                vocals_path.write_bytes(stems.vocals_bytes)
+                vocals_url = f"/api/audio/{job_id}_vocals"
+
+            if stems.instrumental_bytes:
+                instrumental_path = STATE.audio_dir / f"{job_id}_instrumental.mp3"
+                instrumental_path.write_bytes(stems.instrumental_bytes)
+                instrumental_url = f"/api/audio/{job_id}_instrumental"
+
+            _json_response(self, 200, {
+                "job_id": job_id,
+                "vocals_url": vocals_url,
+                "instrumental_url": instrumental_url,
+            })
+            return
+
+        # Stems audio files
+        if self.path.startswith("/api/audio/") and ("_vocals" in self.path or "_instrumental" in self.path):
+            job_id = self.path.split("/api/audio/", 1)[1].strip().split("?", 1)[0]
+            if job_id.endswith(".mp3"):
+                job_id = job_id.rsplit(".", 1)[0]
+            path = STATE.audio_dir / f"{job_id}.mp3"
+            if not path.exists():
+                self.send_error(404)
+                return
+            data = path.read_bytes()
+            self.send_response(HTTPStatus.OK)
+            self.send_header("content-type", "audio/mpeg")
             self.send_header("content-length", str(len(data)))
             self.end_headers()
             self.wfile.write(data)

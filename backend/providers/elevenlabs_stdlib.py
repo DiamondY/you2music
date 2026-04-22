@@ -15,6 +15,14 @@ class ElevenLabsStdlibResult:
     song_id: str | None
 
 
+@dataclass(frozen=True)
+class ElevenLabsStdlibStemsResult:
+    vocals_bytes: bytes | None
+    instrumental_bytes: bytes | None
+    vocals_content_type: str
+    instrumental_content_type: str
+
+
 class ElevenLabsMusicProviderStdlib:
     name = "elevenlabs"
 
@@ -75,3 +83,59 @@ class ElevenLabsMusicProviderStdlib:
             raise RuntimeError(f"ElevenLabs HTTP {e.code}: {detail}") from e
         except urllib.error.URLError as e:
             raise RuntimeError(f"ElevenLabs request failed: {e}") from e
+
+    def get_stems(
+        self,
+        *,
+        song_id: str,
+        output_format: str = "mp3_192kbps",
+    ) -> ElevenLabsStdlibStemsResult:
+        """Separate vocals and instrumental from a generated song.
+
+        Args:
+            song_id: The song ID returned from a previous compose call
+            output_format: Output format for the stems
+
+        Returns:
+            ElevenLabsStdlibStemsResult with vocals and instrumental audio bytes
+        """
+        url = f"{self._base_url}/v1/music/{song_id}/stems?output_format={urllib.parse.quote(output_format)}"
+        req = urllib.request.Request(
+            url=url,
+            method="GET",
+            headers={
+                "xi-api-key": self._api_key,
+            },
+        )
+
+        try:
+            with urllib.request.urlopen(req, timeout=self._timeout) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            detail = e.read().decode("utf-8", errors="replace") if e.fp else str(e)
+            raise RuntimeError(f"ElevenLabs Stems HTTP {e.code}: {detail}") from e
+        except urllib.error.URLError as e:
+            raise RuntimeError(f"ElevenLabs Stems request failed: {e}") from e
+
+        vocals_bytes = None
+        instrumental_bytes = None
+        vocals_content_type = "audio/mpeg"
+        instrumental_content_type = "audio/mpeg"
+
+        # Download stems from URLs
+        if data.get("vocals_url"):
+            with urllib.request.urlopen(data["vocals_url"], timeout=self._timeout) as r:
+                vocals_bytes = r.read()
+                vocals_content_type = r.headers.get("content-type", "audio/mpeg")
+
+        if data.get("instrumental_url"):
+            with urllib.request.urlopen(data["instrumental_url"], timeout=self._timeout) as r:
+                instrumental_bytes = r.read()
+                instrumental_content_type = r.headers.get("content-type", "audio/mpeg")
+
+        return ElevenLabsStdlibStemsResult(
+            vocals_bytes=vocals_bytes,
+            instrumental_bytes=instrumental_bytes,
+            vocals_content_type=vocals_content_type,
+            instrumental_content_type=instrumental_content_type,
+        )

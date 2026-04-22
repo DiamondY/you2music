@@ -13,6 +13,14 @@ class ElevenLabsResult:
     song_id: str | None
 
 
+@dataclass(frozen=True)
+class ElevenLabsStemsResult:
+    vocals_bytes: bytes | None
+    instrumental_bytes: bytes | None
+    vocals_content_type: str
+    instrumental_content_type: str
+
+
 class ElevenLabsMusicProvider:
     name = "elevenlabs"
 
@@ -56,3 +64,54 @@ class ElevenLabsMusicProvider:
             song_id = resp.headers.get("song-id")
             content_type = resp.headers.get("content-type", "audio/mpeg")
             return ElevenLabsResult(audio_bytes=resp.content, content_type=content_type, song_id=song_id)
+
+    async def get_stems(
+        self,
+        *,
+        song_id: str,
+        output_format: str = "mp3_192kbps",
+    ) -> ElevenLabsStemsResult:
+        """Separate vocals and instrumental from a generated song.
+
+        Args:
+            song_id: The song ID returned from a previous compose call
+            output_format: Output format for the stems
+
+        Returns:
+            ElevenLabsStemsResult with vocals and instrumental audio bytes
+        """
+        url = f"{self._base_url}/v1/music/{song_id}/stems"
+        headers = {"xi-api-key": self._api_key}
+        params = {"output_format": output_format}
+
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            resp = await client.get(url, headers=headers, params=params)
+            resp.raise_for_status()
+
+            # Response is JSON with URLs to the stems
+            data = resp.json()
+
+            vocals_bytes = None
+            instrumental_bytes = None
+            vocals_content_type = "audio/mpeg"
+            instrumental_content_type = "audio/mpeg"
+
+            # Download stems from URLs
+            if data.get("vocals_url"):
+                r = await client.get(data["vocals_url"])
+                r.raise_for_status()
+                vocals_bytes = r.content
+                vocals_content_type = r.headers.get("content-type", "audio/mpeg")
+
+            if data.get("instrumental_url"):
+                r = await client.get(data["instrumental_url"])
+                r.raise_for_status()
+                instrumental_bytes = r.content
+                instrumental_content_type = r.headers.get("content-type", "audio/mpeg")
+
+            return ElevenLabsStemsResult(
+                vocals_bytes=vocals_bytes,
+                instrumental_bytes=instrumental_bytes,
+                vocals_content_type=vocals_content_type,
+                instrumental_content_type=instrumental_content_type,
+            )

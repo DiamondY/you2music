@@ -24,6 +24,7 @@ class JobRecord:
     params_json: str
     output_path: str | None
     error: str | None
+    song_id: str | None = None  # For ElevenLabs Music API, used for stems separation
 
 
 class JobStore:
@@ -97,6 +98,7 @@ class JobStore:
         status: JobStatus,
         output_path: str | None = None,
         error: str | None = None,
+        song_id: str | None = None,
     ) -> None:
         now = int(time.time() * 1000)
         with self._lock:
@@ -104,10 +106,10 @@ class JobStore:
                 conn.execute(
                     """
                     UPDATE jobs
-                    SET status = ?, updated_at_ms = ?, output_path = COALESCE(?, output_path), error = ?
+                    SET status = ?, updated_at_ms = ?, output_path = COALESCE(?, output_path), error = ?, song_id = COALESCE(?, song_id)
                     WHERE job_id = ?
                     """,
-                    (status, now, output_path, error, job_id),
+                    (status, now, output_path, error, song_id, job_id),
                 )
                 conn.commit()
 
@@ -116,7 +118,7 @@ class JobStore:
             with self._connect() as conn:
                 row = conn.execute(
                     """
-                    SELECT job_id, status, created_at_ms, updated_at_ms, provider, prompt, params_json, output_path, error
+                    SELECT job_id, status, created_at_ms, updated_at_ms, provider, prompt, params_json, output_path, error, song_id
                     FROM jobs WHERE job_id = ?
                     """,
                     (job_id,),
@@ -133,6 +135,7 @@ class JobStore:
             params_json=row[6],
             output_path=row[7],
             error=row[8],
+            song_id=row[9] if len(row) > 9 else None,
         )
 
     def _connect(self) -> sqlite3.Connection:
@@ -147,3 +150,5 @@ class JobStore:
             conn.execute("ALTER TABLE jobs ADD COLUMN parent_job_id TEXT")
         if "kind" not in cols:
             conn.execute("ALTER TABLE jobs ADD COLUMN kind TEXT NOT NULL DEFAULT 'generate'")
+        if "song_id" not in cols:
+            conn.execute("ALTER TABLE jobs ADD COLUMN song_id TEXT")
