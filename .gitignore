@@ -1,0 +1,4 @@
+config/*.local.json
+.tmp_python/*
+data/*
+backend/__pycache__/*

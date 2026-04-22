@@ -1,0 +1,550 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AI Music Tool</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 24px; max-width: 980px; }
+      .row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+      @media (max-width: 860px) { .row { grid-template-columns: 1fr; } }
+      textarea, input, select, button { width: 100%; padding: 10px; font-size: 14px; box-sizing: border-box; }
+      textarea { min-height: 120px; }
+      label { display:block; margin: 10px 0 6px; font-weight: 600; }
+      .card { border: 1px solid rgba(127,127,127,.35); border-radius: 12px; padding: 16px; }
+      .actions { display: flex; gap: 12px; align-items: center; }
+      .actions button { width: auto; padding: 10px 14px; cursor: pointer; }
+      .muted { opacity: .8; font-size: 13px; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+      audio { width: 100%; margin-top: 10px; }
+      .ok { color: #1b7f3a; }
+      .err { color: #b00020; white-space: pre-wrap; }
+    </style>
+  </head>
+  <body>
+    <h1>AI Music Tool</h1>
+    <p class="muted">小范围使用：提示词 → 生成（可唱歌）→ 试听 → 下载。后端默认使用 ElevenLabs Music API。</p>
+
+    <div class="row">
+      <div class="card">
+        <label for="prompt">描述（Prompt）</label>
+        <textarea id="prompt" placeholder="例如：一首温柔的中文流行歌，女声演唱，副歌很抓耳，主题是夜晚的城市灯火，带一点合成器。"></textarea>
+
+        <div class="row">
+          <div>
+            <label for="provider">Provider</label>
+            <select id="provider"></select>
+          </div>
+          <div>
+            <label for="advanced">模式</label>
+            <select id="advanced">
+              <option value="simple" selected>普通</option>
+              <option value="advanced">高级</option>
+            </select>
+          </div>
+        </div>
+
+        <div id="providerFields" class="card" style="margin-top: 12px; padding: 12px;">
+          <div class="muted">Provider 参数加载中…</div>
+        </div>
+
+        <label for="lyrics">歌词（可选，会注入到 Prompt 里）</label>
+        <textarea id="lyrics" placeholder="可粘贴歌词。建议分段：主歌/副歌/桥段。"></textarea>
+
+        <div class="row">
+          <div>
+            <label for="duration">时长（秒）</label>
+            <input id="duration" type="number" min="3" max="300" value="45" />
+          </div>
+          <div>
+            <label for="vocals">人声唱歌</label>
+            <select id="vocals">
+              <option value="on" selected>开启（更像歌曲）</option>
+              <option value="off">关闭（纯器乐）</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="row">
+          <div>
+            <label for="seed">Seed（可选，留空=随机）</label>
+            <input id="seed" type="number" min="0" />
+          </div>
+          <div>
+            <label for="modelId">model_id（可选）</label>
+            <input id="modelId" placeholder="例如 music_v1（留空使用默认）" />
+          </div>
+        </div>
+
+        <div style="margin-top: 14px;" class="actions">
+          <button id="generateBtn">生成</button>
+          <button id="generateManyBtn">生成多候选</button>
+          <select id="count" style="width: 160px;">
+            <option value="2" selected>2 首</option>
+            <option value="3">3 首</option>
+            <option value="4">4 首</option>
+          </select>
+          <span id="status" class="muted"></span>
+        </div>
+        <div id="error" class="err"></div>
+      </div>
+
+      <div class="card">
+        <h3 style="margin-top:0;">结果</h3>
+        <div class="muted">当前 Job：<span id="jobId" class="mono">-</span></div>
+        <audio id="player" controls></audio>
+        <div class="actions" style="margin-top: 12px; flex-wrap: wrap;">
+          <a id="downloadLink" href="#" style="display:none;">下载音频</a>
+          <button id="refreshBtn" style="display:none;">刷新状态</button>
+          <input id="extendSec" type="number" min="3" max="180" value="15" style="width: 140px;" />
+          <button id="extendBtn" style="display:none;">延长当前</button>
+        </div>
+
+        <div style="margin-top: 14px;">
+          <div class="muted">候选列表（点击可切换播放）</div>
+          <div id="list"></div>
+        </div>
+        <div class="muted" style="margin-top: 12px;">
+          提示：如果你想更稳定地产生“唱歌”，请在 Prompt 里明确写：<span class="mono">with vocals, singing</span>，并提供歌词段落。
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const statusEl = document.getElementById("status");
+      const errorEl = document.getElementById("error");
+      const jobIdEl = document.getElementById("jobId");
+      const player = document.getElementById("player");
+      const downloadLink = document.getElementById("downloadLink");
+      const refreshBtn = document.getElementById("refreshBtn");
+      const extendBtn = document.getElementById("extendBtn");
+      const listEl = document.getElementById("list");
+      const providerEl = document.getElementById("provider");
+      const advancedEl = document.getElementById("advanced");
+      const providerFieldsEl = document.getElementById("providerFields");
+
+      let currentJobId = null;
+      let currentJobs = [];
+      let pollTimer = null;
+      let providersMeta = null;
+
+      function setStatus(msg, kind) {
+        statusEl.textContent = msg || "";
+        statusEl.className = kind === "ok" ? "muted ok" : "muted";
+      }
+
+      function setError(msg) {
+        errorEl.textContent = msg || "";
+      }
+
+      async function fetchJson(url, opts) {
+        const res = await fetch(url, opts);
+        const text = await res.text();
+        let data;
+        try { data = text ? JSON.parse(text) : {}; } catch { data = { raw: text }; }
+        if (!res.ok) {
+          const detail = data && (data.detail || data.error || data.raw) ? (data.detail || data.error || data.raw) : text;
+          throw new Error(detail || `HTTP ${res.status}`);
+        }
+        return data;
+      }
+
+      function getSelectedProviderId() {
+        return (providerEl.value || "").trim();
+      }
+
+      function getProviderMeta(id) {
+        if (!providersMeta || !providersMeta.providers) return null;
+        return providersMeta.providers.find(p => p.id === id) || null;
+      }
+
+      function toBool(v) {
+        if (v === true || v === false) return v;
+        if (typeof v === "string") return v === "true" || v === "1" || v === "on";
+        return Boolean(v);
+      }
+
+      function shouldShowField(field, values) {
+        const cond = field.visible_if;
+        if (!cond) return true;
+        for (const k of Object.keys(cond)) {
+          if (values[k] !== cond[k]) return false;
+        }
+        return true;
+      }
+
+      function parseFieldValue(field, raw) {
+        if (field.kind === "boolean") return toBool(raw);
+        if (field.kind === "integer") return raw === "" || raw === null ? null : parseInt(raw, 10);
+        if (field.kind === "number") return raw === "" || raw === null ? null : parseFloat(raw);
+        if (field.kind === "json") {
+          if (raw === "" || raw === null) return null;
+          // Allow either JSON text or a raw object (not applicable in the browser).
+          try { return JSON.parse(raw); } catch { return raw; }
+        }
+        return raw === "" ? null : raw;
+      }
+
+      function collectProviderParams() {
+        const meta = getProviderMeta(getSelectedProviderId());
+        if (!meta) return {};
+        const params = {};
+        for (const field of (meta.fields || [])) {
+          const input = providerFieldsEl.querySelector(`[data-key="${field.key}"]`);
+          if (!input) continue;
+          const raw = (input.type === "checkbox") ? input.checked : input.value;
+          params[field.key] = parseFieldValue(field, raw);
+        }
+        // Normalize: if "use_composition_plan" false, drop composition_plan_json
+        if (!params.use_composition_plan) delete params.composition_plan_json;
+        return params;
+      }
+
+      function renderProviderFields() {
+        const providerId = getSelectedProviderId();
+        const meta = getProviderMeta(providerId);
+        if (!meta) {
+          providerFieldsEl.innerHTML = `<div class="err">Provider 不存在：${providerId}</div>`;
+          return;
+        }
+        // disable/force vocals if provider doesn't support it
+        const caps = meta.capabilities || {};
+        const vocalsSelect = document.getElementById("vocals");
+        if (caps.supports_vocals === false) {
+          vocalsSelect.value = "off";
+          vocalsSelect.disabled = true;
+        } else {
+          vocalsSelect.disabled = false;
+        }
+        const advancedMode = advancedEl.value === "advanced";
+
+        // Build current values map (for visible_if)
+        const values = {};
+        for (const field of (meta.fields || [])) {
+          values[field.key] = field.default ?? null;
+        }
+        // If user already typed values, keep them.
+        for (const field of (meta.fields || [])) {
+          const existing = providerFieldsEl.querySelector(`[data-key="${field.key}"]`);
+          if (existing) {
+            values[field.key] = (existing.type === "checkbox") ? existing.checked : existing.value;
+          }
+        }
+
+        let html = `<div class="muted">${meta.description || ""}</div>`;
+        if (meta.ready === false) {
+          html += `<div class="err">未配置该 provider 的密钥：<span class="mono">${JSON.stringify(meta.missing_env || [])}</span></div>`;
+        }
+        html += `<div class="muted" style="margin-top:6px;">Capabilities: <span class="mono">${JSON.stringify(meta.capabilities || {})}</span></div>`;
+
+        const fields = (meta.fields || []).filter(f => advancedMode || !f.advanced);
+        for (const field of fields) {
+          if (!shouldShowField(field, values)) continue;
+          html += `<label>${field.label}${field.required ? " *" : ""}</label>`;
+          if (field.kind === "enum" && Array.isArray(field.enum)) {
+            html += `<select data-key="${field.key}">`;
+            for (const opt of field.enum) {
+              const selected = (String(opt) === String(field.default)) ? "selected" : "";
+              html += `<option value="${opt}" ${selected}>${opt}</option>`;
+            }
+            html += `</select>`;
+          } else if (field.kind === "boolean") {
+            const checked = field.default ? "checked" : "";
+            html += `<div><input type="checkbox" data-key="${field.key}" ${checked} style="width:auto; transform: translateY(1px);"> <span class="muted">${field.help || ""}</span></div>`;
+            continue;
+          } else if (field.kind === "json") {
+            html += `<textarea data-key="${field.key}" placeholder="粘贴 JSON（高级）"></textarea>`;
+          } else if (field.kind === "integer") {
+            html += `<input type="number" step="1" data-key="${field.key}" value="${field.default ?? ""}" />`;
+          } else if (field.kind === "number") {
+            html += `<input type="number" step="any" data-key="${field.key}" value="${field.default ?? ""}" />`;
+          } else {
+            html += `<input type="text" data-key="${field.key}" value="${field.default ?? ""}" />`;
+          }
+          if (field.help) html += `<div class="muted">${field.help}</div>`;
+        }
+
+        providerFieldsEl.innerHTML = html;
+
+        // Re-render on any field change to apply visible_if logic.
+        providerFieldsEl.querySelectorAll("input,select,textarea").forEach(el => {
+          el.addEventListener("change", () => {
+            // update values and re-render
+            renderProviderFields();
+          });
+        });
+      }
+
+      async function initProviders() {
+        try {
+          providersMeta = await fetchJson("/api/providers");
+          const ps = providersMeta.providers || [];
+          providerEl.innerHTML = ps.map(p => {
+            const disabled = (p.ready === false) ? "disabled" : "";
+            const suffix = (p.ready === false) ? " (未配置)" : "";
+            return `<option value="${p.id}" ${disabled}>${p.name}${suffix}</option>`;
+          }).join("");
+          const readyFirst = ps.find(p => p.ready !== false);
+          const def = providersMeta.default_provider || (readyFirst ? readyFirst.id : (ps[0] ? ps[0].id : ""));
+          providerEl.value = def;
+          renderProviderFields();
+        } catch (e) {
+          providerFieldsEl.innerHTML = `<div class="err">加载 provider 失败：${String(e)}</div>`;
+        }
+      }
+
+      function renderList(jobs) {
+        listEl.innerHTML = "";
+        if (!jobs || jobs.length === 0) return;
+
+        for (const j of jobs) {
+          const row = document.createElement("div");
+          row.style.border = "1px solid rgba(127,127,127,.25)";
+          row.style.borderRadius = "10px";
+          row.style.padding = "10px";
+          row.style.marginTop = "8px";
+          row.style.cursor = "pointer";
+
+          const title = document.createElement("div");
+          title.className = "muted";
+          title.innerHTML = `Job：<span class="mono">${j.job_id}</span>  状态：<span class="mono">${j.status}</span>`;
+          row.appendChild(title);
+
+          if (j.audio_url) {
+            const a = document.createElement("audio");
+            a.controls = true;
+            a.src = j.audio_url;
+            a.style.marginTop = "8px";
+            row.appendChild(a);
+          }
+
+          row.addEventListener("click", () => {
+            currentJobId = j.job_id;
+            jobIdEl.textContent = currentJobId;
+            setError("");
+            if (j.audio_url) {
+              player.src = j.audio_url;
+              downloadLink.href = j.audio_url;
+              downloadLink.style.display = "inline-block";
+              extendBtn.style.display = "inline-block";
+            } else {
+              downloadLink.style.display = "none";
+              extendBtn.style.display = "none";
+            }
+          });
+
+          listEl.appendChild(row);
+        }
+      }
+
+      async function startGenerate() {
+        setError("");
+        setStatus("提交任务中…");
+        listEl.innerHTML = "";
+        downloadLink.style.display = "none";
+        refreshBtn.style.display = "none";
+        extendBtn.style.display = "none";
+        player.removeAttribute("src");
+        player.load();
+
+        const prompt = document.getElementById("prompt").value.trim();
+        const lyrics = document.getElementById("lyrics").value.trim();
+        const duration = parseInt(document.getElementById("duration").value, 10);
+        const vocals = document.getElementById("vocals").value === "on";
+        const seedRaw = document.getElementById("seed").value.trim();
+        const modelId = document.getElementById("modelId").value.trim();
+
+        if (!prompt) {
+          setError("请填写 Prompt。");
+          setStatus("");
+          return;
+        }
+        if (!Number.isFinite(duration) || duration < 3 || duration > 300) {
+          setError("时长建议 3–300 秒。");
+          setStatus("");
+          return;
+        }
+
+        const payload = {
+          prompt,
+          lyrics: lyrics || null,
+          duration_sec: duration,
+          vocals,
+          seed: seedRaw ? parseInt(seedRaw, 10) : null,
+          model_id: modelId || null,
+          provider: getSelectedProviderId() || null,
+          provider_params: collectProviderParams()
+        };
+
+        const data = await fetchJson("/api/generate", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+
+        currentJobId = data.job_id;
+        currentJobs = [currentJobId];
+        jobIdEl.textContent = currentJobId;
+        refreshBtn.style.display = "inline-block";
+        setStatus("已提交，生成中…");
+
+        if (pollTimer) clearInterval(pollTimer);
+        pollTimer = setInterval(() => refreshJobs(currentJobs), 1500);
+        await refreshJobs(currentJobs);
+      }
+
+      async function refreshJobs(jobIds) {
+        try {
+          if (!jobIds || jobIds.length === 0) return;
+          const data = await fetchJson(`/api/jobs?ids=${jobIds.join(",")}`);
+          const jobs = (data.jobs || []);
+          renderList(jobs);
+
+          // Choose a "current" job: keep currentJobId if present, else pick first.
+          const current = jobs.find(j => j.job_id === currentJobId) || jobs[0];
+          if (current) {
+            currentJobId = current.job_id;
+            jobIdEl.textContent = currentJobId;
+          }
+
+          const anyRunning = jobs.some(j => j.status === "queued" || j.status === "running");
+          const anyFailed = jobs.some(j => j.status === "failed");
+          const anySucceeded = jobs.some(j => j.status === "succeeded");
+
+          if (anyRunning) setStatus("生成中…");
+          if (!anyRunning && anySucceeded) setStatus("生成完成", "ok");
+          if (!anyRunning && !anySucceeded && anyFailed) setStatus("生成失败", "err");
+
+          if (!anyRunning && pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+
+          if (current && current.audio_url) {
+            player.src = current.audio_url;
+            downloadLink.href = current.audio_url;
+            downloadLink.style.display = "inline-block";
+            extendBtn.style.display = "inline-block";
+          } else {
+            downloadLink.style.display = "none";
+            extendBtn.style.display = "none";
+          }
+
+          // If single job failed, show error directly.
+          if (jobs.length === 1 && jobs[0].status === "failed") {
+            setError(jobs[0].error || "未知错误");
+          }
+        } catch (e) {
+          setError(String(e));
+        }
+      }
+
+      async function startGenerateMany() {
+        setError("");
+        setStatus("提交多候选任务中…");
+        listEl.innerHTML = "";
+        downloadLink.style.display = "none";
+        refreshBtn.style.display = "none";
+        extendBtn.style.display = "none";
+        player.removeAttribute("src");
+        player.load();
+
+        const prompt = document.getElementById("prompt").value.trim();
+        const lyrics = document.getElementById("lyrics").value.trim();
+        const duration = parseInt(document.getElementById("duration").value, 10);
+        const vocals = document.getElementById("vocals").value === "on";
+        const seedRaw = document.getElementById("seed").value.trim();
+        const modelId = document.getElementById("modelId").value.trim();
+        const count = parseInt(document.getElementById("count").value, 10);
+
+        if (!prompt) { setError("请填写 Prompt。"); setStatus(""); return; }
+        if (!Number.isFinite(duration) || duration < 3 || duration > 300) { setError("时长建议 3–300 秒。"); setStatus(""); return; }
+
+        const payload = {
+          prompt,
+          lyrics: lyrics || null,
+          duration_sec: duration,
+          vocals,
+          seed: seedRaw ? parseInt(seedRaw, 10) : null,
+          model_id: modelId || null,
+          count,
+          provider: getSelectedProviderId() || null,
+          provider_params: collectProviderParams()
+        };
+
+        const data = await fetchJson("/api/generate_many", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+
+        currentJobs = data.job_ids || [];
+        currentJobId = currentJobs[0] || null;
+        jobIdEl.textContent = currentJobId || "-";
+        refreshBtn.style.display = "inline-block";
+        setStatus("已提交，生成中…");
+
+        if (pollTimer) clearInterval(pollTimer);
+        pollTimer = setInterval(() => refreshJobs(currentJobs), 1500);
+        await refreshJobs(currentJobs);
+      }
+
+      async function extendCurrent() {
+        setError("");
+        if (!currentJobId) { setError("没有可延长的 Job。"); return; }
+        const extra = parseInt(document.getElementById("extendSec").value, 10);
+        if (!Number.isFinite(extra) || extra < 3 || extra > 180) {
+          setError("延长秒数建议 3–180。");
+          return;
+        }
+        setStatus("提交延长任务中…");
+        const data = await fetchJson("/api/extend", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            job_id: currentJobId,
+            extra_sec: extra,
+            provider: getSelectedProviderId() || null,
+            provider_params: collectProviderParams()
+          })
+        });
+        const newJobId = data.job_id;
+        currentJobs = [newJobId];
+        currentJobId = newJobId;
+        jobIdEl.textContent = newJobId;
+        refreshBtn.style.display = "inline-block";
+        extendBtn.style.display = "none";
+
+        if (pollTimer) clearInterval(pollTimer);
+        pollTimer = setInterval(() => refreshJobs(currentJobs), 1500);
+        await refreshJobs(currentJobs);
+      }
+
+      document.getElementById("generateBtn").addEventListener("click", () => {
+        startGenerate().catch(e => {
+          setError(String(e));
+          setStatus("");
+        });
+      });
+
+      providerEl.addEventListener("change", () => renderProviderFields());
+      advancedEl.addEventListener("change", () => renderProviderFields());
+
+      initProviders();
+
+      document.getElementById("generateManyBtn").addEventListener("click", () => {
+        startGenerateMany().catch(e => {
+          setError(String(e));
+          setStatus("");
+        });
+      });
+
+      refreshBtn.addEventListener("click", () => {
+        if (!currentJobs || currentJobs.length === 0) return;
+        refreshJobs(currentJobs).catch(e => setError(String(e)));
+      });
+
+      extendBtn.addEventListener("click", () => {
+        extendCurrent().catch(e => setError(String(e)));
+      });
+    </script>
+  </body>
+</html>

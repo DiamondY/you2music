@@ -1,0 +1,47 @@
+{
+  "default_provider": "elevenlabs",
+  "enabled_providers": ["elevenlabs", "fal", "replicate", "stability"],
+  "admin_token": "CHANGE_ME_ADMIN_TOKEN",
+  "proxy": {
+    "http": "",
+    "https": "",
+    "no_proxy": "127.0.0.1,localhost"
+  },
+  "secrets": {
+    "elevenlabs_api_key": "PASTE_ELEVENLABS_KEY_HERE",
+    "fal_key": "PASTE_FAL_KEY_HERE",
+    "replicate_api_token": "PASTE_REPLICATE_TOKEN_HERE",
+    "stability_api_key": "PASTE_STABILITY_KEY_HERE"
+  },
+  "endpoints": {
+    "elevenlabs_base_url": "https://api.elevenlabs.io",
+    "fal_queue_base_url": "https://queue.fal.run",
+    "fal_platform_base_url": "https://api.fal.ai",
+    "replicate_base_url": "https://api.replicate.com",
+    "stability_base_url": "https://api.stability.ai"
+  },
+  "ui_defaults": {
+    "elevenlabs": {
+      "output_format": "mp3_192kbps",
+      "raw_prompt": false,
+      "use_composition_plan": false
+    },
+    "fal": {
+      "model_id": "fal-ai/stable-audio-25/text-to-audio",
+      "poll_interval_s": 1.0,
+      "num_inference_steps": 28,
+      "guidance_scale": 7.0
+    },
+    "replicate": {
+      "version": "stability-ai/stable-audio-2.5",
+      "poll_interval_s": 1.0,
+      "steps": 150,
+      "cfg_scale": 7.0
+    },
+    "stability": {
+      "endpoint_path": "/v2beta/audio/stable-audio-2/text-to-audio",
+      "steps": 150,
+      "cfg_scale": 7.0
+    }
+  }
+}
