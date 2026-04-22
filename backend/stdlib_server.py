@@ -690,7 +690,7 @@ def main() -> None:
     host = os.getenv("AI_MUSIC_HOST", "127.0.0.1")
     port = int(os.getenv("AI_MUSIC_PORT", "8000"))
     httpd = ThreadingHTTPServer((host, port), Handler)
-    print(f"AI Music Tool running on http://{host}:{port}")
+    print(f"you2music running on http://{host}:{port}")
     print("Press Ctrl+C to stop.")
     try:
         httpd.serve_forever()

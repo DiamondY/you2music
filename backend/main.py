@@ -111,7 +111,7 @@ def _parse_composition_plan(provider_params: dict[str, Any] | None) -> dict[str,
 
 STATE = AppState.create()
 
-app = FastAPI(title="AI Music Tool", version="0.1.0")
+app = FastAPI(title="you2music", version="0.1.0")
 
 static_dir = Path(__file__).resolve().parent / "static"
 app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
