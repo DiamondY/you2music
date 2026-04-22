@@ -23,6 +23,13 @@ class ElevenLabsStdlibStemsResult:
     instrumental_content_type: str
 
 
+@dataclass(frozen=True)
+class ElevenLabsStdlibInpaintResult:
+    audio_bytes: bytes
+    content_type: str
+    song_id: str | None
+
+
 class ElevenLabsMusicProviderStdlib:
     name = "elevenlabs"
 
@@ -139,3 +146,122 @@ class ElevenLabsMusicProviderStdlib:
             vocals_content_type=vocals_content_type,
             instrumental_content_type=instrumental_content_type,
         )
+
+    def compose_detailed(
+        self,
+        *,
+        prompt: str | None,
+        composition_plan: dict[str, Any] | None,
+        music_length_ms: int | None,
+        force_instrumental: bool,
+        seed: int | None,
+        model_id: str | None,
+        output_format: str,
+        store_for_inpainting: bool = False,
+    ) -> ElevenLabsStdlibResult:
+        """Compose music with detailed options including store_for_inpainting.
+
+        This endpoint stores the song for later inpainting operations (Enterprise-only).
+
+        Args:
+            store_for_inpainting: If True, stores the song for later inpainting
+
+        Returns:
+            ElevenLabsStdlibResult with audio bytes and song_id
+        """
+        query = {"output_format": output_format} if output_format else {}
+        url = f"{self._base_url}/v1/music/detailed"
+        if query:
+            url = url + "?" + urllib.parse.urlencode(query)
+
+        body: dict[str, Any] = {"force_instrumental": force_instrumental}
+        if composition_plan is not None:
+            body["composition_plan"] = composition_plan
+        else:
+            body["prompt"] = prompt or ""
+        if music_length_ms is not None:
+            body["music_length_ms"] = int(music_length_ms)
+        if seed is not None:
+            body["seed"] = int(seed)
+        if model_id:
+            body["model_id"] = model_id
+        if store_for_inpainting:
+            body["store_for_inpainting"] = True
+
+        data = json.dumps(body, ensure_ascii=False).encode("utf-8")
+        req = urllib.request.Request(
+            url=url,
+            method="POST",
+            data=data,
+            headers={
+                "xi-api-key": self._api_key,
+                "content-type": "application/json",
+            },
+        )
+
+        try:
+            with urllib.request.urlopen(req, timeout=self._timeout) as resp:
+                audio = resp.read()
+                content_type = resp.headers.get("content-type", "audio/mpeg")
+                song_id = resp.headers.get("song-id")
+                return ElevenLabsStdlibResult(audio_bytes=audio, content_type=content_type, song_id=song_id)
+        except urllib.error.HTTPError as e:
+            detail = e.read().decode("utf-8", errors="replace") if e.fp else str(e)
+            raise RuntimeError(f"ElevenLabs Detailed HTTP {e.code}: {detail}") from e
+        except urllib.error.URLError as e:
+            raise RuntimeError(f"ElevenLabs Detailed request failed: {e}") from e
+
+    def inpaint(
+        self,
+        *,
+        composition_plan: dict[str, Any],
+        output_format: str = "mp3_192kbps",
+    ) -> ElevenLabsStdlibInpaintResult:
+        """Edit an existing song using composition plan with source_from.
+
+        This is an Enterprise-only feature. Use source_from in sections to:
+        - Keep sections unchanged (with song_id + range)
+        - Regenerate sections (omit source_from)
+        - Regenerate portions inside kept sections (negative_ranges)
+
+        Args:
+            composition_plan: Composition plan with source_from references
+            output_format: Output audio format
+
+        Returns:
+            ElevenLabsStdlibInpaintResult with edited audio
+        """
+        query = {"output_format": output_format}
+        url = f"{self._base_url}/v1/music?" + urllib.parse.urlencode(query)
+
+        body: dict[str, Any] = {
+            "composition_plan": composition_plan,
+            "force_instrumental": False,  # Not used for inpainting, but required by API
+        }
+
+        data = json.dumps(body, ensure_ascii=False).encode("utf-8")
+        req = urllib.request.Request(
+            url=url,
+            method="POST",
+            data=data,
+            headers={
+                "xi-api-key": self._api_key,
+                "content-type": "application/json",
+            },
+        )
+
+        try:
+            with urllib.request.urlopen(req, timeout=self._timeout) as resp:
+                audio = resp.read()
+                content_type = resp.headers.get("content-type", "audio/mpeg")
+                song_id = resp.headers.get("song-id")
+                return ElevenLabsStdlibInpaintResult(
+                    audio_bytes=audio,
+                    content_type=content_type,
+                    song_id=song_id,
+                )
+        except urllib.error.HTTPError as e:
+            detail = e.read().decode("utf-8", errors="replace") if e.fp else str(e)
+            raise RuntimeError(f"ElevenLabs Inpaint HTTP {e.code}: {detail}") from e
+        except urllib.error.URLError as e:
+            raise RuntimeError(f"ElevenLabs Inpaint request failed: {e}") from e

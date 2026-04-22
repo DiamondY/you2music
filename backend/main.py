@@ -15,7 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from app_state import AppState
-from providers.elevenlabs import ElevenLabsMusicProvider
+from providers.elevenlabs import ElevenLabsMusicProvider, ElevenLabsInpaintResult
 from providers.fal import FalQueueClient
 from providers.replicate import ReplicateClient
 from providers.registry import providers_payload
@@ -43,6 +43,22 @@ class ExtendRequest(BaseModel):
     extra_sec: int = Field(ge=3, le=180)
     provider: str | None = Field(default=None, max_length=64)
     provider_params: dict[str, Any] | None = Field(default=None)
+
+
+class InpaintRequest(BaseModel):
+    """Request to inpaint/edit an existing song.
+
+    Inpainting is an Enterprise-only feature from ElevenLabs.
+    Use source_from in composition_plan sections to reference existing song parts.
+    """
+    source_job_id: str = Field(min_length=1, max_length=64, description="Job ID of the source song to edit")
+    composition_plan: dict[str, Any] = Field(description="Composition plan with source_from references")
+    output_format: str | None = Field(default=None, max_length=32)
+
+
+class GenerateStoreRequest(GenerateRequest):
+    """Generate and store for inpainting (Enterprise-only)."""
+    store_for_inpainting: bool = Field(default=False, description="Store song for later inpainting")
 
 
 def _sanitize_filename(text: str) -> str:
@@ -638,6 +654,79 @@ def get_audio_instrumental(job_id: str):
     return FileResponse(str(path), media_type="audio/mpeg", filename=f"{job_id}_instrumental.mp3")
 
 
+@app.post("/api/generate_store")
+async def generate_store(req: GenerateStoreRequest) -> dict[str, Any]:
+    """Generate music and store for inpainting (Enterprise-only).
+
+    This uses the compose_detailed endpoint with store_for_inpainting=True.
+    The song_id will be saved for later inpainting operations.
+    """
+    provider_name = _resolve_provider(req.provider)
+    if provider_name != "elevenlabs":
+        raise HTTPException(status_code=400, detail="store_for_inpainting only available for elevenlabs provider")
+
+    provider_params = req.provider_params or {}
+    params: dict[str, Any] = {
+        "duration_sec": req.duration_sec,
+        "vocals": req.vocals,
+        "seed": req.seed,
+        "model_id": req.model_id,
+        "output_format": _resolve_output_format(provider_params),
+        "provider": provider_name,
+        "provider_params": provider_params,
+        "store_for_inpainting": req.store_for_inpainting,
+    }
+
+    prompt = _apply_provider_prompt_options(
+        base_prompt=req.prompt,
+        lyrics=req.lyrics,
+        vocals=req.vocals,
+        provider_params=provider_params,
+    )
+    job_id = STATE.store.create_job(provider=provider_name, prompt=prompt, params=params, kind="generate_store")
+
+    asyncio.create_task(_run_job_store(job_id=job_id, prompt=prompt, params=params))
+    return {"job_id": job_id}
+
+
+@app.post("/api/inpaint")
+async def inpaint(req: InpaintRequest) -> dict[str, Any]:
+    """Inpaint/edit an existing song (Enterprise-only).
+
+    Uses composition_plan with source_from to reference existing song sections.
+    Sections with source_from will be kept from the original.
+    Sections without source_from will be regenerated.
+    Use negative_ranges to regenerate portions inside kept sections.
+    """
+    source_job = STATE.store.get(req.source_job_id)
+    if not source_job:
+        raise HTTPException(status_code=404, detail="source job not found")
+    if source_job.status != "succeeded":
+        raise HTTPException(status_code=409, detail="source job not succeeded")
+    if source_job.provider != "elevenlabs":
+        raise HTTPException(status_code=400, detail="inpainting only available for elevenlabs provider")
+    if not source_job.song_id:
+        raise HTTPException(status_code=404, detail="source job has no song_id (not stored for inpainting)")
+
+    output_format = req.output_format or STATE.settings.output_format
+
+    params: dict[str, Any] = {
+        "source_job_id": req.source_job_id,
+        "source_song_id": source_job.song_id,
+        "composition_plan": req.composition_plan,
+        "output_format": output_format,
+        "provider": "elevenlabs",
+    }
+
+    # Build prompt from composition plan for logging
+    prompt = f"Inpaint: {source_job.prompt[:100]}..."
+
+    job_id = STATE.store.create_job(provider="elevenlabs", prompt=prompt, params=params, kind="inpaint", parent_job_id=req.source_job_id)
+
+    asyncio.create_task(_run_inpaint(job_id=job_id, composition_plan=req.composition_plan, output_format=output_format))
+    return {"job_id": job_id, "source_job_id": req.source_job_id, "source_song_id": source_job.song_id}
+
+
 async def _run_job(*, job_id: str, prompt: str, params: dict[str, Any]) -> None:
     try:
         STATE.store.set_status(job_id, status="running")
@@ -763,6 +852,64 @@ async def _run_job(*, job_id: str, prompt: str, params: dict[str, Any]) -> None:
         out_path = STATE.audio_dir / f"{job_id}.{out_ext}"
         out_path.write_bytes(out_bytes)
         STATE.store.set_status(job_id, status="succeeded", output_path=str(out_path), song_id=song_id)
+    except Exception as e:
+        STATE.store.set_status(job_id, status="failed", error=str(e))
+
+
+async def _run_job_store(*, job_id: str, prompt: str, params: dict[str, Any]) -> None:
+    """Run a generate job with store_for_inpainting=True."""
+    try:
+        STATE.store.set_status(job_id, status="running")
+        STATE.audio_dir.mkdir(parents=True, exist_ok=True)
+
+        duration_ms = int(params["duration_sec"]) * 1000
+        vocals = bool(params["vocals"])
+        provider_params = params.get("provider_params") or {}
+        store_for_inpainting = bool(params.get("store_for_inpainting", False))
+
+        provider = ElevenLabsMusicProvider(
+            api_key=STATE.settings.elevenlabs_api_key,
+            base_url=STATE.settings.elevenlabs_base_url,
+            timeout_s=STATE.settings.request_timeout_s,
+        )
+        composition_plan = _parse_composition_plan(provider_params)
+        result = await provider.compose_detailed(
+            prompt=(None if composition_plan is not None else prompt),
+            composition_plan=composition_plan,
+            music_length_ms=duration_ms,
+            force_instrumental=(not vocals),
+            seed=params.get("seed"),
+            model_id=params.get("model_id"),
+            output_format=str(params.get("output_format") or STATE.settings.output_format),
+            store_for_inpainting=store_for_inpainting,
+        )
+
+        out_path = STATE.audio_dir / f"{job_id}.mp3"
+        out_path.write_bytes(result.audio_bytes)
+        STATE.store.set_status(job_id, status="succeeded", output_path=str(out_path), song_id=result.song_id)
+    except Exception as e:
+        STATE.store.set_status(job_id, status="failed", error=str(e))
+
+
+async def _run_inpaint(*, job_id: str, composition_plan: dict[str, Any], output_format: str) -> None:
+    """Run an inpaint job."""
+    try:
+        STATE.store.set_status(job_id, status="running")
+        STATE.audio_dir.mkdir(parents=True, exist_ok=True)
+
+        provider = ElevenLabsMusicProvider(
+            api_key=STATE.settings.elevenlabs_api_key,
+            base_url=STATE.settings.elevenlabs_base_url,
+            timeout_s=STATE.settings.request_timeout_s,
+        )
+        result = await provider.inpaint(
+            composition_plan=composition_plan,
+            output_format=output_format,
+        )
+
+        out_path = STATE.audio_dir / f"{job_id}.mp3"
+        out_path.write_bytes(result.audio_bytes)
+        STATE.store.set_status(job_id, status="succeeded", output_path=str(out_path), song_id=result.song_id)
     except Exception as e:
         STATE.store.set_status(job_id, status="failed", error=str(e))
 

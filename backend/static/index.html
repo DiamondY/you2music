@@ -66,6 +66,27 @@
       .cp-genre-btn { padding: 8px 16px; font-size: 13px; border-radius: 20px; border: 1px solid rgba(127,127,127,.3); background: transparent; cursor: pointer; width: auto; transition: all 0.2s; }
       .cp-genre-btn:hover { background: rgba(127,127,127,.1); border-color: rgba(127,127,127,.5); }
       .cp-genre-btn.active { background: rgba(100,100,255,.15); border-color: rgba(100,100,255,.4); }
+
+      /* Inpainting Styles */
+      .inpaint-section { margin-top: 12px; padding: 12px; border: 1px solid rgba(127,127,127,.25); border-radius: 8px; }
+      .inpaint-section h4 { margin: 0 0 8px; font-size: 14px; }
+      .inpaint-warning { background: rgba(200,150,0,.1); border: 1px solid rgba(200,150,0,.3); border-radius: 6px; padding: 8px 12px; margin-bottom: 10px; font-size: 13px; }
+      .inpaint-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+      .inpaint-actions button { width: auto; padding: 8px 14px; font-size: 13px; }
+      .inpaint-sections { margin-top: 10px; }
+      .inpaint-source-section { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border: 1px solid rgba(127,127,127,.15); border-radius: 6px; margin-top: 4px; font-size: 13px; }
+      .inpaint-source-section.keep { background: rgba(100,200,100,.08); }
+      .inpaint-source-section.regenerate { background: rgba(200,100,100,.08); }
+      .inpaint-toggle { cursor: pointer; padding: 4px 10px; border-radius: 4px; font-size: 12px; border: none; width: auto; }
+      .inpaint-toggle.keep { background: rgba(100,200,100,.2); }
+      .inpaint-toggle.regenerate { background: rgba(200,100,100,.2); }
+      .inpaint-editor { display: none; margin-top: 10px; padding: 12px; background: rgba(127,127,127,.05); border-radius: 8px; }
+      .inpaint-editor.visible { display: block; }
+      .inpaint-field { margin-top: 8px; }
+      .inpaint-field label { font-size: 13px; margin: 4px 0; }
+      .inpaint-field input, .inpaint-field textarea { font-size: 13px; padding: 8px; }
+      .store-toggle { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+      .store-toggle input[type="checkbox"] { width: auto; }
     </style>
   </head>
   <body>
@@ -249,6 +270,38 @@
             <a id="vocalsLink" href="#" style="display:none;">下载人声</a>
             <a id="instrumentalLink" href="#" style="display:none;">下载伴奏</a>
             <span id="stemsStatus" class="muted"></span>
+          </div>
+        </div>
+
+        <!-- Inpainting Section (Enterprise-only) -->
+        <div id="inpaintSection" class="inpaint-section" style="display: none;">
+          <h4>Inpainting 编辑（Enterprise 功能）</h4>
+          <div class="inpaint-warning">
+            ⚠️ Inpainting 是 ElevenLabs Enterprise 功能，需要联系销售获取权限。
+          </div>
+
+          <div class="store-toggle">
+            <input type="checkbox" id="storeForInpainting" />
+            <label for="storeForInpainting" style="margin: 0; font-weight: normal;">生成时存储以支持后续 Inpainting</label>
+          </div>
+
+          <div class="inpaint-actions">
+            <button id="generateStoreBtn">生成并存储</button>
+            <button id="openInpaintEditorBtn" style="display: none;">编辑段落</button>
+          </div>
+
+          <!-- Inpaint Editor -->
+          <div id="inpaintEditor" class="inpaint-editor">
+            <div class="muted" style="margin-bottom: 8px;">选择要保留或重新生成的段落。保留的段落将从原曲引用，其他段落将重新生成。</div>
+            <div id="inpaintSections" class="inpaint-sections"></div>
+            <div class="inpaint-field">
+              <label>新增段落歌词（可选）</label>
+              <textarea id="inpaintNewLyrics" placeholder="在新段落添加歌词..."></textarea>
+            </div>
+            <div class="inpaint-actions" style="margin-top: 12px;">
+              <button id="executeInpaintBtn">执行 Inpainting</button>
+              <span id="inpaintStatus" class="muted"></span>
+            </div>
           </div>
         </div>
 
@@ -1059,8 +1112,10 @@
               vocalsLink.style.display = "none";
               instrumentalLink.style.display = "none";
               stemsStatus.textContent = "";
+              showInpaintSection();
             } else {
               stemsSection.style.display = "none";
+              inpaintSection.style.display = "none";
             }
           } else {
             downloadLink.style.display = "none";
@@ -1232,6 +1287,228 @@
       document.getElementById("negativeStyleInput").addEventListener("keypress", (e) => {
         if (e.key === "Enter") { e.preventDefault(); addNegativeStyle(); }
       });
+
+      // Inpainting UI
+      const inpaintSection = document.getElementById("inpaintSection");
+      const inpaintEditor = document.getElementById("inpaintEditor");
+      const inpaintSections = document.getElementById("inpaintSections");
+      const openInpaintEditorBtn = document.getElementById("openInpaintEditorBtn");
+      const generateStoreBtn = document.getElementById("generateStoreBtn");
+      const executeInpaintBtn = document.getElementById("executeInpaintBtn");
+      const inpaintStatus = document.getElementById("inpaintStatus");
+      const storeForInpaintingCb = document.getElementById("storeForInpainting");
+
+      // Inpaint state: track which sections to keep/regenerate
+      let inpaintState = {
+        sourceJobId: null,
+        sourceSongId: null,
+        sourceSections: [],  // [{start_ms, end_ms, name, keep: true/false}]
+        totalDurationMs: 0
+      };
+
+      function showInpaintSection() {
+        if (currentJobProvider === "elevenlabs" && currentJobSongId) {
+          inpaintSection.style.display = "block";
+          openInpaintEditorBtn.style.display = "inline-block";
+        } else {
+          inpaintSection.style.display = "none";
+          inpaintEditor.classList.remove("visible");
+        }
+      }
+
+      async function generateWithStore() {
+        setError("");
+        setStatus("生成并存储中…");
+
+        const prompt = document.getElementById("prompt").value.trim();
+        const lyrics = document.getElementById("lyrics").value.trim();
+        const duration = parseInt(document.getElementById("duration").value, 10);
+        const vocals = document.getElementById("vocals").value === "on";
+        const seedRaw = document.getElementById("seed").value.trim();
+        const modelId = document.getElementById("modelId").value.trim();
+        const advancedMode = advancedEl.value === "advanced";
+
+        const payload = {
+          prompt,
+          lyrics: lyrics || null,
+          duration_sec: duration,
+          vocals,
+          seed: seedRaw ? parseInt(seedRaw, 10) : null,
+          model_id: modelId || null,
+          provider: "elevenlabs",
+          store_for_inpainting: true,
+          provider_params: collectProviderParams()
+        };
+
+        if (advancedMode) {
+          const plan = buildCompositionPlan();
+          if (plan) {
+            payload.provider_params = payload.provider_params || {};
+            payload.provider_params.use_composition_plan = true;
+            payload.provider_params.composition_plan_json = plan;
+          }
+        }
+
+        if (!payload.prompt && !payload.provider_params?.composition_plan_json) {
+          setError("请填写 Prompt 或在高级模式下配置 Composition Plan。");
+          setStatus("");
+          return;
+        }
+
+        try {
+          const data = await fetchJson("/api/generate_store", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(payload)
+          });
+
+          currentJobId = data.job_id;
+          currentJobs = [currentJobId];
+          jobIdEl.textContent = currentJobId;
+          refreshBtn.style.display = "inline-block";
+          setStatus("已提交，生成并存储中…");
+
+          if (pollTimer) clearInterval(pollTimer);
+          pollTimer = setInterval(() => refreshJobs(currentJobs), 1500);
+          await refreshJobs(currentJobs);
+        } catch (e) {
+          setError(String(e));
+          setStatus("");
+        }
+      }
+
+      function openInpaintEditor() {
+        if (!currentJobId || !currentJobSongId) {
+          setError("没有可编辑的歌曲。请先生成并存储一首歌曲。");
+          return;
+        }
+
+        inpaintState.sourceJobId = currentJobId;
+        inpaintState.sourceSongId = currentJobSongId;
+
+        // Get duration from current job
+        const durationSec = parseInt(document.getElementById("duration").value, 10) || 45;
+        inpaintState.totalDurationMs = durationSec * 1000;
+
+        // Initialize sections (simple: divide into 4 equal parts)
+        const numSections = 4;
+        const sectionDuration = inpaintState.totalDurationMs / numSections;
+        const sectionNames = ["Intro", "Verse", "Chorus", "Outro"];
+
+        inpaintState.sourceSections = [];
+        for (let i = 0; i < numSections; i++) {
+          inpaintState.sourceSections.push({
+            start_ms: Math.round(i * sectionDuration),
+            end_ms: Math.round((i + 1) * sectionDuration),
+            name: sectionNames[i] || `段落 ${i + 1}`,
+            keep: true  // Default: keep all
+          });
+        }
+
+        renderInpaintSections();
+        inpaintEditor.classList.add("visible");
+      }
+
+      function renderInpaintSections() {
+        inpaintSections.innerHTML = inpaintState.sourceSections.map((sec, i) => `
+          <div class="inpaint-source-section ${sec.keep ? 'keep' : 'regenerate'}">
+            <span style="flex: 1;">
+              ${sec.name} (${formatTime(sec.start_ms)} - ${formatTime(sec.end_ms)})
+            </span>
+            <button class="inpaint-toggle ${sec.keep ? 'keep' : 'regenerate'}"
+                    onclick="toggleInpaintSection(${i})">
+              ${sec.keep ? '保留' : '重新生成'}
+            </button>
+          </div>
+        `).join("");
+      }
+
+      function toggleInpaintSection(i) {
+        inpaintState.sourceSections[i].keep = !inpaintState.sourceSections[i].keep;
+        renderInpaintSections();
+      }
+
+      // Make toggleInpaintSection globally accessible
+      window.toggleInpaintSection = toggleInpaintSection;
+
+      async function executeInpaint() {
+        if (!inpaintState.sourceSongId) {
+          setError("没有源歌曲 ID。");
+          return;
+        }
+
+        inpaintStatus.textContent = "执行 Inpainting 中…";
+        executeInpaintBtn.disabled = true;
+
+        // Build composition plan with source_from for kept sections
+        const sections = [];
+        const newLyrics = document.getElementById("inpaintNewLyrics").value.trim();
+
+        for (const sec of inpaintState.sourceSections) {
+          const section = {
+            duration_ms: sec.end_ms - sec.start_ms
+          };
+
+          if (sec.keep) {
+            // Keep from source
+            section.source_from = {
+              song_id: inpaintState.sourceSongId,
+              range: {
+                start_ms: sec.start_ms,
+                end_ms: sec.end_ms
+              }
+            };
+          } else {
+            // Regenerate: add local styles and optional lyrics
+            section.local_styles = ["energetic"];
+            if (newLyrics) {
+              section.lyrics = newLyrics;
+            }
+          }
+
+          sections.push(section);
+        }
+
+        const compositionPlan = {
+          sections: sections,
+          positive_global_styles: cpState.positive_global_styles.length > 0 ? cpState.positive_global_styles : ["pop", "melodic"],
+          negative_global_styles: cpState.negative_global_styles
+        };
+
+        try {
+          const data = await fetchJson("/api/inpaint", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              source_job_id: inpaintState.sourceJobId,
+              composition_plan: compositionPlan
+            })
+          });
+
+          const newJobId = data.job_id;
+          currentJobs = [newJobId];
+          currentJobId = newJobId;
+          jobIdEl.textContent = newJobId;
+          refreshBtn.style.display = "inline-block";
+          setStatus("Inpainting 任务已提交");
+          inpaintStatus.textContent = "任务已提交，生成中…";
+
+          inpaintEditor.classList.remove("visible");
+
+          if (pollTimer) clearInterval(pollTimer);
+          pollTimer = setInterval(() => refreshJobs(currentJobs), 1500);
+          await refreshJobs(currentJobs);
+        } catch (e) {
+          setError("Inpainting 失败: " + String(e));
+          inpaintStatus.textContent = "";
+        } finally {
+          executeInpaintBtn.disabled = false;
+        }
+      }
+
+      generateStoreBtn.addEventListener("click", () => generateWithStore());
+      openInpaintEditorBtn.addEventListener("click", () => openInpaintEditor());
+      executeInpaintBtn.addEventListener("click", () => executeInpaint());
     </script>
   </body>
 </html>

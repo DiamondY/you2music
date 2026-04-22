@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from config import load_settings
-from providers.elevenlabs_stdlib import ElevenLabsMusicProviderStdlib
+from providers.elevenlabs_stdlib import ElevenLabsMusicProviderStdlib, ElevenLabsStdlibInpaintResult
 from providers.fal_stdlib import FalQueueClientStdlib
 from providers.registry import providers_payload
 from providers.replicate_stdlib import ReplicateClientStdlib
@@ -326,6 +326,69 @@ class AppState:
             out_path.write_bytes(out_bytes)
 
             self.store.set_status(job_id, status="succeeded", output_path=str(out_path), song_id=song_id)
+        except Exception as e:
+            self.store.set_status(job_id, status="failed", error=str(e))
+
+    def run_job_store(self, *, job_id: str, prompt: str, params: dict[str, Any]) -> None:
+        """Run a generate job with store_for_inpainting=True."""
+        try:
+            self.store.set_status(job_id, status="running")
+            self.audio_dir.mkdir(parents=True, exist_ok=True)
+
+            duration_ms = int(params["duration_sec"]) * 1000
+            vocals = bool(params["vocals"])
+            provider_params = params.get("provider_params") or {}
+            store_for_inpainting = bool(params.get("store_for_inpainting", False))
+
+            composition_plan = None
+            if provider_params.get("use_composition_plan") is True:
+                raw = provider_params.get("composition_plan_json")
+                if isinstance(raw, dict):
+                    composition_plan = raw
+                elif isinstance(raw, str) and raw.strip():
+                    composition_plan = json.loads(raw)
+
+            provider = ElevenLabsMusicProviderStdlib(
+                api_key=self.settings.elevenlabs_api_key,
+                base_url=self.settings.elevenlabs_base_url,
+                timeout_s=self.settings.request_timeout_s,
+            )
+            result = provider.compose_detailed(
+                prompt=(None if composition_plan is not None else prompt),
+                composition_plan=composition_plan,
+                music_length_ms=duration_ms,
+                force_instrumental=(not vocals),
+                seed=params.get("seed"),
+                model_id=params.get("model_id"),
+                output_format=str(params.get("output_format") or self.settings.output_format),
+                store_for_inpainting=store_for_inpainting,
+            )
+
+            out_path = self.audio_dir / f"{job_id}.mp3"
+            out_path.write_bytes(result.audio_bytes)
+            self.store.set_status(job_id, status="succeeded", output_path=str(out_path), song_id=result.song_id)
+        except Exception as e:
+            self.store.set_status(job_id, status="failed", error=str(e))
+
+    def run_inpaint(self, *, job_id: str, composition_plan: dict[str, Any], output_format: str) -> None:
+        """Run an inpaint job."""
+        try:
+            self.store.set_status(job_id, status="running")
+            self.audio_dir.mkdir(parents=True, exist_ok=True)
+
+            provider = ElevenLabsMusicProviderStdlib(
+                api_key=self.settings.elevenlabs_api_key,
+                base_url=self.settings.elevenlabs_base_url,
+                timeout_s=self.settings.request_timeout_s,
+            )
+            result = provider.inpaint(
+                composition_plan=composition_plan,
+                output_format=output_format,
+            )
+
+            out_path = self.audio_dir / f"{job_id}.mp3"
+            out_path.write_bytes(result.audio_bytes)
+            self.store.set_status(job_id, status="succeeded", output_path=str(out_path), song_id=result.song_id)
         except Exception as e:
             self.store.set_status(job_id, status="failed", error=str(e))
 
@@ -673,6 +736,100 @@ class Handler(BaseHTTPRequestHandler):
             t.start()
 
             _json_response(self, 200, {"job_id": job_id, "parent_job_id": parent_job_id})
+            return
+
+        if self.path == "/api/generate_store":
+            if not _check_admin(self, expected_token=STATE.settings.admin_token):
+                return
+            try:
+                length = int(self.headers.get("content-length") or "0")
+                raw = self.rfile.read(length)
+                payload = json.loads(raw.decode("utf-8"))
+                prompt, params = _validate_generate(payload)
+            except ValueError as e:
+                _error(self, 400, str(e))
+                return
+            except Exception:
+                _error(self, 400, "invalid JSON")
+                return
+
+            store_for_inpainting = bool(payload.get("store_for_inpainting", False))
+            provider_name = "elevenlabs"  # Only elevenlabs supports this
+            if payload.get("provider") and str(payload.get("provider")).strip() != "elevenlabs":
+                _error(self, 400, "store_for_inpainting only available for elevenlabs provider")
+                return
+
+            provider_params = params.get("provider_params") or {}
+            output_format = str(provider_params.get("output_format") or STATE.settings.output_format)
+            params = {**params, "output_format": output_format, "provider": provider_name, "store_for_inpainting": store_for_inpainting}
+            job_id = STATE.store.create_job(provider=provider_name, prompt=prompt, params=params, kind="generate_store")
+
+            t = threading.Thread(
+                target=STATE.run_job_store,
+                kwargs={"job_id": job_id, "prompt": prompt, "params": params},
+                daemon=True,
+            )
+            t.start()
+
+            _json_response(self, 200, {"job_id": job_id})
+            return
+
+        if self.path == "/api/inpaint":
+            if not _check_admin(self, expected_token=STATE.settings.admin_token):
+                return
+            try:
+                length = int(self.headers.get("content-length") or "0")
+                raw = self.rfile.read(length)
+                payload = json.loads(raw.decode("utf-8"))
+
+                source_job_id = str(payload.get("source_job_id") or "").strip()
+                if not source_job_id:
+                    raise ValueError("source_job_id is required")
+
+                composition_plan = payload.get("composition_plan")
+                if not isinstance(composition_plan, dict):
+                    raise ValueError("composition_plan must be an object")
+
+                output_format = str(payload.get("output_format") or STATE.settings.output_format)
+            except ValueError as e:
+                _error(self, 400, str(e))
+                return
+            except Exception:
+                _error(self, 400, "invalid JSON")
+                return
+
+            source_job = STATE.store.get(source_job_id)
+            if not source_job:
+                _error(self, 404, "source job not found")
+                return
+            if source_job.status != "succeeded":
+                _error(self, 409, "source job not succeeded")
+                return
+            if source_job.provider != "elevenlabs":
+                _error(self, 400, "inpainting only available for elevenlabs provider")
+                return
+            if not source_job.song_id:
+                _error(self, 404, "source job has no song_id (not stored for inpainting)")
+                return
+
+            params: dict[str, Any] = {
+                "source_job_id": source_job_id,
+                "source_song_id": source_job.song_id,
+                "composition_plan": composition_plan,
+                "output_format": output_format,
+                "provider": "elevenlabs",
+            }
+            prompt = f"Inpaint: {source_job.prompt[:100]}..."
+            job_id = STATE.store.create_job(provider="elevenlabs", prompt=prompt, params=params, kind="inpaint", parent_job_id=source_job_id)
+
+            t = threading.Thread(
+                target=STATE.run_inpaint,
+                kwargs={"job_id": job_id, "composition_plan": composition_plan, "output_format": output_format},
+                daemon=True,
+            )
+            t.start()
+
+            _json_response(self, 200, {"job_id": job_id, "source_job_id": source_job_id, "source_song_id": source_job.song_id})
             return
 
         if self.path == "/api/admin/config":

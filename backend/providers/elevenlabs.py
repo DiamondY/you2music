@@ -21,6 +21,13 @@ class ElevenLabsStemsResult:
     instrumental_content_type: str
 
 
+@dataclass(frozen=True)
+class ElevenLabsInpaintResult:
+    audio_bytes: bytes
+    content_type: str
+    song_id: str | None
+
+
 class ElevenLabsMusicProvider:
     name = "elevenlabs"
 
@@ -114,4 +121,91 @@ class ElevenLabsMusicProvider:
                 instrumental_bytes=instrumental_bytes,
                 vocals_content_type=vocals_content_type,
                 instrumental_content_type=instrumental_content_type,
+            )
+
+    async def compose_detailed(
+        self,
+        *,
+        prompt: str | None,
+        composition_plan: dict[str, Any] | None,
+        music_length_ms: int | None,
+        force_instrumental: bool,
+        seed: int | None,
+        model_id: str | None,
+        output_format: str,
+        store_for_inpainting: bool = False,
+    ) -> ElevenLabsResult:
+        """Compose music with detailed options including store_for_inpainting.
+
+        This endpoint stores the song for later inpainting operations.
+
+        Args:
+            store_for_inpainting: If True, stores the song for later inpainting (Enterprise-only)
+
+        Returns:
+            ElevenLabsResult with audio bytes and song_id
+        """
+        url = f"{self._base_url}/v1/music/detailed"
+        headers = {"xi-api-key": self._api_key}
+        params = {"output_format": output_format} if output_format else None
+
+        body: dict[str, Any] = {"force_instrumental": force_instrumental}
+        if composition_plan is not None:
+            body["composition_plan"] = composition_plan
+        else:
+            body["prompt"] = prompt or ""
+        if music_length_ms is not None:
+            body["music_length_ms"] = int(music_length_ms)
+        if seed is not None:
+            body["seed"] = int(seed)
+        if model_id:
+            body["model_id"] = model_id
+        if store_for_inpainting:
+            body["store_for_inpainting"] = True
+
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            resp = await client.post(url, headers=headers, params=params, json=body)
+            resp.raise_for_status()
+            song_id = resp.headers.get("song-id")
+            content_type = resp.headers.get("content-type", "audio/mpeg")
+            return ElevenLabsResult(audio_bytes=resp.content, content_type=content_type, song_id=song_id)
+
+    async def inpaint(
+        self,
+        *,
+        composition_plan: dict[str, Any],
+        output_format: str = "mp3_192kbps",
+    ) -> ElevenLabsInpaintResult:
+        """Edit an existing song using composition plan with source_from.
+
+        This is an Enterprise-only feature. Use source_from in sections to:
+        - Keep sections unchanged (with song_id + range)
+        - Regenerate sections (omit source_from)
+        - Regenerate portions inside kept sections (negative_ranges)
+
+        Args:
+            composition_plan: Composition plan with source_from references
+            output_format: Output audio format
+
+        Returns:
+            ElevenLabsInpaintResult with edited audio
+        """
+        url = f"{self._base_url}/v1/music"
+        headers = {"xi-api-key": self._api_key}
+        params = {"output_format": output_format}
+
+        body: dict[str, Any] = {
+            "composition_plan": composition_plan,
+            "force_instrumental": False,  # Not used for inpainting, but required by API
+        }
+
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            resp = await client.post(url, headers=headers, params=params, json=body)
+            resp.raise_for_status()
+            song_id = resp.headers.get("song-id")
+            content_type = resp.headers.get("content-type", "audio/mpeg")
+            return ElevenLabsInpaintResult(
+                audio_bytes=resp.content,
+                content_type=content_type,
+                song_id=song_id,
             )
