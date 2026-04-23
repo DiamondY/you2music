@@ -246,6 +246,44 @@ def get_providers(settings: Settings, *, include_disabled: bool = False) -> list
         ),
     ]
 
+    suno_fields: list[ProviderField] = [
+        ProviderField(
+            key="model",
+            label="Suno 模型版本",
+            kind="string",
+            required=False,
+            advanced=False,
+            default=_def("suno", "model", "v4.5"),
+            help="Suno 模型版本：v4, v4.5 等。",
+        ),
+        ProviderField(
+            key="instrumental",
+            label="纯器乐",
+            kind="boolean",
+            required=False,
+            advanced=False,
+            default=bool(_def("suno", "instrumental", False)),
+            help="开启后不生成人声。",
+        ),
+        ProviderField(
+            key="duration",
+            label="时长（秒）",
+            kind="integer",
+            required=False,
+            advanced=False,
+            default=None,
+            help="留空则用通用 duration_sec。",
+        ),
+        ProviderField(
+            key="poll_interval_s",
+            label="轮询间隔（秒）",
+            kind="number",
+            required=False,
+            advanced=True,
+            default=_def("suno", "poll_interval_s", 2.0),
+        ),
+    ]
+
     providers: list[ProviderInfo] = [
         ProviderInfo(
             id="elevenlabs",
@@ -312,6 +350,21 @@ def get_providers(settings: Settings, *, include_disabled: bool = False) -> list
                 config_endpoint_key="stability_base_url",
                 env_endpoint_name="STABILITY_BASE_URL",
             ),
+            ProviderInfo(
+                id="suno",
+                name="Suno (第三方 API)",
+                description="Suno 音乐生成（通过第三方 API 如 musicapi.ai；支持人声）。",
+                capabilities={
+                    "supports_vocals": True,
+                    "supports_true_extend": False,
+                    "max_duration_sec": 180,
+                },
+                fields=suno_fields,
+                config_secret_key="suno_api_key",
+                env_secret_name="SUNO_API_KEY",
+                config_endpoint_key="suno_base_url",
+                env_endpoint_name="SUNO_BASE_URL",
+            ),
         ]
     )
 
@@ -332,6 +385,7 @@ def providers_payload(settings: Settings, *, include_disabled: bool = False) -> 
         "fal": (["FAL_KEY"] if not settings.fal_key else []),
         "replicate": (["REPLICATE_API_TOKEN"] if not settings.replicate_api_token else []),
         "stability": (["STABILITY_API_KEY"] if not settings.stability_api_key else []),
+        "suno": (["SUNO_API_KEY"] if not settings.suno_api_key else []),
     }
     return {
         "default_provider": getattr(settings, "default_provider", "elevenlabs"),

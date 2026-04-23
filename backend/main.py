@@ -20,6 +20,7 @@ from providers.fal import FalQueueClient
 from providers.replicate import ReplicateClient
 from providers.registry import providers_payload
 from providers.stability import StabilityAudioClient
+from providers.suno import SunoClient
 from admin_config import load_local_config, redacted_config, save_local_config
 
 
@@ -407,7 +408,7 @@ async def admin_test(x_admin_token: str | None = Header(default=None, alias="x-a
 @app.post("/api/generate")
 async def generate(req: GenerateRequest) -> dict[str, Any]:
     provider_name = _resolve_provider(req.provider)
-    if provider_name not in ("elevenlabs", "fal", "replicate", "stability"):
+    if provider_name not in ("elevenlabs", "fal", "replicate", "stability", "suno"):
         raise HTTPException(status_code=400, detail=f"unknown provider: {provider_name}")
 
     provider_params = req.provider_params or {}
@@ -439,7 +440,7 @@ async def generate(req: GenerateRequest) -> dict[str, Any]:
 @app.post("/api/generate_many")
 async def generate_many(req: GenerateManyRequest) -> dict[str, Any]:
     provider_name = _resolve_provider(req.provider)
-    if provider_name not in ("elevenlabs", "fal", "replicate", "stability"):
+    if provider_name not in ("elevenlabs", "fal", "replicate", "stability", "suno"):
         raise HTTPException(status_code=400, detail=f"unknown provider: {provider_name}")
     provider_params = req.provider_params or {}
     vocals = req.vocals
@@ -846,6 +847,36 @@ async def _run_job(*, job_id: str, prompt: str, params: dict[str, Any]) -> None:
             )
             out_bytes = res.audio_bytes
             out_ext = "wav"
+        elif provider_name == "suno":
+            client = SunoClient(
+                api_key=STATE.settings.suno_api_key,
+                base_url=STATE.settings.suno_base_url,
+                timeout_s=STATE.settings.request_timeout_s,
+            )
+            model = str(provider_params.get("model") or "v4.5")
+            instrumental = bool(provider_params.get("instrumental", False))
+            duration = provider_params.get("duration")
+            if duration is None:
+                duration = int(params["duration_sec"])
+            poll_interval = float(provider_params.get("poll_interval_s", 2.0))
+
+            task_id = await client.create_generation(
+                prompt=prompt,
+                duration_sec=int(duration),
+                model=model,
+                instrumental=instrumental,
+            )
+            result = await client.poll_until_done(
+                task_id=task_id,
+                poll_interval_s=poll_interval,
+            )
+            audio_url = SunoClient.extract_audio_url(result)
+
+            async with httpx.AsyncClient(timeout=STATE.settings.request_timeout_s) as dl:
+                r = await dl.get(audio_url)
+                r.raise_for_status()
+                out_bytes = r.content
+            out_ext = "mp3"
         else:
             raise RuntimeError(f"unknown provider: {provider_name}")
 

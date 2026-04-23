@@ -16,6 +16,7 @@ from providers.fal_stdlib import FalQueueClientStdlib
 from providers.registry import providers_payload
 from providers.replicate_stdlib import ReplicateClientStdlib
 from providers.stability_stdlib import StabilityAudioClientStdlib
+from providers.suno_stdlib import SunoClientStdlib
 from storage import JobStore
 from admin_config import load_local_config, redacted_config, save_local_config
 
@@ -319,6 +320,34 @@ class AppState:
                 )
                 out_bytes = res.audio_bytes
                 out_ext = "wav" if "wav" in (res.content_type or "") else "bin"
+            elif provider_name == "suno":
+                client = SunoClientStdlib(
+                    api_key=self.settings.suno_api_key,
+                    base_url=self.settings.suno_base_url,
+                    timeout_s=self.settings.request_timeout_s,
+                )
+                model = str(provider_params.get("model") or "v4.5")
+                instrumental = bool(provider_params.get("instrumental", False))
+                duration = provider_params.get("duration")
+                if duration is None:
+                    duration = int(params["duration_sec"])
+                task_id = client.create_generation(
+                    prompt=prompt,
+                    duration_sec=int(duration),
+                    model=model,
+                    instrumental=instrumental,
+                )
+                result_json = client.poll_until_done(
+                    task_id=task_id,
+                    poll_interval_s=float(provider_params.get("poll_interval_s") or 2.0),
+                    max_wait_s=300.0,
+                )
+                audio_url = client.extract_audio_url(result_json)
+                import urllib.request
+
+                with urllib.request.urlopen(audio_url, timeout=self.settings.request_timeout_s) as dl:
+                    out_bytes = dl.read()
+                out_ext = "mp3"
             else:
                 raise RuntimeError(f"unknown provider: {provider_name}")
 
@@ -604,14 +633,14 @@ class Handler(BaseHTTPRequestHandler):
             provider_name = STATE.settings.default_provider
             if isinstance(payload, dict) and payload.get("provider") and str(payload.get("provider")).strip():
                 provider_name = str(payload.get("provider")).strip()
-            if provider_name not in ("elevenlabs", "fal", "replicate", "stability"):
+            if provider_name not in ("elevenlabs", "fal", "replicate", "stability", "suno"):
                 _error(self, 400, f"unknown provider: {provider_name}")
                 return
 
             provider_params = params.get("provider_params") or {}
             output_format = str(provider_params.get("output_format") or STATE.settings.output_format)
             # force vocals off for non-elevenlabs providers
-            if provider_name != "elevenlabs":
+            if provider_name not in ("elevenlabs", "suno"):
                 params["vocals"] = False
             params = {**params, "output_format": output_format, "provider": provider_name}
 
@@ -646,13 +675,13 @@ class Handler(BaseHTTPRequestHandler):
             provider_name = STATE.settings.default_provider
             if isinstance(payload, dict) and payload.get("provider") and str(payload.get("provider")).strip():
                 provider_name = str(payload.get("provider")).strip()
-            if provider_name not in ("elevenlabs", "fal", "replicate", "stability"):
+            if provider_name not in ("elevenlabs", "fal", "replicate", "stability", "suno"):
                 _error(self, 400, f"unknown provider: {provider_name}")
                 return
 
             provider_params = params.get("provider_params") or {}
             output_format = str(provider_params.get("output_format") or STATE.settings.output_format)
-            if provider_name != "elevenlabs":
+            if provider_name not in ("elevenlabs", "suno"):
                 params["vocals"] = False
             params = {**params, "output_format": output_format, "provider": provider_name}
             job_id = STATE.store.create_job(provider=provider_name, prompt=prompt, params=params, kind="generate")
@@ -716,7 +745,7 @@ class Handler(BaseHTTPRequestHandler):
                     or new_params.get("output_format")
                     or STATE.settings.output_format
                 )
-            if str(new_params.get("provider") or provider_name) not in ("elevenlabs", "fal", "replicate", "stability"):
+            if str(new_params.get("provider") or provider_name) not in ("elevenlabs", "fal", "replicate", "stability", "suno"):
                 _error(self, 400, f"unknown provider: {new_params.get('provider')}")
                 return
 
@@ -1073,6 +1102,14 @@ def _run_admin_tests() -> list[dict[str, Any]]:
                         url=f"{STATE.settings.fal_queue_base_url}/{model_id}/requests/{dummy_request_id}/status",
                         headers={"Authorization": f"Key {STATE.settings.fal_key}"},
                         ok_if_status=lambda s: (400 <= s < 500 and not _is_auth_error(s)) or (200 <= s < 300),
+                    )
+                )
+            elif pid == "suno":
+                attempts.append(
+                    attempt_get(
+                        name="suno_health",
+                        url=f"{STATE.settings.suno_base_url}/health",
+                        headers={"Authorization": f"Bearer {STATE.settings.suno_api_key}"},
                     )
                 )
             else:
