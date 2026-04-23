@@ -66,7 +66,9 @@ def load_settings() -> Settings:
     )
     data_dir = Path(data_dir_raw).expanduser().resolve()
 
-    output_format = os.getenv("AI_MUSIC_OUTPUT_FORMAT", "mp3_192kbps").strip()
+    # ElevenLabs Music API expects format strings like "mp3_44100_192".
+    # Keep a sane default so the out-of-box ElevenLabs flow works.
+    output_format = os.getenv("AI_MUSIC_OUTPUT_FORMAT", "mp3_44100_192").strip()
     default_provider = os.getenv("AI_MUSIC_PROVIDER_DEFAULT", "elevenlabs").strip() or "elevenlabs"
     timeout_s = float(os.getenv("AI_MUSIC_REQUEST_TIMEOUT_S", "120"))
 

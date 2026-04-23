@@ -1861,27 +1861,39 @@
           if (field.kind === "enum" && Array.isArray(field.enum)) {
             html += `<select data-key="${field.key}">`;
             for (const opt of field.enum) {
-              const selected = (String(opt) === String(field.default)) ? "selected" : "";
+              const selected = (String(opt) === String(values[field.key])) ? "selected" : "";
               html += `<option value="${opt}" ${selected}>${opt}</option>`;
             }
             html += `</select>`;
           } else if (field.kind === "boolean") {
-            const checked = field.default ? "checked" : "";
+            const checked = values[field.key] ? "checked" : "";
             html += `<div style="display: flex; align-items: center; gap: var(--space-sm); margin-top: var(--space-xs);"><input type="checkbox" data-key="${field.key}" ${checked}> <span style="font-size: 13px; color: var(--color-text-secondary);">${field.help || ""}</span></div>`;
             continue;
           } else if (field.kind === "json") {
             html += `<textarea data-key="${field.key}" placeholder="粘贴 JSON（高级）"></textarea>`;
           } else if (field.kind === "integer") {
-            html += `<input type="number" step="1" data-key="${field.key}" value="${field.default ?? ""}">`;
+            html += `<input type="number" step="1" data-key="${field.key}" value="${values[field.key] ?? ""}">`;
           } else if (field.kind === "number") {
-            html += `<input type="number" step="any" data-key="${field.key}" value="${field.default ?? ""}">`;
+            html += `<input type="number" step="any" data-key="${field.key}" value="${values[field.key] ?? ""}">`;
           } else {
-            html += `<input type="text" data-key="${field.key}" value="${field.default ?? ""}">`;
+            html += `<input type="text" data-key="${field.key}" value="${values[field.key] ?? ""}">`;
           }
           if (field.help) html += `<div style="font-size: 12px; color: var(--color-text-muted); margin-top: var(--space-xs);">${field.help}</div>`;
         }
 
         providerFieldsEl.innerHTML = html;
+
+        // Restore current values after rerender (so changing one field doesn't reset others).
+        for (const field of (meta.fields || [])) {
+          const el = providerFieldsEl.querySelector(`[data-key="${field.key}"]`);
+          if (!el) continue;
+          const v = values[field.key];
+          if (el.tagName === "INPUT" && el.type === "checkbox") {
+            el.checked = Boolean(v);
+          } else if (v !== null && v !== undefined) {
+            el.value = String(v);
+          }
+        }
 
         providerFieldsEl.querySelectorAll("input,select,textarea").forEach(el => {
           el.addEventListener("change", () => {

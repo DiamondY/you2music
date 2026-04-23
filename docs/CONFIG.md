@@ -122,10 +122,11 @@ $env:AI_MUSIC_DATA_DIR="C:\Users\Administrator\Documents\Playground\ai-music-too
 
 ElevenLabs 输出格式（传给 `output_format`）。
 
-- 默认：`mp3_192kbps`
+- 默认：`mp3_44100_192`
+- 兼容：旧值 `mp3_128kbps` / `mp3_192kbps` 会自动转换为 `mp3_44100_128` / `mp3_44100_192`
 
 ```powershell
-$env:AI_MUSIC_OUTPUT_FORMAT="mp3_192kbps"
+$env:AI_MUSIC_OUTPUT_FORMAT="mp3_44100_192"
 ```
 
 ---

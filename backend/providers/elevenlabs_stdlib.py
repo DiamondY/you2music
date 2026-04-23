@@ -8,6 +8,56 @@ from dataclasses import dataclass
 from typing import Any
 
 
+_ELEVENLABS_OUTPUT_FORMAT_ALIASES: dict[str, str] = {
+    # Legacy values used by older versions of this project.
+    "mp3_128kbps": "mp3_44100_128",
+    "mp3_192kbps": "mp3_44100_192",
+}
+
+DEFAULT_ELEVENLABS_OUTPUT_FORMAT = "mp3_44100_192"
+
+
+def _normalize_elevenlabs_output_format(output_format: str | None) -> str | None:
+    if output_format is None:
+        return None
+    fmt = str(output_format).strip()
+    if not fmt:
+        return None
+    return _ELEVENLABS_OUTPUT_FORMAT_ALIASES.get(fmt, fmt)
+
+
+def _friendly_plan_error(detail_text: str) -> str | None:
+    """Return a friendly Chinese error for common account/plan limitations."""
+    try:
+        data = json.loads(detail_text)
+    except Exception:
+        return None
+
+    detail = data.get("detail") if isinstance(data, dict) else None
+    if not isinstance(detail, dict):
+        return None
+    code = str(detail.get("code") or "").strip()
+    msg = str(detail.get("message") or "").strip()
+    request_id = str(detail.get("request_id") or "").strip()
+
+    if code == "paid_plan_required":
+        tail = f"（request_id={request_id}）" if request_id else ""
+        return (
+            "ElevenLabs Music API 需要付费套餐，免费账号无法使用。"
+            "请升级 ElevenLabs 付费计划，或在 UI 中切换到其他 provider（fal/replicate/stability/suno）。"
+            f"{tail}"
+        )
+
+    if msg and "not available for free users" in msg:
+        tail = f"（request_id={request_id}）" if request_id else ""
+        return (
+            "ElevenLabs Music API 对免费账号不可用。"
+            "请升级 ElevenLabs 付费计划，或切换到其他 provider。"
+            f"{tail}"
+        )
+    return None
+
+
 @dataclass(frozen=True)
 class ElevenLabsStdlibResult:
     audio_bytes: bytes
@@ -51,7 +101,8 @@ class ElevenLabsMusicProviderStdlib:
         model_id: str | None,
         output_format: str,
     ) -> ElevenLabsStdlibResult:
-        query = {"output_format": output_format} if output_format else {}
+        fmt = _normalize_elevenlabs_output_format(output_format)
+        query = {"output_format": fmt} if fmt else {}
         url = f"{self._base_url}/v1/music"
         if query:
             url = url + "?" + urllib.parse.urlencode(query)
@@ -87,6 +138,10 @@ class ElevenLabsMusicProviderStdlib:
                 return ElevenLabsStdlibResult(audio_bytes=audio, content_type=content_type, song_id=song_id)
         except urllib.error.HTTPError as e:
             detail = e.read().decode("utf-8", errors="replace") if e.fp else str(e)
+            if e.code == 402:
+                friendly = _friendly_plan_error(detail)
+                if friendly:
+                    raise RuntimeError(friendly) from e
             raise RuntimeError(f"ElevenLabs HTTP {e.code}: {detail}") from e
         except urllib.error.URLError as e:
             raise RuntimeError(f"ElevenLabs request failed: {e}") from e
@@ -95,7 +150,7 @@ class ElevenLabsMusicProviderStdlib:
         self,
         *,
         song_id: str,
-        output_format: str = "mp3_192kbps",
+        output_format: str = DEFAULT_ELEVENLABS_OUTPUT_FORMAT,
     ) -> ElevenLabsStdlibStemsResult:
         """Separate vocals and instrumental from a generated song.
 
@@ -106,7 +161,10 @@ class ElevenLabsMusicProviderStdlib:
         Returns:
             ElevenLabsStdlibStemsResult with vocals and instrumental audio bytes
         """
-        url = f"{self._base_url}/v1/music/{song_id}/stems?output_format={urllib.parse.quote(output_format)}"
+        fmt = _normalize_elevenlabs_output_format(output_format)
+        url = f"{self._base_url}/v1/music/{song_id}/stems"
+        if fmt:
+            url = url + "?output_format=" + urllib.parse.quote(fmt)
         req = urllib.request.Request(
             url=url,
             method="GET",
@@ -120,6 +178,10 @@ class ElevenLabsMusicProviderStdlib:
                 data = json.loads(resp.read().decode("utf-8"))
         except urllib.error.HTTPError as e:
             detail = e.read().decode("utf-8", errors="replace") if e.fp else str(e)
+            if e.code == 402:
+                friendly = _friendly_plan_error(detail)
+                if friendly:
+                    raise RuntimeError(friendly) from e
             raise RuntimeError(f"ElevenLabs Stems HTTP {e.code}: {detail}") from e
         except urllib.error.URLError as e:
             raise RuntimeError(f"ElevenLabs Stems request failed: {e}") from e
@@ -169,7 +231,8 @@ class ElevenLabsMusicProviderStdlib:
         Returns:
             ElevenLabsStdlibResult with audio bytes and song_id
         """
-        query = {"output_format": output_format} if output_format else {}
+        fmt = _normalize_elevenlabs_output_format(output_format)
+        query = {"output_format": fmt} if fmt else {}
         url = f"{self._base_url}/v1/music/detailed"
         if query:
             url = url + "?" + urllib.parse.urlencode(query)
@@ -207,6 +270,10 @@ class ElevenLabsMusicProviderStdlib:
                 return ElevenLabsStdlibResult(audio_bytes=audio, content_type=content_type, song_id=song_id)
         except urllib.error.HTTPError as e:
             detail = e.read().decode("utf-8", errors="replace") if e.fp else str(e)
+            if e.code == 402:
+                friendly = _friendly_plan_error(detail)
+                if friendly:
+                    raise RuntimeError(friendly) from e
             raise RuntimeError(f"ElevenLabs Detailed HTTP {e.code}: {detail}") from e
         except urllib.error.URLError as e:
             raise RuntimeError(f"ElevenLabs Detailed request failed: {e}") from e
@@ -215,7 +282,7 @@ class ElevenLabsMusicProviderStdlib:
         self,
         *,
         composition_plan: dict[str, Any],
-        output_format: str = "mp3_192kbps",
+        output_format: str = DEFAULT_ELEVENLABS_OUTPUT_FORMAT,
     ) -> ElevenLabsStdlibInpaintResult:
         """Edit an existing song using composition plan with source_from.
 
@@ -231,8 +298,11 @@ class ElevenLabsMusicProviderStdlib:
         Returns:
             ElevenLabsStdlibInpaintResult with edited audio
         """
-        query = {"output_format": output_format}
-        url = f"{self._base_url}/v1/music?" + urllib.parse.urlencode(query)
+        fmt = _normalize_elevenlabs_output_format(output_format)
+        query = {"output_format": fmt} if fmt else {}
+        url = f"{self._base_url}/v1/music"
+        if query:
+            url = url + "?" + urllib.parse.urlencode(query)
 
         body: dict[str, Any] = {
             "composition_plan": composition_plan,
@@ -262,6 +332,10 @@ class ElevenLabsMusicProviderStdlib:
                 )
         except urllib.error.HTTPError as e:
             detail = e.read().decode("utf-8", errors="replace") if e.fp else str(e)
+            if e.code == 402:
+                friendly = _friendly_plan_error(detail)
+                if friendly:
+                    raise RuntimeError(friendly) from e
             raise RuntimeError(f"ElevenLabs Inpaint HTTP {e.code}: {detail}") from e
         except urllib.error.URLError as e:
             raise RuntimeError(f"ElevenLabs Inpaint request failed: {e}") from e

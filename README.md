@@ -32,7 +32,7 @@ $env:ELEVENLABS_API_KEY="你的密钥"
 
 ```powershell
 $env:AI_MUSIC_DATA_DIR="C:\Users\Administrator\Documents\Playground\ai-music-tool\data"
-$env:AI_MUSIC_OUTPUT_FORMAT="mp3_192kbps"
+$env:AI_MUSIC_OUTPUT_FORMAT="mp3_44100_192"
 ```
 
 2) 运行：

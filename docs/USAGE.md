@@ -24,7 +24,7 @@ $env:ELEVENLABS_API_KEY="YOUR_KEY"
 ### 可选
 
 - `AI_MUSIC_DATA_DIR`：数据目录（SQLite + 音频文件），默认 `ai-music-tool\data`
-- `AI_MUSIC_OUTPUT_FORMAT`：输出格式，默认 `mp3_192kbps`
+- `AI_MUSIC_OUTPUT_FORMAT`：输出格式，默认 `mp3_44100_192`
 - `AI_MUSIC_HOST`：监听地址，默认 `127.0.0.1`
 - `AI_MUSIC_PORT`：监听端口，默认 `8000`
 - `ELEVENLABS_BASE_URL`：API base（一般不用改），默认 `https://api.elevenlabs.io`
@@ -85,7 +85,7 @@ UI 支持按 **provider** 动态切换：
 ```bash
 curl -s http://127.0.0.1:8000/api/generate ^
   -H "content-type: application/json" ^
-  -d "{\"prompt\":\"一首温柔的中文流行歌，女声演唱，副歌抓耳\",\"lyrics\":\"主歌...\\n\\n副歌...\",\"duration_sec\":45,\"vocals\":true,\"seed\":null,\"model_id\":null,\"provider\":\"elevenlabs\",\"provider_params\":{\"output_format\":\"mp3_192kbps\"}}"
+  -d "{\"prompt\":\"一首温柔的中文流行歌，女声演唱，副歌抓耳\",\"lyrics\":\"主歌...\\n\\n副歌...\",\"duration_sec\":45,\"vocals\":true,\"seed\":null,\"model_id\":null,\"provider\":\"elevenlabs\",\"provider_params\":{\"output_format\":\"mp3_44100_192\"}}"
 ```
 
 返回：
@@ -99,7 +99,7 @@ curl -s http://127.0.0.1:8000/api/generate ^
 ```bash
 curl -s http://127.0.0.1:8000/api/generate_many ^
   -H "content-type: application/json" ^
-  -d "{\"prompt\":\"电子舞曲，男声唱，适合短视频\",\"lyrics\":null,\"duration_sec\":30,\"vocals\":true,\"seed\":null,\"model_id\":null,\"count\":3,\"provider\":\"elevenlabs\",\"provider_params\":{\"output_format\":\"mp3_192kbps\"}}"
+  -d "{\"prompt\":\"电子舞曲，男声唱，适合短视频\",\"lyrics\":null,\"duration_sec\":30,\"vocals\":true,\"seed\":null,\"model_id\":null,\"count\":3,\"provider\":\"elevenlabs\",\"provider_params\":{\"output_format\":\"mp3_44100_192\"}}"
 ```
 
 返回：
@@ -135,7 +135,7 @@ curl -s "http://127.0.0.1:8000/api/jobs?ids=<ID1>,<ID2>,<ID3>"
 ```bash
 curl -s http://127.0.0.1:8000/api/extend ^
   -H "content-type: application/json" ^
-  -d "{\"job_id\":\"<JOB_ID>\",\"extra_sec\":15,\"provider\":\"elevenlabs\",\"provider_params\":{\"output_format\":\"mp3_192kbps\"}}"
+  -d "{\"job_id\":\"<JOB_ID>\",\"extra_sec\":15,\"provider\":\"elevenlabs\",\"provider_params\":{\"output_format\":\"mp3_44100_192\"}}"
 ```
 
 返回：

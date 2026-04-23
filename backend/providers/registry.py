@@ -37,9 +37,21 @@ def get_providers(settings: Settings, *, include_disabled: bool = False) -> list
     # and implementing them in main/stdlib_server job runner.
     ui_defaults = getattr(settings, "provider_ui_defaults", {}) or {}
 
+    eleven_output_format_aliases: dict[str, str] = {
+        "mp3_128kbps": "mp3_44100_128",
+        "mp3_192kbps": "mp3_44100_192",
+    }
+
     def _def(provider_id: str, key: str, fallback: Any) -> Any:
         v = ui_defaults.get(provider_id, {}).get(key, None)
-        return fallback if v is None else v
+        value = fallback if v is None else v
+        if provider_id == "elevenlabs" and key == "output_format":
+            if isinstance(value, str):
+                s = value.strip()
+                if not s:
+                    return fallback
+                return eleven_output_format_aliases.get(s, s)
+        return value
 
     eleven_fields: list[ProviderField] = [
         ProviderField(
@@ -50,11 +62,11 @@ def get_providers(settings: Settings, *, include_disabled: bool = False) -> list
             advanced=False,
             default=_def("elevenlabs", "output_format", settings.output_format),
             enum=[
-                "mp3_128kbps",
-                "mp3_192kbps",
+                "mp3_44100_128",
+                "mp3_44100_192",
                 "pcm_44100",
             ],
-            help="传给 ElevenLabs `output_format`。不同账号/套餐支持的格式可能不同。",
+            help="传给 ElevenLabs `output_format`。旧值 mp3_128kbps/mp3_192kbps 会自动转换为 mp3_44100_128/mp3_44100_192。注意：ElevenLabs Music API 需要付费套餐。",
         ),
         ProviderField(
             key="raw_prompt",
