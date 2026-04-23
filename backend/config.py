@@ -21,6 +21,8 @@ class Settings:
     stability_base_url: str
     suno_api_key: str
     suno_base_url: str
+    minimax_api_key: str
+    minimax_base_url: str
     enabled_providers: list[str] | None
     provider_ui_defaults: dict[str, dict[str, Any]]
     admin_token: str
@@ -58,6 +60,8 @@ def load_settings() -> Settings:
     stability_base_url = os.getenv("STABILITY_BASE_URL", "https://api.stability.ai").strip().rstrip("/")
     suno_api_key = os.getenv("SUNO_API_KEY", "").strip()
     suno_base_url = os.getenv("SUNO_BASE_URL", "https://api.musicapi.ai").strip().rstrip("/")
+    minimax_api_key = os.getenv("MINIMAX_API_KEY", "").strip()
+    minimax_base_url = os.getenv("MINIMAX_BASE_URL", "https://api.minimax.io").strip().rstrip("/")
     admin_token = os.getenv("AI_MUSIC_ADMIN_TOKEN", "").strip()
 
     data_dir_raw = os.getenv(
@@ -103,6 +107,11 @@ def load_settings() -> Settings:
             suno_api_key = str(secrets.get("suno_api_key") or "").strip()
         if suno_base_url == "https://api.musicapi.ai":
             suno_base_url = str(endpoints.get("suno_base_url") or suno_base_url).strip().rstrip("/")
+
+        if not minimax_api_key:
+            minimax_api_key = str(secrets.get("minimax_api_key") or "").strip()
+        if minimax_base_url == "https://api.minimax.io":
+            minimax_base_url = str(endpoints.get("minimax_base_url") or minimax_base_url).strip().rstrip("/")
 
         if default_provider == "elevenlabs":
             dp = cfg.get("default_provider")
@@ -156,6 +165,8 @@ def load_settings() -> Settings:
         stability_base_url=stability_base_url,
         suno_api_key=suno_api_key,
         suno_base_url=suno_base_url,
+        minimax_api_key=minimax_api_key,
+        minimax_base_url=minimax_base_url,
         enabled_providers=enabled_providers,
         provider_ui_defaults=provider_ui_defaults,
         admin_token=admin_token,

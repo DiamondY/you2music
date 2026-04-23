@@ -17,6 +17,7 @@ from providers.registry import providers_payload
 from providers.replicate_stdlib import ReplicateClientStdlib
 from providers.stability_stdlib import StabilityAudioClientStdlib
 from providers.suno_stdlib import SunoClientStdlib
+from providers.minimax_stdlib import MiniMaxMusicClientStdlib
 from storage import JobStore
 from admin_config import load_local_config, redacted_config, save_local_config
 
@@ -392,6 +393,29 @@ class AppState:
                 with urllib.request.urlopen(audio_url, timeout=self.settings.request_timeout_s) as dl:
                     out_bytes = dl.read()
                 out_ext = "mp3"
+            elif provider_name == "minimax":
+                # MiniMax official API (music-2.6)
+                client = MiniMaxMusicClientStdlib(
+                    api_key=self.settings.minimax_api_key,
+                    base_url=self.settings.minimax_base_url,
+                    timeout_s=self.settings.request_timeout_s,
+                )
+                model = str(provider_params.get("model") or "music-2.6")
+                lyrics = params.get("lyrics") or provider_params.get("lyrics")
+                sample_rate = int(provider_params.get("sample_rate") or 44100)
+                bitrate = int(provider_params.get("bitrate") or 256000)
+                audio_format = str(provider_params.get("format") or "mp3")
+
+                result = client.generate(
+                    prompt=prompt,
+                    lyrics=lyrics,
+                    model=model,
+                    sample_rate=sample_rate,
+                    bitrate=bitrate,
+                    format=audio_format,
+                )
+                out_bytes = client.download_audio(result.audio_url)
+                out_ext = audio_format
             else:
                 raise RuntimeError(f"unknown provider: {provider_name}")
 
@@ -677,18 +701,18 @@ class Handler(BaseHTTPRequestHandler):
             provider_name = STATE.settings.default_provider
             if isinstance(payload, dict) and payload.get("provider") and str(payload.get("provider")).strip():
                 provider_name = str(payload.get("provider")).strip()
-            if provider_name not in ("elevenlabs", "fal", "replicate", "stability", "suno"):
+            if provider_name not in ("elevenlabs", "fal", "replicate", "stability", "suno", "minimax"):
                 _error(self, 400, f"unknown provider: {provider_name}")
                 return
 
             provider_params = params.get("provider_params") or {}
             output_format = str(provider_params.get("output_format") or STATE.settings.output_format)
-            # force vocals off for non-elevenlabs/suno providers, unless MiniMax music
-            is_minimax = (
+            # force vocals off for non-elevenlabs/suno/minimax providers, unless MiniMax music via Replicate
+            is_minimax_replicate = (
                 provider_name == "replicate"
                 and _is_minimax_music_model(str(provider_params.get("version") or ""))
             )
-            if provider_name not in ("elevenlabs", "suno") and not is_minimax:
+            if provider_name not in ("elevenlabs", "suno", "minimax") and not is_minimax_replicate:
                 params["vocals"] = False
             params = {**params, "output_format": output_format, "provider": provider_name}
 
@@ -723,18 +747,18 @@ class Handler(BaseHTTPRequestHandler):
             provider_name = STATE.settings.default_provider
             if isinstance(payload, dict) and payload.get("provider") and str(payload.get("provider")).strip():
                 provider_name = str(payload.get("provider")).strip()
-            if provider_name not in ("elevenlabs", "fal", "replicate", "stability", "suno"):
+            if provider_name not in ("elevenlabs", "fal", "replicate", "stability", "suno", "minimax"):
                 _error(self, 400, f"unknown provider: {provider_name}")
                 return
 
             provider_params = params.get("provider_params") or {}
             output_format = str(provider_params.get("output_format") or STATE.settings.output_format)
-            # force vocals off for non-elevenlabs/suno providers, unless MiniMax music
-            is_minimax = (
+            # force vocals off for non-elevenlabs/suno/minimax providers, unless MiniMax music via Replicate
+            is_minimax_replicate = (
                 provider_name == "replicate"
                 and _is_minimax_music_model(str(provider_params.get("version") or ""))
             )
-            if provider_name not in ("elevenlabs", "suno") and not is_minimax:
+            if provider_name not in ("elevenlabs", "suno", "minimax") and not is_minimax_replicate:
                 params["vocals"] = False
             params = {**params, "output_format": output_format, "provider": provider_name}
             job_id = STATE.store.create_job(provider=provider_name, prompt=prompt, params=params, kind="generate")

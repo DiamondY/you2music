@@ -343,6 +343,52 @@ def get_providers(settings: Settings, *, include_disabled: bool = False) -> list
         ),
     ]
 
+    minimax_fields: list[ProviderField] = [
+        ProviderField(
+            key="model",
+            label="MiniMax 模型",
+            kind="string",
+            required=False,
+            advanced=False,
+            default=_def("minimax", "model", "music-2.6"),
+            help="MiniMax 音乐模型：music-2.6（推荐）。",
+        ),
+        ProviderField(
+            key="lyrics",
+            label="歌词",
+            kind="string",
+            required=False,
+            advanced=False,
+            default=None,
+            help="歌词文本，支持中英文。",
+        ),
+        ProviderField(
+            key="sample_rate",
+            label="采样率",
+            kind="integer",
+            required=False,
+            advanced=True,
+            default=_def("minimax", "sample_rate", 44100),
+        ),
+        ProviderField(
+            key="bitrate",
+            label="比特率",
+            kind="integer",
+            required=False,
+            advanced=True,
+            default=_def("minimax", "bitrate", 256000),
+        ),
+        ProviderField(
+            key="format",
+            label="输出格式",
+            kind="enum",
+            required=False,
+            advanced=True,
+            default=_def("minimax", "format", "mp3"),
+            enum=["mp3", "wav"],
+        ),
+    ]
+
     providers: list[ProviderInfo] = [
         ProviderInfo(
             id="elevenlabs",
@@ -424,6 +470,21 @@ def get_providers(settings: Settings, *, include_disabled: bool = False) -> list
                 config_endpoint_key="suno_base_url",
                 env_endpoint_name="SUNO_BASE_URL",
             ),
+            ProviderInfo(
+                id="minimax",
+                name="MiniMax Music (官方 API)",
+                description="MiniMax 官方音乐生成 API（music-2.6），支持人声+中英文歌词，国内可访问。",
+                capabilities={
+                    "supports_vocals": True,
+                    "supports_true_extend": False,
+                    "max_duration_sec": 240,
+                },
+                fields=minimax_fields,
+                config_secret_key="minimax_api_key",
+                env_secret_name="MINIMAX_API_KEY",
+                config_endpoint_key="minimax_base_url",
+                env_endpoint_name="MINIMAX_BASE_URL",
+            ),
         ]
     )
 
@@ -445,6 +506,7 @@ def providers_payload(settings: Settings, *, include_disabled: bool = False) -> 
         "replicate": (["REPLICATE_API_TOKEN"] if not settings.replicate_api_token else []),
         "stability": (["STABILITY_API_KEY"] if not settings.stability_api_key else []),
         "suno": (["SUNO_API_KEY"] if not settings.suno_api_key else []),
+        "minimax": (["MINIMAX_API_KEY"] if not settings.minimax_api_key else []),
     }
     return {
         "default_provider": getattr(settings, "default_provider", "elevenlabs"),

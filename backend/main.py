@@ -21,6 +21,7 @@ from providers.replicate import ReplicateClient
 from providers.registry import providers_payload
 from providers.stability import StabilityAudioClient
 from providers.suno import SunoClient
+from providers.minimax import MiniMaxMusicClient
 from admin_config import load_local_config, redacted_config, save_local_config
 
 
@@ -413,17 +414,17 @@ async def admin_test(x_admin_token: str | None = Header(default=None, alias="x-a
 @app.post("/api/generate")
 async def generate(req: GenerateRequest) -> dict[str, Any]:
     provider_name = _resolve_provider(req.provider)
-    if provider_name not in ("elevenlabs", "fal", "replicate", "stability", "suno"):
+    if provider_name not in ("elevenlabs", "fal", "replicate", "stability", "suno", "minimax"):
         raise HTTPException(status_code=400, detail=f"unknown provider: {provider_name}")
 
     provider_params = req.provider_params or {}
     vocals = req.vocals
-    # MiniMax music models (via Replicate) also support vocals
-    is_minimax = (
+    # MiniMax music models (via Replicate) and MiniMax official API support vocals
+    is_minimax_replicate = (
         provider_name == "replicate"
         and _is_minimax_music_model(str(provider_params.get("version") or ""))
     )
-    if provider_name != "elevenlabs" and not is_minimax:
+    if provider_name not in ("elevenlabs", "minimax") and not is_minimax_replicate:
         vocals = False
     params: dict[str, Any] = {
         "duration_sec": req.duration_sec,
@@ -451,16 +452,16 @@ async def generate(req: GenerateRequest) -> dict[str, Any]:
 @app.post("/api/generate_many")
 async def generate_many(req: GenerateManyRequest) -> dict[str, Any]:
     provider_name = _resolve_provider(req.provider)
-    if provider_name not in ("elevenlabs", "fal", "replicate", "stability", "suno"):
+    if provider_name not in ("elevenlabs", "fal", "replicate", "stability", "suno", "minimax"):
         raise HTTPException(status_code=400, detail=f"unknown provider: {provider_name}")
     provider_params = req.provider_params or {}
     vocals = req.vocals
-    # MiniMax music models (via Replicate) also support vocals
-    is_minimax = (
+    # MiniMax music models (via Replicate) and MiniMax official API support vocals
+    is_minimax_replicate = (
         provider_name == "replicate"
         and _is_minimax_music_model(str(provider_params.get("version") or ""))
     )
-    if provider_name != "elevenlabs" and not is_minimax:
+    if provider_name not in ("elevenlabs", "minimax") and not is_minimax_replicate:
         vocals = False
     params: dict[str, Any] = {
         "duration_sec": req.duration_sec,
@@ -933,6 +934,29 @@ async def _run_job(*, job_id: str, prompt: str, params: dict[str, Any]) -> None:
                 r.raise_for_status()
                 out_bytes = r.content
             out_ext = "mp3"
+        elif provider_name == "minimax":
+            # MiniMax official API (music-2.6)
+            client = MiniMaxMusicClient(
+                api_key=STATE.settings.minimax_api_key,
+                base_url=STATE.settings.minimax_base_url,
+                timeout_s=STATE.settings.request_timeout_s,
+            )
+            model = str(provider_params.get("model") or "music-2.6")
+            lyrics = params.get("lyrics") or provider_params.get("lyrics")
+            sample_rate = int(provider_params.get("sample_rate") or 44100)
+            bitrate = int(provider_params.get("bitrate") or 256000)
+            audio_format = str(provider_params.get("format") or "mp3")
+
+            result = await client.generate(
+                prompt=prompt,
+                lyrics=lyrics,
+                model=model,
+                sample_rate=sample_rate,
+                bitrate=bitrate,
+                format=audio_format,
+            )
+            out_bytes = await client.download_audio(result.audio_url)
+            out_ext = audio_format
         else:
             raise RuntimeError(f"unknown provider: {provider_name}")
 
