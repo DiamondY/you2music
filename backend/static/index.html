@@ -5,105 +5,993 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>you2music</title>
     <style>
-      :root { color-scheme: light dark; }
-      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 24px; max-width: 1200px; }
-      .row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-      @media (max-width: 860px) { .row { grid-template-columns: 1fr; } }
-      textarea, input, select, button { width: 100%; padding: 10px; font-size: 14px; box-sizing: border-box; }
-      textarea { min-height: 80px; }
-      label { display:block; margin: 10px 0 6px; font-weight: 600; }
-      .card { border: 1px solid rgba(127,127,127,.35); border-radius: 12px; padding: 16px; }
-      .actions { display: flex; gap: 12px; align-items: center; }
-      .actions button { width: auto; padding: 10px 14px; cursor: pointer; }
-      .muted { opacity: .8; font-size: 13px; }
-      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-      audio { width: 100%; margin-top: 10px; }
-      .ok { color: #1b7f3a; }
-      .err { color: #b00020; white-space: pre-wrap; }
+      /* ========================================
+         CSS Variables - Design System
+         ======================================== */
+      :root {
+        /* Colors - Light Theme */
+        --color-bg-primary: #FAFAFA;
+        --color-bg-card: #FFFFFF;
+        --color-bg-hover: #F3F4F6;
+        --color-primary: #6366F1;
+        --color-primary-dark: #4F46E5;
+        --color-secondary: #8B5CF6;
+        --color-success: #10B981;
+        --color-warning: #F59E0B;
+        --color-error: #EF4444;
+        --color-text-primary: #1F2937;
+        --color-text-secondary: #6B7280;
+        --color-text-muted: #9CA3AF;
+        --color-border: #E5E7EB;
+        --color-border-hover: #D1D5DB;
 
-      /* Composition Plan Editor Styles */
-      .cp-editor { display: none; margin-top: 16px; padding: 16px; border: 1px solid rgba(127,127,127,.25); border-radius: 10px; background: rgba(127,127,127,.05); }
-      .cp-editor.visible { display: block; }
-      .cp-section { border: 1px solid rgba(127,127,127,.2); border-radius: 8px; padding: 12px; margin-top: 12px; background: rgba(255,255,255,.02); cursor: grab; transition: transform 0.2s, box-shadow 0.2s; }
-      .cp-section:active { cursor: grabbing; }
-      .cp-section.dragging { opacity: 0.5; transform: scale(1.02); box-shadow: 0 4px 12px rgba(0,0,0,.15); }
-      .cp-section.drag-over { border-color: #4a90d9; background: rgba(74,144,217,.1); }
-      .cp-section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
-      .cp-section-title { font-weight: 600; font-size: 14px; display: flex; align-items: center; gap: 8px; }
-      .cp-section-drag { cursor: grab; opacity: 0.5; font-size: 16px; }
-      .cp-section-time { font-size: 12px; opacity: 0.7; margin-left: 8px; }
-      .cp-section-actions { display: flex; gap: 6px; }
-      .cp-section-move { padding: 4px 8px; font-size: 12px; background: rgba(127,127,127,.1); border: none; border-radius: 4px; cursor: pointer; width: auto; }
-      .cp-section-move:hover { background: rgba(127,127,127,.2); }
-      .cp-section-move:disabled { opacity: 0.3; cursor: not-allowed; }
-      .cp-section-remove { padding: 4px 10px; font-size: 12px; background: rgba(180,0,0,.1); border: none; border-radius: 4px; cursor: pointer; color: #b00020; width: auto; }
-      .cp-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-      .cp-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
-      .cp-tag { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; background: rgba(100,100,255,.15); border-radius: 14px; font-size: 12px; }
-      .cp-tag-remove { cursor: pointer; opacity: .6; font-weight: bold; }
-      .cp-tag-remove:hover { opacity: 1; }
-      .cp-add-tag { display: flex; gap: 6px; margin-top: 6px; }
-      .cp-add-tag input { flex: 1; padding: 6px 10px; font-size: 13px; }
-      .cp-add-tag button { padding: 6px 12px; font-size: 13px; width: auto; }
-      .cp-presets { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-      .cp-preset-btn { padding: 4px 10px; font-size: 12px; border-radius: 14px; border: 1px solid rgba(127,127,127,.3); background: transparent; cursor: pointer; width: auto; }
-      .cp-preset-btn:hover { background: rgba(127,127,127,.1); }
-      .cp-preset-btn.active { background: rgba(100,100,255,.2); border-color: rgba(100,100,255,.4); }
+        /* Border Radius */
+        --radius-sm: 4px;
+        --radius-md: 8px;
+        --radius-lg: 12px;
+        --radius-xl: 20px;
+
+        /* Shadows */
+        --shadow-card: 0 1px 2px rgba(0,0,0,0.05);
+        --shadow-card-hover: 0 4px 6px rgba(0,0,0,0.07);
+        --shadow-modal: 0 10px 15px rgba(0,0,0,0.1);
+
+        /* Typography */
+        --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans SC", sans-serif;
+        --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+        /* Spacing */
+        --space-xs: 4px;
+        --space-sm: 8px;
+        --space-md: 16px;
+        --space-lg: 24px;
+        --space-xl: 32px;
+        --space-2xl: 48px;
+
+        /* Transitions */
+        --transition-fast: 0.15s ease;
+        --transition-normal: 0.2s ease;
+      }
+
+      /* ========================================
+         Base Styles
+         ======================================== */
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        font-family: var(--font-sans);
+        font-size: 14px;
+        line-height: 1.5;
+        color: var(--color-text-primary);
+        background-color: var(--color-bg-primary);
+        min-height: 100vh;
+        padding: var(--space-lg);
+      }
+
+      /* ========================================
+         Layout - Container
+         ======================================== */
+      .app-container {
+        max-width: 800px;
+        margin: 0 auto;
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-lg);
+      }
+
+      @media (max-width: 640px) {
+        body { padding: var(--space-md); }
+        .app-container { gap: var(--space-md); }
+      }
+
+      /* ========================================
+         Header
+         ======================================== */
+      .app-header {
+        text-align: center;
+        padding: var(--space-lg) 0;
+      }
+
+      .app-logo {
+        font-size: 28px;
+        font-weight: 700;
+        background: linear-gradient(135deg, var(--color-primary), var(--color-secondary));
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        margin-bottom: var(--space-xs);
+      }
+
+      .app-tagline {
+        font-size: 14px;
+        color: var(--color-text-secondary);
+      }
+
+      /* ========================================
+         Cards
+         ======================================== */
+      .card {
+        background: var(--color-bg-card);
+        border-radius: var(--radius-lg);
+        box-shadow: var(--shadow-card);
+        padding: var(--space-lg);
+        transition: box-shadow var(--transition-normal);
+      }
+
+      .card:hover {
+        box-shadow: var(--shadow-card-hover);
+      }
+
+      .card-header {
+        display: flex;
+        align-items: center;
+        gap: var(--space-sm);
+        margin-bottom: var(--space-lg);
+        padding-bottom: var(--space-md);
+        border-bottom: 1px solid var(--color-border);
+      }
+
+      .card-icon {
+        font-size: 20px;
+      }
+
+      .card-title {
+        font-size: 18px;
+        font-weight: 600;
+        color: var(--color-text-primary);
+      }
+
+      /* ========================================
+         Form Elements
+         ======================================== */
+      label {
+        display: block;
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--color-text-secondary);
+        margin-bottom: var(--space-sm);
+      }
+
+      input[type="text"],
+      input[type="number"],
+      input[type="email"],
+      textarea,
+      select {
+        width: 100%;
+        padding: var(--space-sm) var(--space-md);
+        font-size: 14px;
+        font-family: inherit;
+        color: var(--color-text-primary);
+        background: var(--color-bg-card);
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-md);
+        transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+      }
+
+      input:focus,
+      textarea:focus,
+      select:focus {
+        outline: none;
+        border-color: var(--color-primary);
+        box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+      }
+
+      input::placeholder,
+      textarea::placeholder {
+        color: var(--color-text-muted);
+      }
+
+      textarea {
+        min-height: 100px;
+        resize: vertical;
+      }
+
+      select {
+        cursor: pointer;
+      }
+
+      /* Checkbox */
+      input[type="checkbox"] {
+        width: 16px;
+        height: 16px;
+        cursor: pointer;
+        accent-color: var(--color-primary);
+      }
+
+      /* Range slider */
+      input[type="range"] {
+        width: 100%;
+        height: 6px;
+        border-radius: 3px;
+        background: var(--color-border);
+        outline: none;
+        cursor: pointer;
+        -webkit-appearance: none;
+      }
+
+      input[type="range"]::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, var(--color-primary), var(--color-secondary));
+        cursor: pointer;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      }
+
+      input[type="range"]::-moz-range-thumb {
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, var(--color-primary), var(--color-secondary));
+        cursor: pointer;
+        border: none;
+      }
+
+      /* ========================================
+         Buttons
+         ======================================== */
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: var(--space-xs);
+        padding: var(--space-sm) var(--space-md);
+        font-size: 14px;
+        font-weight: 500;
+        font-family: inherit;
+        border: none;
+        border-radius: var(--radius-md);
+        cursor: pointer;
+        transition: all var(--transition-fast);
+        text-decoration: none;
+      }
+
+      .btn-primary {
+        background: linear-gradient(135deg, var(--color-primary), var(--color-secondary));
+        color: white;
+        box-shadow: 0 2px 4px rgba(99, 102, 241, 0.3);
+      }
+
+      .btn-primary:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 8px rgba(99, 102, 241, 0.4);
+      }
+
+      .btn-primary:active {
+        transform: translateY(0);
+      }
+
+      .btn-secondary {
+        background: var(--color-bg-hover);
+        color: var(--color-text-primary);
+        border: 1px solid var(--color-border);
+      }
+
+      .btn-secondary:hover {
+        background: var(--color-border);
+        border-color: var(--color-border-hover);
+      }
+
+      .btn-outline {
+        background: transparent;
+        color: var(--color-primary);
+        border: 1px solid var(--color-primary);
+      }
+
+      .btn-outline:hover {
+        background: rgba(99, 102, 241, 0.1);
+      }
+
+      .btn-sm {
+        padding: var(--space-xs) var(--space-sm);
+        font-size: 13px;
+      }
+
+      .btn-lg {
+        padding: var(--space-md) var(--space-lg);
+        font-size: 16px;
+        border-radius: var(--radius-xl);
+      }
+
+      .btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+        transform: none !important;
+      }
+
+      /* ========================================
+         Tags / Pills
+         ======================================== */
+      .tag-group {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-sm);
+      }
+
+      .tag {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--space-xs);
+        padding: var(--space-xs) var(--space-md);
+        font-size: 13px;
+        background: var(--color-bg-hover);
+        border-radius: var(--radius-xl);
+        cursor: pointer;
+        transition: all var(--transition-fast);
+        border: 1px solid transparent;
+      }
+
+      .tag:hover {
+        background: rgba(99, 102, 241, 0.1);
+        border-color: var(--color-primary);
+        color: var(--color-primary);
+      }
+
+      .tag.active {
+        background: linear-gradient(135deg, var(--color-primary), var(--color-secondary));
+        color: white;
+      }
+
+      /* ========================================
+         Form Layout
+         ======================================== */
+      .form-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: var(--space-md);
+      }
+
+      @media (max-width: 640px) {
+        .form-row { grid-template-columns: 1fr; }
+      }
+
+      .form-group {
+        margin-bottom: var(--space-md);
+      }
+
+      .form-group:last-child {
+        margin-bottom: 0;
+      }
+
+      .form-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-sm);
+        align-items: center;
+        margin-top: var(--space-lg);
+      }
+
+      /* ========================================
+         Status & Messages
+         ======================================== */
+      .status-text {
+        font-size: 13px;
+        color: var(--color-text-secondary);
+      }
+
+      .status-text.success {
+        color: var(--color-success);
+      }
+
+      .status-text.error {
+        color: var(--color-error);
+      }
+
+      .error-message {
+        background: rgba(239, 68, 68, 0.1);
+        border: 1px solid rgba(239, 68, 68, 0.3);
+        border-radius: var(--radius-md);
+        padding: var(--space-sm) var(--space-md);
+        color: var(--color-error);
+        font-size: 13px;
+        margin-top: var(--space-md);
+        white-space: pre-wrap;
+      }
+
+      .info-message {
+        background: rgba(99, 102, 241, 0.05);
+        border-radius: var(--radius-md);
+        padding: var(--space-md);
+        font-size: 13px;
+        color: var(--color-text-secondary);
+        margin-top: var(--space-md);
+      }
+
+      .mono {
+        font-family: var(--font-mono);
+      }
+
+      /* ========================================
+         Provider Fields Container
+         ======================================== */
+      .provider-fields {
+        background: var(--color-bg-hover);
+        border-radius: var(--radius-md);
+        padding: var(--space-md);
+        margin-top: var(--space-md);
+      }
+
+      .provider-fields .muted {
+        font-size: 13px;
+        color: var(--color-text-muted);
+      }
+
+      .provider-fields .err {
+        color: var(--color-error);
+        font-size: 13px;
+      }
+
+      /* ========================================
+         Composition Plan Editor
+         ======================================== */
+      .cp-editor {
+        display: none;
+        margin-top: var(--space-md);
+        padding: var(--space-md);
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-md);
+        background: var(--color-bg-hover);
+      }
+
+      .cp-editor.visible {
+        display: block;
+      }
+
+      .cp-editor h4 {
+        margin: 0 0 var(--space-sm);
+        font-size: 15px;
+        color: var(--color-text-primary);
+      }
+
+      .cp-editor > p {
+        font-size: 13px;
+        color: var(--color-text-secondary);
+        margin-bottom: var(--space-md);
+      }
+
+      .cp-genre-presets {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-sm);
+        margin-bottom: var(--space-md);
+        padding: var(--space-md);
+        background: var(--color-bg-card);
+        border-radius: var(--radius-md);
+      }
+
+      .cp-genre-btn {
+        padding: var(--space-xs) var(--space-md);
+        font-size: 13px;
+        border-radius: var(--radius-xl);
+        border: 1px solid var(--color-border);
+        background: var(--color-bg-card);
+        cursor: pointer;
+        transition: all var(--transition-fast);
+      }
+
+      .cp-genre-btn:hover {
+        border-color: var(--color-primary);
+        color: var(--color-primary);
+      }
+
+      .cp-genre-btn.active {
+        background: linear-gradient(135deg, var(--color-primary), var(--color-secondary));
+        color: white;
+        border-color: transparent;
+      }
+
+      .cp-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: var(--space-md);
+      }
+
+      @media (max-width: 640px) {
+        .cp-row { grid-template-columns: 1fr; }
+      }
+
+      .cp-tags {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-xs);
+        margin-top: var(--space-xs);
+      }
+
+      .cp-tag {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--space-xs);
+        padding: var(--space-xs) var(--space-sm);
+        background: rgba(99, 102, 241, 0.15);
+        border-radius: var(--radius-xl);
+        font-size: 12px;
+      }
+
+      .cp-tag-remove {
+        cursor: pointer;
+        opacity: 0.6;
+        font-weight: bold;
+        font-size: 14px;
+      }
+
+      .cp-tag-remove:hover {
+        opacity: 1;
+      }
+
+      .cp-add-tag {
+        display: flex;
+        gap: var(--space-xs);
+        margin-top: var(--space-sm);
+      }
+
+      .cp-add-tag input {
+        flex: 1;
+        padding: var(--space-xs) var(--space-sm);
+        font-size: 13px;
+      }
+
+      .cp-add-tag button {
+        padding: var(--space-xs) var(--space-sm);
+        font-size: 13px;
+      }
+
+      .cp-presets {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-xs);
+        margin-top: var(--space-xs);
+      }
+
+      .cp-preset-btn {
+        padding: 2px var(--space-sm);
+        font-size: 11px;
+        border-radius: var(--radius-xl);
+        border: 1px solid var(--color-border);
+        background: transparent;
+        cursor: pointer;
+        transition: all var(--transition-fast);
+      }
+
+      .cp-preset-btn:hover {
+        background: var(--color-bg-hover);
+      }
+
+      .cp-preset-btn.active {
+        background: rgba(99, 102, 241, 0.2);
+        border-color: var(--color-primary);
+      }
+
+      /* Section Editor */
+      .cp-section {
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-md);
+        padding: var(--space-md);
+        margin-top: var(--space-md);
+        background: var(--color-bg-card);
+        cursor: grab;
+        transition: transform var(--transition-normal), box-shadow var(--transition-normal);
+      }
+
+      .cp-section:active {
+        cursor: grabbing;
+      }
+
+      .cp-section.dragging {
+        opacity: 0.5;
+        transform: scale(1.02);
+        box-shadow: var(--shadow-modal);
+      }
+
+      .cp-section.drag-over {
+        border-color: var(--color-primary);
+        background: rgba(99, 102, 241, 0.05);
+      }
+
+      .cp-section-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: var(--space-sm);
+      }
+
+      .cp-section-title {
+        font-weight: 600;
+        font-size: 14px;
+        display: flex;
+        align-items: center;
+        gap: var(--space-sm);
+      }
+
+      .cp-section-drag {
+        cursor: grab;
+        opacity: 0.4;
+        font-size: 16px;
+      }
+
+      .cp-section-time {
+        font-size: 12px;
+        color: var(--color-text-muted);
+        margin-left: var(--space-sm);
+      }
+
+      .cp-section-actions {
+        display: flex;
+        gap: var(--space-xs);
+      }
+
+      .cp-section-move {
+        padding: var(--space-xs) var(--space-sm);
+        font-size: 12px;
+        background: var(--color-bg-hover);
+        border: none;
+        border-radius: var(--radius-sm);
+        cursor: pointer;
+      }
+
+      .cp-section-move:hover {
+        background: var(--color-border);
+      }
+
+      .cp-section-move:disabled {
+        opacity: 0.3;
+        cursor: not-allowed;
+      }
+
+      .cp-section-remove {
+        padding: var(--space-xs) var(--space-sm);
+        font-size: 12px;
+        background: rgba(239, 68, 68, 0.1);
+        border: none;
+        border-radius: var(--radius-sm);
+        cursor: pointer;
+        color: var(--color-error);
+      }
+
+      .cp-section-remove:hover {
+        background: rgba(239, 68, 68, 0.2);
+      }
 
       /* Timeline */
-      .cp-timeline { display: flex; align-items: center; gap: 4px; margin-top: 12px; padding: 10px; background: rgba(127,127,127,.05); border-radius: 6px; overflow-x: auto; }
-      .cp-timeline-segment { padding: 6px 12px; border-radius: 4px; font-size: 12px; white-space: nowrap; cursor: pointer; transition: all 0.2s; }
-      .cp-timeline-segment:hover { transform: translateY(-2px); }
-      .cp-timeline-segment.intro { background: rgba(100,200,100,.2); }
-      .cp-timeline-segment.verse { background: rgba(100,100,200,.2); }
-      .cp-timeline-segment.chorus { background: rgba(200,100,100,.2); }
-      .cp-timeline-segment.bridge { background: rgba(200,150,50,.2); }
-      .cp-timeline-segment.outro { background: rgba(150,100,200,.2); }
-      .cp-timeline-total { margin-left: auto; font-weight: 600; font-size: 13px; }
+      .cp-timeline {
+        display: flex;
+        align-items: center;
+        gap: var(--space-xs);
+        margin-top: var(--space-md);
+        padding: var(--space-sm);
+        background: var(--color-bg-card);
+        border-radius: var(--radius-md);
+        overflow-x: auto;
+      }
 
-      /* Genre presets */
-      .cp-genre-presets { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; padding: 12px; background: rgba(127,127,127,.03); border-radius: 8px; }
-      .cp-genre-btn { padding: 8px 16px; font-size: 13px; border-radius: 20px; border: 1px solid rgba(127,127,127,.3); background: transparent; cursor: pointer; width: auto; transition: all 0.2s; }
-      .cp-genre-btn:hover { background: rgba(127,127,127,.1); border-color: rgba(127,127,127,.5); }
-      .cp-genre-btn.active { background: rgba(100,100,255,.15); border-color: rgba(100,100,255,.4); }
+      .cp-timeline-segment {
+        padding: var(--space-xs) var(--space-sm);
+        border-radius: var(--radius-sm);
+        font-size: 12px;
+        white-space: nowrap;
+        cursor: pointer;
+        transition: all var(--transition-fast);
+      }
 
-      /* Inpainting Styles */
-      .inpaint-section { margin-top: 12px; padding: 12px; border: 1px solid rgba(127,127,127,.25); border-radius: 8px; }
-      .inpaint-section h4 { margin: 0 0 8px; font-size: 14px; }
-      .inpaint-warning { background: rgba(200,150,0,.1); border: 1px solid rgba(200,150,0,.3); border-radius: 6px; padding: 8px 12px; margin-bottom: 10px; font-size: 13px; }
-      .inpaint-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
-      .inpaint-actions button { width: auto; padding: 8px 14px; font-size: 13px; }
-      .inpaint-sections { margin-top: 10px; }
-      .inpaint-source-section { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border: 1px solid rgba(127,127,127,.15); border-radius: 6px; margin-top: 4px; font-size: 13px; }
-      .inpaint-source-section.keep { background: rgba(100,200,100,.08); }
-      .inpaint-source-section.regenerate { background: rgba(200,100,100,.08); }
-      .inpaint-toggle { cursor: pointer; padding: 4px 10px; border-radius: 4px; font-size: 12px; border: none; width: auto; }
-      .inpaint-toggle.keep { background: rgba(100,200,100,.2); }
-      .inpaint-toggle.regenerate { background: rgba(200,100,100,.2); }
-      .inpaint-editor { display: none; margin-top: 10px; padding: 12px; background: rgba(127,127,127,.05); border-radius: 8px; }
-      .inpaint-editor.visible { display: block; }
-      .inpaint-field { margin-top: 8px; }
-      .inpaint-field label { font-size: 13px; margin: 4px 0; }
-      .inpaint-field input, .inpaint-field textarea { font-size: 13px; padding: 8px; }
-      .store-toggle { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
-      .store-toggle input[type="checkbox"] { width: auto; }
+      .cp-timeline-segment:hover {
+        transform: translateY(-2px);
+      }
+
+      .cp-timeline-segment.intro { background: rgba(16, 185, 129, 0.2); }
+      .cp-timeline-segment.verse { background: rgba(99, 102, 241, 0.2); }
+      .cp-timeline-segment.chorus { background: rgba(239, 68, 68, 0.15); }
+      .cp-timeline-segment.bridge { background: rgba(245, 158, 11, 0.2); }
+      .cp-timeline-segment.outro { background: rgba(139, 92, 246, 0.2); }
+
+      .cp-timeline-total {
+        margin-left: auto;
+        font-weight: 600;
+        font-size: 13px;
+      }
+
+      /* ========================================
+         Player Card
+         ======================================== */
+      .player-info {
+        display: flex;
+        align-items: center;
+        gap: var(--space-sm);
+        margin-bottom: var(--space-md);
+        font-size: 13px;
+        color: var(--color-text-secondary);
+      }
+
+      audio {
+        width: 100%;
+        margin: var(--space-md) 0;
+        border-radius: var(--radius-md);
+      }
+
+      .player-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-sm);
+        align-items: center;
+      }
+
+      .player-actions a {
+        text-decoration: none;
+      }
+
+      .player-actions input {
+        width: 120px;
+      }
+
+      /* Stems Section */
+      .stems-section {
+        margin-top: var(--space-md);
+        padding: var(--space-md);
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-md);
+      }
+
+      .stems-section h4 {
+        margin: 0 0 var(--space-sm);
+        font-size: 14px;
+        color: var(--color-text-primary);
+      }
+
+      /* Inpainting Section */
+      .inpaint-section {
+        margin-top: var(--space-md);
+        padding: var(--space-md);
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-md);
+      }
+
+      .inpaint-section h4 {
+        margin: 0 0 var(--space-sm);
+        font-size: 14px;
+        color: var(--color-text-primary);
+      }
+
+      .inpaint-warning {
+        background: rgba(245, 158, 11, 0.1);
+        border: 1px solid rgba(245, 158, 11, 0.3);
+        border-radius: var(--radius-md);
+        padding: var(--space-sm) var(--space-md);
+        margin-bottom: var(--space-md);
+        font-size: 13px;
+        color: var(--color-warning);
+      }
+
+      .inpaint-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-sm);
+        margin-top: var(--space-sm);
+      }
+
+      .inpaint-sections {
+        margin-top: var(--space-md);
+      }
+
+      .inpaint-source-section {
+        display: flex;
+        align-items: center;
+        gap: var(--space-sm);
+        padding: var(--space-sm) var(--space-md);
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-md);
+        margin-top: var(--space-xs);
+        font-size: 13px;
+      }
+
+      .inpaint-source-section.keep {
+        background: rgba(16, 185, 129, 0.05);
+      }
+
+      .inpaint-source-section.regenerate {
+        background: rgba(239, 68, 68, 0.05);
+      }
+
+      .inpaint-toggle {
+        cursor: pointer;
+        padding: var(--space-xs) var(--space-sm);
+        border-radius: var(--radius-sm);
+        font-size: 12px;
+        border: none;
+      }
+
+      .inpaint-toggle.keep {
+        background: rgba(16, 185, 129, 0.2);
+        color: var(--color-success);
+      }
+
+      .inpaint-toggle.regenerate {
+        background: rgba(239, 68, 68, 0.2);
+        color: var(--color-error);
+      }
+
+      .inpaint-editor {
+        display: none;
+        margin-top: var(--space-md);
+        padding: var(--space-md);
+        background: var(--color-bg-hover);
+        border-radius: var(--radius-md);
+      }
+
+      .inpaint-editor.visible {
+        display: block;
+      }
+
+      .inpaint-field {
+        margin-top: var(--space-sm);
+      }
+
+      .inpaint-field label {
+        font-size: 13px;
+        margin: var(--space-xs) 0;
+      }
+
+      .inpaint-field input,
+      .inpaint-field textarea {
+        font-size: 13px;
+        padding: var(--space-sm);
+      }
+
+      .store-toggle {
+        display: flex;
+        align-items: center;
+        gap: var(--space-sm);
+        margin-top: var(--space-sm);
+      }
+
+      .store-toggle label {
+        margin: 0;
+        font-weight: normal;
+      }
+
+      /* ========================================
+         History Card
+         ======================================== */
+      .job-list {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-sm);
+      }
+
+      .job-item {
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-md);
+        padding: var(--space-md);
+        cursor: pointer;
+        transition: all var(--transition-fast);
+      }
+
+      .job-item:hover {
+        border-color: var(--color-primary);
+        background: rgba(99, 102, 241, 0.02);
+      }
+
+      .job-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: var(--space-xs);
+        font-size: 13px;
+      }
+
+      .job-status {
+        font-size: 12px;
+        padding: 2px var(--space-sm);
+        border-radius: var(--radius-xl);
+        background: var(--color-bg-hover);
+      }
+
+      .job-status.queued { color: var(--color-warning); }
+      .job-status.running { color: var(--color-primary); }
+      .job-status.succeeded { color: var(--color-success); }
+      .job-status.failed { color: var(--color-error); }
+
+      .job-item audio {
+        margin: var(--space-sm) 0 0;
+      }
+
+      /* ========================================
+         Duration Slider with Display
+         ======================================== */
+      .duration-control {
+        display: flex;
+        align-items: center;
+        gap: var(--space-md);
+      }
+
+      .duration-slider {
+        flex: 1;
+      }
+
+      .duration-value {
+        min-width: 60px;
+        text-align: right;
+        font-size: 14px;
+        font-weight: 500;
+        color: var(--color-primary);
+      }
+
+      /* ========================================
+         Quick Genre Tags
+         ======================================== */
+      .quick-tags-label {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--color-text-secondary);
+        margin-bottom: var(--space-sm);
+      }
+
+      /* ========================================
+         Loading Animation
+         ======================================== */
+      @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.5; }
+      }
+
+      .loading {
+        animation: pulse 1.5s ease-in-out infinite;
+      }
     </style>
   </head>
   <body>
-    <h1>you2music</h1>
-    <p class="muted">小范围使用：提示词 → 生成（可唱歌）→ 试听 → 下载。后端默认使用 ElevenLabs Music API。</p>
+    <div class="app-container">
+      <!-- ========================================
+           Header
+           ======================================== -->
+      <header class="app-header">
+        <h1 class="app-logo">you2music</h1>
+        <p class="app-tagline">简洁优雅的 AI 音乐创作工具</p>
+      </header>
 
-    <div class="row">
+      <!-- ========================================
+           Create Card
+           ======================================== -->
       <div class="card">
-        <label for="prompt">描述（Prompt）</label>
-        <textarea id="prompt" placeholder="例如：一首温柔的中文流行歌，女声演唱，副歌很抓耳，主题是夜晚的城市灯火，带一点合成器。"></textarea>
+        <div class="card-header">
+          <span class="card-icon">🎵</span>
+          <h2 class="card-title">开始创作</h2>
+        </div>
 
-        <div class="row">
-          <div>
+        <!-- Prompt Input -->
+        <div class="form-group">
+          <label for="prompt">描述你想创作的音乐</label>
+          <textarea id="prompt" placeholder="例如：一首温柔的中文流行歌，女声演唱，副歌很抓耳，主题是夜晚的城市灯火，带一点合成器。"></textarea>
+        </div>
+
+        <!-- Quick Genre Tags -->
+        <div class="quick-tags-label">快速风格标签</div>
+        <div class="tag-group" id="quickGenreTags">
+          <span class="tag" data-genre="流行歌曲，节奏明快，旋律优美">流行</span>
+          <span class="tag" data-genre="抒情慢歌，温柔感人，钢琴伴奏">抒情</span>
+          <span class="tag" data-genre="电子舞曲，节奏强劲，合成器音色">电子</span>
+          <span class="tag" data-genre="摇滚风格，电吉他，鼓点强烈">摇滚</span>
+          <span class="tag" data-genre="氛围音乐，空灵飘渺，适合冥想">氛围</span>
+        </div>
+
+        <!-- Duration Slider -->
+        <div class="form-group" style="margin-top: var(--space-lg);">
+          <label for="duration">时长</label>
+          <div class="duration-control">
+            <input type="range" id="duration" class="duration-slider" min="3" max="300" value="45">
+            <span class="duration-value" id="durationValue">45 秒</span>
+          </div>
+        </div>
+
+        <!-- Provider and Mode -->
+        <div class="form-row">
+          <div class="form-group">
             <label for="provider">Provider</label>
             <select id="provider"></select>
           </div>
-          <div>
+          <div class="form-group">
             <label for="advanced">模式</label>
             <select id="advanced">
               <option value="simple" selected>普通</option>
@@ -112,18 +1000,19 @@
           </div>
         </div>
 
-        <div id="providerFields" class="card" style="margin-top: 12px; padding: 12px;">
+        <!-- Provider Fields -->
+        <div id="providerFields" class="provider-fields">
           <div class="muted">Provider 参数加载中…</div>
         </div>
 
         <!-- Composition Plan Editor -->
         <div id="compositionPlanEditor" class="cp-editor">
-          <h4 style="margin: 0 0 12px;">Composition Plan 编辑器</h4>
-          <p class="muted" style="margin-bottom: 12px;">通过段落、风格、歌词精细控制生成结果。启用后将替代普通 Prompt。</p>
+          <h4>Composition Plan 编辑器</h4>
+          <p>通过段落、风格、歌词精细控制生成结果。启用后将替代普通 Prompt。</p>
 
           <!-- Genre Presets -->
           <div class="cp-genre-presets">
-            <span class="muted" style="margin-right: 8px;">快速模板：</span>
+            <span style="font-size: 13px; color: var(--color-text-secondary); margin-right: var(--space-sm);">快速模板：</span>
             <button class="cp-genre-btn" onclick="applyGenrePreset('pop')">流行歌曲</button>
             <button class="cp-genre-btn" onclick="applyGenrePreset('ballad')">抒情慢歌</button>
             <button class="cp-genre-btn" onclick="applyGenrePreset('electronic')">电子舞曲</button>
@@ -137,8 +1026,8 @@
               <label>正向风格（全局）</label>
               <div id="positiveStyles" class="cp-tags"></div>
               <div class="cp-add-tag">
-                <input type="text" id="positiveStyleInput" placeholder="例如：acoustic guitar, light synths" />
-                <button onclick="addPositiveStyle()">添加</button>
+                <input type="text" id="positiveStyleInput" placeholder="例如：acoustic guitar, light synths">
+                <button class="btn btn-secondary btn-sm" onclick="addPositiveStyle()">添加</button>
               </div>
               <div class="cp-presets">
                 <button class="cp-preset-btn" onclick="addPresetStyle('positive', 'acoustic guitar')">木吉他</button>
@@ -155,8 +1044,8 @@
               <label>负向风格（避免）</label>
               <div id="negativeStyles" class="cp-tags"></div>
               <div class="cp-add-tag">
-                <input type="text" id="negativeStyleInput" placeholder="例如：heavy metal, aggressive" />
-                <button onclick="addNegativeStyle()">添加</button>
+                <input type="text" id="negativeStyleInput" placeholder="例如：heavy metal, aggressive">
+                <button class="btn btn-secondary btn-sm" onclick="addNegativeStyle()">添加</button>
               </div>
               <div class="cp-presets">
                 <button class="cp-preset-btn" onclick="addPresetStyle('negative', 'heavy metal')">重金属</button>
@@ -168,28 +1057,26 @@
             </div>
           </div>
 
-          <div style="margin-top: 16px;">
+          <div style="margin-top: var(--space-md);">
             <div style="display: flex; justify-content: space-between; align-items: center;">
               <label style="margin: 0;">段落（可拖拽排序）</label>
-              <div style="display: flex; gap: 8px;">
-                <button onclick="addSection('intro')" style="width: auto; padding: 6px 12px; font-size: 13px;">+ Intro</button>
-                <button onclick="addSection('verse')" style="width: auto; padding: 6px 12px; font-size: 13px;">+ Verse</button>
-                <button onclick="addSection('chorus')" style="width: auto; padding: 6px 12px; font-size: 13px;">+ Chorus</button>
-                <button onclick="addSection()" style="width: auto; padding: 6px 14px; font-size: 13px;">+ 自定义</button>
+              <div style="display: flex; gap: var(--space-xs);">
+                <button class="btn btn-secondary btn-sm" onclick="addSection('intro')">+ Intro</button>
+                <button class="btn btn-secondary btn-sm" onclick="addSection('verse')">+ Verse</button>
+                <button class="btn btn-secondary btn-sm" onclick="addSection('chorus')">+ Chorus</button>
+                <button class="btn btn-secondary btn-sm" onclick="addSection()">+ 自定义</button>
               </div>
             </div>
             <div id="sectionsContainer"></div>
-
-            <!-- Timeline -->
             <div id="timeline" class="cp-timeline" style="display: none;">
-              <span class="muted">时间轴：</span>
+              <span style="font-size: 13px; color: var(--color-text-secondary);">时间轴：</span>
             </div>
           </div>
 
-          <div class="cp-row" style="margin-top: 12px;">
+          <div class="cp-row" style="margin-top: var(--space-md);">
             <div>
               <label>BPM（可选）</label>
-              <input type="number" id="cpBpm" min="40" max="240" placeholder="例如：120" />
+              <input type="number" id="cpBpm" min="40" max="240" placeholder="例如：120">
               <div class="cp-presets">
                 <button class="cp-preset-btn" onclick="setBpm(60)">慢板 60</button>
                 <button class="cp-preset-btn" onclick="setBpm(90)">中板 90</button>
@@ -199,7 +1086,7 @@
             </div>
             <div>
               <label>调式（可选）</label>
-              <input type="text" id="cpKey" placeholder="例如：C major, A minor" />
+              <input type="text" id="cpKey" placeholder="例如：C major, A minor">
               <div class="cp-presets">
                 <button class="cp-preset-btn" onclick="setKey('C major')">C 大调</button>
                 <button class="cp-preset-btn" onclick="setKey('A minor')">A 小调</button>
@@ -210,70 +1097,90 @@
           </div>
         </div>
 
-        <label for="lyrics">歌词（可选，普通模式下会注入到 Prompt 里）</label>
-        <textarea id="lyrics" placeholder="可粘贴歌词。建议分段：主歌/副歌/桥段。"></textarea>
-
-        <div class="row">
-          <div>
-            <label for="duration">时长（秒）</label>
-            <input id="duration" type="number" min="3" max="300" value="45" />
+        <!-- Additional Options -->
+        <div class="form-row" style="margin-top: var(--space-md);">
+          <div class="form-group">
+            <label for="lyrics">歌词（可选）</label>
+            <textarea id="lyrics" style="min-height: 60px;" placeholder="可粘贴歌词。建议分段：主歌/副歌/桥段。"></textarea>
           </div>
-          <div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
             <label for="vocals">人声唱歌</label>
             <select id="vocals">
               <option value="on" selected>开启（更像歌曲）</option>
               <option value="off">关闭（纯器乐）</option>
             </select>
           </div>
-        </div>
-
-        <div class="row">
-          <div>
+          <div class="form-group">
             <label for="seed">Seed（可选，留空=随机）</label>
-            <input id="seed" type="number" min="0" />
-          </div>
-          <div>
-            <label for="modelId">model_id（可选）</label>
-            <input id="modelId" placeholder="例如 music_v1（留空使用默认）" />
+            <input type="number" id="seed" min="0" placeholder="留空则随机">
           </div>
         </div>
 
-        <div style="margin-top: 14px;" class="actions">
-          <button id="generateBtn">生成</button>
-          <button id="generateManyBtn">生成多候选</button>
-          <select id="count" style="width: 160px;">
+        <div class="form-row">
+          <div class="form-group">
+            <label for="modelId">model_id（可选）</label>
+            <input type="text" id="modelId" placeholder="例如 music_v1">
+          </div>
+        </div>
+
+        <!-- Actions -->
+        <div class="form-actions">
+          <button id="generateBtn" class="btn btn-primary btn-lg">✨ 开始创作</button>
+          <button id="generateManyBtn" class="btn btn-secondary">生成多候选</button>
+          <select id="count" style="width: 80px;">
             <option value="2" selected>2 首</option>
             <option value="3">3 首</option>
             <option value="4">4 首</option>
           </select>
-          <span id="status" class="muted"></span>
+          <span id="status" class="status-text"></span>
         </div>
-        <div id="error" class="err"></div>
+        <div id="error" class="error-message" style="display: none;"></div>
       </div>
 
+      <!-- ========================================
+           Player Card
+           ======================================== -->
       <div class="card">
-        <h3 style="margin-top:0;">结果</h3>
-        <div class="muted">当前 Job：<span id="jobId" class="mono">-</span></div>
+        <div class="card-header">
+          <span class="card-icon">🎧</span>
+          <h2 class="card-title">播放器</h2>
+        </div>
+
+        <div class="player-info">
+          <span>当前 Job：</span>
+          <span id="jobId" class="mono">-</span>
+        </div>
+
         <audio id="player" controls></audio>
-        <div class="actions" style="margin-top: 12px; flex-wrap: wrap;">
-          <a id="downloadLink" href="#" style="display:none;">下载音频</a>
-          <button id="refreshBtn" style="display:none;">刷新状态</button>
-          <input id="extendSec" type="number" min="3" max="180" value="15" style="width: 140px;" />
-          <button id="extendBtn" style="display:none;">延长当前</button>
+
+        <div class="player-actions">
+          <a id="downloadLink" href="#" style="display: none;">
+            <button class="btn btn-primary btn-sm">📥 下载音频</button>
+          </a>
+          <button id="refreshBtn" class="btn btn-secondary btn-sm" style="display: none;">🔄 刷新状态</button>
+          <input id="extendSec" type="number" min="3" max="180" value="15" style="width: 100px;">
+          <button id="extendBtn" class="btn btn-secondary btn-sm" style="display: none;">⏩ 延长</button>
         </div>
 
         <!-- Stems Section -->
-        <div id="stemsSection" style="margin-top: 12px; display: none;">
-          <div class="muted" style="margin-bottom: 6px;">分轨下载（人声/伴奏）：</div>
-          <div class="actions">
-            <button id="getStemsBtn" style="width: auto; padding: 8px 14px;">获取分轨</button>
-            <a id="vocalsLink" href="#" style="display:none;">下载人声</a>
-            <a id="instrumentalLink" href="#" style="display:none;">下载伴奏</a>
-            <span id="stemsStatus" class="muted"></span>
+        <div id="stemsSection" class="stems-section" style="display: none;">
+          <h4>分轨下载（人声/伴奏）</h4>
+          <div class="player-actions" style="margin-top: var(--space-sm);">
+            <button id="getStemsBtn" class="btn btn-secondary btn-sm">获取分轨</button>
+            <a id="vocalsLink" href="#" style="display: none;">
+              <button class="btn btn-outline btn-sm">下载人声</button>
+            </a>
+            <a id="instrumentalLink" href="#" style="display: none;">
+              <button class="btn btn-outline btn-sm">下载伴奏</button>
+            </a>
+            <span id="stemsStatus" class="status-text"></span>
           </div>
         </div>
 
-        <!-- Inpainting Section (Enterprise-only) -->
+        <!-- Inpainting Section -->
         <div id="inpaintSection" class="inpaint-section" style="display: none;">
           <h4>Inpainting 编辑（Enterprise 功能）</h4>
           <div class="inpaint-warning">
@@ -281,41 +1188,55 @@
           </div>
 
           <div class="store-toggle">
-            <input type="checkbox" id="storeForInpainting" />
-            <label for="storeForInpainting" style="margin: 0; font-weight: normal;">生成时存储以支持后续 Inpainting</label>
+            <input type="checkbox" id="storeForInpainting">
+            <label for="storeForInpainting">生成时存储以支持后续 Inpainting</label>
           </div>
 
           <div class="inpaint-actions">
-            <button id="generateStoreBtn">生成并存储</button>
-            <button id="openInpaintEditorBtn" style="display: none;">编辑段落</button>
+            <button id="generateStoreBtn" class="btn btn-secondary btn-sm">生成并存储</button>
+            <button id="openInpaintEditorBtn" class="btn btn-secondary btn-sm" style="display: none;">编辑段落</button>
           </div>
 
-          <!-- Inpaint Editor -->
           <div id="inpaintEditor" class="inpaint-editor">
-            <div class="muted" style="margin-bottom: 8px;">选择要保留或重新生成的段落。保留的段落将从原曲引用，其他段落将重新生成。</div>
+            <p style="font-size: 13px; color: var(--color-text-secondary); margin-bottom: var(--space-sm);">
+              选择要保留或重新生成的段落。保留的段落将从原曲引用，其他段落将重新生成。
+            </p>
             <div id="inpaintSections" class="inpaint-sections"></div>
             <div class="inpaint-field">
               <label>新增段落歌词（可选）</label>
               <textarea id="inpaintNewLyrics" placeholder="在新段落添加歌词..."></textarea>
             </div>
-            <div class="inpaint-actions" style="margin-top: 12px;">
-              <button id="executeInpaintBtn">执行 Inpainting</button>
-              <span id="inpaintStatus" class="muted"></span>
+            <div class="inpaint-actions" style="margin-top: var(--space-md);">
+              <button id="executeInpaintBtn" class="btn btn-primary btn-sm">执行 Inpainting</button>
+              <span id="inpaintStatus" class="status-text"></span>
             </div>
           </div>
         </div>
 
-        <div style="margin-top: 14px;">
-          <div class="muted">候选列表（点击可切换播放）</div>
-          <div id="list"></div>
+        <div class="info-message">
+          💡 提示：如果你想更稳定地产生"唱歌"，请在 Prompt 里明确写：<span class="mono">with vocals, singing</span>，并提供歌词段落。
         </div>
-        <div class="muted" style="margin-top: 12px;">
-          提示：如果你想更稳定地产生"唱歌"，请在 Prompt 里明确写：<span class="mono">with vocals, singing</span>，并提供歌词段落。
+      </div>
+
+      <!-- ========================================
+           History Card
+           ======================================== -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-icon">📜</span>
+          <h2 class="card-title">生成记录</h2>
         </div>
+
+        <p class="status-text" style="margin-bottom: var(--space-md);">点击可切换播放</p>
+
+        <div id="list" class="job-list"></div>
       </div>
     </div>
 
     <script>
+      // ========================================
+      // DOM References
+      // ========================================
       const statusEl = document.getElementById("status");
       const errorEl = document.getElementById("error");
       const jobIdEl = document.getElementById("jobId");
@@ -333,7 +1254,13 @@
       const advancedEl = document.getElementById("advanced");
       const providerFieldsEl = document.getElementById("providerFields");
       const cpEditorEl = document.getElementById("compositionPlanEditor");
+      const durationSlider = document.getElementById("duration");
+      const durationValue = document.getElementById("durationValue");
+      const promptEl = document.getElementById("prompt");
 
+      // ========================================
+      // State
+      // ========================================
       let currentJobId = null;
       let currentJobs = [];
       let currentJobSongId = null;
@@ -353,13 +1280,25 @@
       // Drag state
       let draggedSection = null;
 
+      // Inpaint state
+      let inpaintState = {
+        sourceJobId: null,
+        sourceSongId: null,
+        sourceSections: [],
+        totalDurationMs: 0
+      };
+
+      // ========================================
+      // Helper Functions
+      // ========================================
       function setStatus(msg, kind) {
         statusEl.textContent = msg || "";
-        statusEl.className = kind === "ok" ? "muted ok" : "muted";
+        statusEl.className = kind === "ok" ? "status-text success" : (kind === "err" ? "status-text error" : "status-text");
       }
 
       function setError(msg) {
         errorEl.textContent = msg || "";
+        errorEl.style.display = msg ? "block" : "none";
       }
 
       async function fetchJson(url, opts) {
@@ -409,7 +1348,35 @@
         return raw === "" ? null : raw;
       }
 
+      // ========================================
+      // Duration Slider
+      // ========================================
+      durationSlider.addEventListener("input", () => {
+        durationValue.textContent = durationSlider.value + " 秒";
+      });
+
+      // ========================================
+      // Quick Genre Tags
+      // ========================================
+      document.getElementById("quickGenreTags").addEventListener("click", (e) => {
+        const tag = e.target.closest(".tag");
+        if (tag) {
+          const genre = tag.dataset.genre;
+          if (promptEl.value.trim()) {
+            promptEl.value = promptEl.value.trim() + "，" + genre;
+          } else {
+            promptEl.value = genre;
+          }
+          // Visual feedback
+          document.querySelectorAll("#quickGenreTags .tag").forEach(t => t.classList.remove("active"));
+          tag.classList.add("active");
+          setTimeout(() => tag.classList.remove("active"), 500);
+        }
+      });
+
+      // ========================================
       // Composition Plan Functions
+      // ========================================
       function renderTags(containerId, tags, removeFn) {
         const container = document.getElementById(containerId);
         container.innerHTML = tags.map((tag, i) =>
@@ -524,12 +1491,11 @@
       function renderSections() {
         const container = document.getElementById("sectionsContainer");
         if (cpState.sections.length === 0) {
-          container.innerHTML = '<p class="muted" style="margin-top: 12px;">点击上方按钮添加段落（Intro/Verse/Chorus 等）</p>';
+          container.innerHTML = '<p style="margin-top: var(--space-md); font-size: 13px; color: var(--color-text-muted);">点击上方按钮添加段落（Intro/Verse/Chorus 等）</p>';
           updateTimeline();
           return;
         }
 
-        // Calculate start times
         let startMs = 0;
         const sectionsWithTime = cpState.sections.map(sec => {
           const info = { ...sec, startMs };
@@ -559,8 +1525,8 @@
                 <label>类型/风格</label>
                 <div id="sectionStyles${i}" class="cp-tags"></div>
                 <div class="cp-add-tag">
-                  <input type="text" id="sectionStyleInput${i}" placeholder="例如：energetic, emotional" onkeypress="if(event.key==='Enter'){event.preventDefault();addSectionStyle(${i});}" />
-                  <button onclick="addSectionStyle(${i})">添加</button>
+                  <input type="text" id="sectionStyleInput${i}" placeholder="例如：energetic, emotional" onkeypress="if(event.key==='Enter'){event.preventDefault();addSectionStyle(${i});}">
+                  <button class="btn btn-secondary btn-sm" onclick="addSectionStyle(${i})">添加</button>
                 </div>
                 <div class="cp-presets">
                   ${sectionTypes.map(t => `<button class="cp-preset-btn ${sectionType === t ? 'active' : ''}" onclick="setSectionType(${i}, '${t}')">${t.charAt(0).toUpperCase() + t.slice(1)}</button>`).join('')}
@@ -568,25 +1534,21 @@
               </div>
               <div>
                 <label>时长（秒）</label>
-                <input type="number" min="3" max="120" value="${sec.duration_ms ? sec.duration_ms / 1000 : ''}" onchange="updateSectionDuration(${i}, this.value)" placeholder="留空则自动" />
+                <input type="number" min="3" max="120" value="${sec.duration_ms ? sec.duration_ms / 1000 : ''}" onchange="updateSectionDuration(${i}, this.value)" placeholder="留空则自动">
               </div>
             </div>
-            <div style="margin-top: 8px;">
+            <div style="margin-top: var(--space-sm);">
               <label>歌词（可选）</label>
               <textarea style="min-height: 60px;" placeholder="在此段歌词..." onchange="updateSectionLyrics(${i}, this.value)">${sec.lyrics || ''}</textarea>
             </div>
           </div>
         `}).join("");
 
-        // Render tags for each section
         cpState.sections.forEach((sec, i) => {
           renderSectionTags(i);
         });
 
-        // Setup drag and drop
         setupDragAndDrop();
-
-        // Update timeline
         updateTimeline();
       }
 
@@ -649,7 +1611,7 @@
         }).join("");
 
         timeline.innerHTML = `
-          <span class="muted">时间轴：</span>
+          <span style="font-size: 13px; color: var(--color-text-secondary);">时间轴：</span>
           ${segments}
           <span class="cp-timeline-total">总计: ${formatTime(getTotalDuration())}</span>
         `;
@@ -659,19 +1621,16 @@
         const sections = document.querySelectorAll('.cp-section');
         if (sections[i]) {
           sections[i].scrollIntoView({ behavior: 'smooth', block: 'center' });
-          sections[i].style.outline = '2px solid #4a90d9';
+          sections[i].style.outline = '2px solid var(--color-primary)';
           setTimeout(() => { sections[i].style.outline = ''; }, 1000);
         }
       }
 
       function setSectionType(i, type) {
         const sec = cpState.sections[i];
-        // Remove existing type
         const typeOrder = ['intro', 'verse', 'chorus', 'bridge', 'outro'];
         sec.local_styles = sec.local_styles.filter(s => !typeOrder.includes(s));
-        // Add new type at beginning
         sec.local_styles.unshift(type);
-        // Set default duration if not set
         if (!sec.duration_ms) {
           sec.duration_ms = getDefaultDurationForType(type);
         }
@@ -697,17 +1656,9 @@
       function renderSectionTags(i) {
         const container = document.getElementById(`sectionStyles${i}`);
         if (!container) return;
-        const typeOrder = ['intro', 'verse', 'chorus', 'bridge', 'outro'];
         container.innerHTML = cpState.sections[i].local_styles.map((tag, j) =>
-          `<span class="cp-tag ${typeOrder.includes(tag) ? '' : ''}">${tag}<span class="cp-tag-remove" onclick="removeSectionStyle(${i}, ${j})">×</span></span>`
+          `<span class="cp-tag">${tag}<span class="cp-tag-remove" onclick="removeSectionStyle(${i}, ${j})">×</span></span>`
         ).join("");
-      }
-
-      function addSectionPreset(i, preset) {
-        if (!cpState.sections[i].local_styles.includes(preset)) {
-          cpState.sections[i].local_styles.push(preset);
-          renderSectionTags(i);
-        }
       }
 
       function updateSectionDuration(i, val) {
@@ -720,7 +1671,6 @@
         cpState.sections[i].lyrics = val.trim() || "";
       }
 
-      // Genre presets
       function applyGenrePreset(genre) {
         clearCompositionPlan();
         const presets = {
@@ -857,11 +1807,13 @@
           const raw = (input.type === "checkbox") ? input.checked : input.value;
           params[field.key] = parseFieldValue(field, raw);
         }
-        // Normalize: if "use_composition_plan" false, drop composition_plan_json
         if (!params.use_composition_plan) delete params.composition_plan_json;
         return params;
       }
 
+      // ========================================
+      // Provider Fields
+      // ========================================
       function renderProviderFields() {
         const providerId = getSelectedProviderId();
         const meta = getProviderMeta(providerId);
@@ -879,7 +1831,6 @@
         }
         const advancedMode = advancedEl.value === "advanced";
 
-        // Show/hide Composition Plan Editor
         if (providerId === "elevenlabs" && advancedMode) {
           cpEditorEl.classList.add("visible");
         } else {
@@ -897,11 +1848,11 @@
           }
         }
 
-        let html = `<div class="muted">${meta.description || ""}</div>`;
+        let html = `<div style="font-size: 13px; color: var(--color-text-secondary); margin-bottom: var(--space-sm);">${meta.description || ""}</div>`;
         if (meta.ready === false) {
           html += `<div class="err">未配置该 provider 的密钥：<span class="mono">${JSON.stringify(meta.missing_env || [])}</span></div>`;
         }
-        html += `<div class="muted" style="margin-top:6px;">Capabilities: <span class="mono">${JSON.stringify(meta.capabilities || {})}</span></div>`;
+        html += `<div style="font-size: 12px; color: var(--color-text-muted); margin-top: var(--space-xs);">Capabilities: <span class="mono">${JSON.stringify(meta.capabilities || {})}</span></div>`;
 
         const fields = (meta.fields || []).filter(f => advancedMode || !f.advanced);
         for (const field of fields) {
@@ -916,18 +1867,18 @@
             html += `</select>`;
           } else if (field.kind === "boolean") {
             const checked = field.default ? "checked" : "";
-            html += `<div><input type="checkbox" data-key="${field.key}" ${checked} style="width:auto; transform: translateY(1px);"> <span class="muted">${field.help || ""}</span></div>`;
+            html += `<div style="display: flex; align-items: center; gap: var(--space-sm); margin-top: var(--space-xs);"><input type="checkbox" data-key="${field.key}" ${checked}> <span style="font-size: 13px; color: var(--color-text-secondary);">${field.help || ""}</span></div>`;
             continue;
           } else if (field.kind === "json") {
             html += `<textarea data-key="${field.key}" placeholder="粘贴 JSON（高级）"></textarea>`;
           } else if (field.kind === "integer") {
-            html += `<input type="number" step="1" data-key="${field.key}" value="${field.default ?? ""}" />`;
+            html += `<input type="number" step="1" data-key="${field.key}" value="${field.default ?? ""}">`;
           } else if (field.kind === "number") {
-            html += `<input type="number" step="any" data-key="${field.key}" value="${field.default ?? ""}" />`;
+            html += `<input type="number" step="any" data-key="${field.key}" value="${field.default ?? ""}">`;
           } else {
-            html += `<input type="text" data-key="${field.key}" value="${field.default ?? ""}" />`;
+            html += `<input type="text" data-key="${field.key}" value="${field.default ?? ""}">`;
           }
-          if (field.help) html += `<div class="muted">${field.help}</div>`;
+          if (field.help) html += `<div style="font-size: 12px; color: var(--color-text-muted); margin-top: var(--space-xs);">${field.help}</div>`;
         }
 
         providerFieldsEl.innerHTML = html;
@@ -958,28 +1909,26 @@
         }
       }
 
+      // ========================================
+      // Job List Rendering
+      // ========================================
       function renderList(jobs) {
         listEl.innerHTML = "";
         if (!jobs || jobs.length === 0) return;
 
         for (const j of jobs) {
           const row = document.createElement("div");
-          row.style.border = "1px solid rgba(127,127,127,.25)";
-          row.style.borderRadius = "10px";
-          row.style.padding = "10px";
-          row.style.marginTop = "8px";
-          row.style.cursor = "pointer";
+          row.className = "job-item";
 
-          const title = document.createElement("div");
-          title.className = "muted";
-          title.innerHTML = `Job：<span class="mono">${j.job_id}</span>  状态：<span class="mono">${j.status}</span>`;
-          row.appendChild(title);
+          const header = document.createElement("div");
+          header.className = "job-header";
+          header.innerHTML = `<span class="mono" style="font-size: 12px;">${j.job_id}</span><span class="job-status ${j.status}">${j.status}</span>`;
+          row.appendChild(header);
 
           if (j.audio_url) {
             const a = document.createElement("audio");
             a.controls = true;
             a.src = j.audio_url;
-            a.style.marginTop = "8px";
             row.appendChild(a);
           }
 
@@ -990,8 +1939,8 @@
             if (j.audio_url) {
               player.src = j.audio_url;
               downloadLink.href = j.audio_url;
-              downloadLink.style.display = "inline-block";
-              extendBtn.style.display = "inline-block";
+              downloadLink.style.display = "inline";
+              extendBtn.style.display = "inline-flex";
             } else {
               downloadLink.style.display = "none";
               extendBtn.style.display = "none";
@@ -1002,6 +1951,9 @@
         }
       }
 
+      // ========================================
+      // Generate Functions
+      // ========================================
       async function startGenerate() {
         setError("");
         setStatus("提交任务中…");
@@ -1021,7 +1973,6 @@
         const providerId = getSelectedProviderId();
         const advancedMode = advancedEl.value === "advanced";
 
-        // Build payload
         const payload = {
           prompt,
           lyrics: lyrics || null,
@@ -1033,16 +1984,14 @@
           provider_params: collectProviderParams()
         };
 
-        // If using Composition Plan (ElevenLabs + advanced mode)
         if (providerId === "elevenlabs" && advancedMode) {
           const plan = buildCompositionPlan();
           if (plan) {
             payload.provider_params = payload.provider_params || {};
             payload.provider_params.use_composition_plan = true;
             payload.provider_params.composition_plan_json = plan;
-            // When using composition plan, prompt is optional
             if (!prompt) {
-              payload.prompt = ""; // Will be ignored by backend
+              payload.prompt = "";
             }
           }
         }
@@ -1067,7 +2016,7 @@
         currentJobId = data.job_id;
         currentJobs = [currentJobId];
         jobIdEl.textContent = currentJobId;
-        refreshBtn.style.display = "inline-block";
+        refreshBtn.style.display = "inline-flex";
         setStatus("已提交，生成中…");
 
         if (pollTimer) clearInterval(pollTimer);
@@ -1103,10 +2052,9 @@
           if (current && current.audio_url) {
             player.src = current.audio_url;
             downloadLink.href = current.audio_url;
-            downloadLink.style.display = "inline-block";
-            extendBtn.style.display = "inline-block";
+            downloadLink.style.display = "inline";
+            extendBtn.style.display = "inline-flex";
 
-            // Show stems section for ElevenLabs jobs with song_id
             if (currentJobProvider === "elevenlabs" && currentJobSongId) {
               stemsSection.style.display = "block";
               vocalsLink.style.display = "none";
@@ -1140,11 +2088,11 @@
           const data = await fetchJson(`/api/stems/${currentJobId}`);
           if (data.vocals_url) {
             vocalsLink.href = data.vocals_url;
-            vocalsLink.style.display = "inline-block";
+            vocalsLink.style.display = "inline";
           }
           if (data.instrumental_url) {
             instrumentalLink.href = data.instrumental_url;
-            instrumentalLink.style.display = "inline-block";
+            instrumentalLink.style.display = "inline";
           }
           stemsStatus.textContent = data.vocals_url || data.instrumental_url ? "" : "无可用的分轨";
         } catch (e) {
@@ -1207,7 +2155,7 @@
         currentJobs = data.job_ids || [];
         currentJobId = currentJobs[0] || null;
         jobIdEl.textContent = currentJobId || "-";
-        refreshBtn.style.display = "inline-block";
+        refreshBtn.style.display = "inline-flex";
         setStatus("已提交，生成中…");
 
         if (pollTimer) clearInterval(pollTimer);
@@ -1238,7 +2186,7 @@
         currentJobs = [newJobId];
         currentJobId = newJobId;
         jobIdEl.textContent = newJobId;
-        refreshBtn.style.display = "inline-block";
+        refreshBtn.style.display = "inline-flex";
         extendBtn.style.display = "none";
 
         if (pollTimer) clearInterval(pollTimer);
@@ -1246,49 +2194,9 @@
         await refreshJobs(currentJobs);
       }
 
-      document.getElementById("generateBtn").addEventListener("click", () => {
-        startGenerate().catch(e => {
-          setError(String(e));
-          setStatus("");
-        });
-      });
-
-      providerEl.addEventListener("change", () => renderProviderFields());
-      advancedEl.addEventListener("change", () => renderProviderFields());
-
-      initProviders();
-
-      document.getElementById("generateManyBtn").addEventListener("click", () => {
-        startGenerateMany().catch(e => {
-          setError(String(e));
-          setStatus("");
-        });
-      });
-
-      refreshBtn.addEventListener("click", () => {
-        if (!currentJobs || currentJobs.length === 0) return;
-        refreshJobs(currentJobs).catch(e => setError(String(e)));
-      });
-
-      extendBtn.addEventListener("click", () => {
-        extendCurrent().catch(e => setError(String(e)));
-      });
-
-      getStemsBtn.addEventListener("click", () => {
-        getStems().catch(e => {
-          stemsStatus.textContent = "获取失败: " + String(e);
-        });
-      });
-
-      // Enter key support for style inputs
-      document.getElementById("positiveStyleInput").addEventListener("keypress", (e) => {
-        if (e.key === "Enter") { e.preventDefault(); addPositiveStyle(); }
-      });
-      document.getElementById("negativeStyleInput").addEventListener("keypress", (e) => {
-        if (e.key === "Enter") { e.preventDefault(); addNegativeStyle(); }
-      });
-
-      // Inpainting UI
+      // ========================================
+      // Inpainting Functions
+      // ========================================
       const inpaintSection = document.getElementById("inpaintSection");
       const inpaintEditor = document.getElementById("inpaintEditor");
       const inpaintSections = document.getElementById("inpaintSections");
@@ -1298,18 +2206,10 @@
       const inpaintStatus = document.getElementById("inpaintStatus");
       const storeForInpaintingCb = document.getElementById("storeForInpainting");
 
-      // Inpaint state: track which sections to keep/regenerate
-      let inpaintState = {
-        sourceJobId: null,
-        sourceSongId: null,
-        sourceSections: [],  // [{start_ms, end_ms, name, keep: true/false}]
-        totalDurationMs: 0
-      };
-
       function showInpaintSection() {
         if (currentJobProvider === "elevenlabs" && currentJobSongId) {
           inpaintSection.style.display = "block";
-          openInpaintEditorBtn.style.display = "inline-block";
+          openInpaintEditorBtn.style.display = "inline-flex";
         } else {
           inpaintSection.style.display = "none";
           inpaintEditor.classList.remove("visible");
@@ -1365,7 +2265,7 @@
           currentJobId = data.job_id;
           currentJobs = [currentJobId];
           jobIdEl.textContent = currentJobId;
-          refreshBtn.style.display = "inline-block";
+          refreshBtn.style.display = "inline-flex";
           setStatus("已提交，生成并存储中…");
 
           if (pollTimer) clearInterval(pollTimer);
@@ -1386,11 +2286,9 @@
         inpaintState.sourceJobId = currentJobId;
         inpaintState.sourceSongId = currentJobSongId;
 
-        // Get duration from current job
         const durationSec = parseInt(document.getElementById("duration").value, 10) || 45;
         inpaintState.totalDurationMs = durationSec * 1000;
 
-        // Initialize sections (simple: divide into 4 equal parts)
         const numSections = 4;
         const sectionDuration = inpaintState.totalDurationMs / numSections;
         const sectionNames = ["Intro", "Verse", "Chorus", "Outro"];
@@ -1401,7 +2299,7 @@
             start_ms: Math.round(i * sectionDuration),
             end_ms: Math.round((i + 1) * sectionDuration),
             name: sectionNames[i] || `段落 ${i + 1}`,
-            keep: true  // Default: keep all
+            keep: true
           });
         }
 
@@ -1428,7 +2326,6 @@
         renderInpaintSections();
       }
 
-      // Make toggleInpaintSection globally accessible
       window.toggleInpaintSection = toggleInpaintSection;
 
       async function executeInpaint() {
@@ -1440,7 +2337,6 @@
         inpaintStatus.textContent = "执行 Inpainting 中…";
         executeInpaintBtn.disabled = true;
 
-        // Build composition plan with source_from for kept sections
         const sections = [];
         const newLyrics = document.getElementById("inpaintNewLyrics").value.trim();
 
@@ -1450,7 +2346,6 @@
           };
 
           if (sec.keep) {
-            // Keep from source
             section.source_from = {
               song_id: inpaintState.sourceSongId,
               range: {
@@ -1459,7 +2354,6 @@
               }
             };
           } else {
-            // Regenerate: add local styles and optional lyrics
             section.local_styles = ["energetic"];
             if (newLyrics) {
               section.lyrics = newLyrics;
@@ -1489,7 +2383,7 @@
           currentJobs = [newJobId];
           currentJobId = newJobId;
           jobIdEl.textContent = newJobId;
-          refreshBtn.style.display = "inline-block";
+          refreshBtn.style.display = "inline-flex";
           setStatus("Inpainting 任务已提交");
           inpaintStatus.textContent = "任务已提交，生成中…";
 
@@ -1505,6 +2399,50 @@
           executeInpaintBtn.disabled = false;
         }
       }
+
+      // ========================================
+      // Event Listeners
+      // ========================================
+      document.getElementById("generateBtn").addEventListener("click", () => {
+        startGenerate().catch(e => {
+          setError(String(e));
+          setStatus("");
+        });
+      });
+
+      providerEl.addEventListener("change", () => renderProviderFields());
+      advancedEl.addEventListener("change", () => renderProviderFields());
+
+      initProviders();
+
+      document.getElementById("generateManyBtn").addEventListener("click", () => {
+        startGenerateMany().catch(e => {
+          setError(String(e));
+          setStatus("");
+        });
+      });
+
+      refreshBtn.addEventListener("click", () => {
+        if (!currentJobs || currentJobs.length === 0) return;
+        refreshJobs(currentJobs).catch(e => setError(String(e)));
+      });
+
+      extendBtn.addEventListener("click", () => {
+        extendCurrent().catch(e => setError(String(e)));
+      });
+
+      getStemsBtn.addEventListener("click", () => {
+        getStems().catch(e => {
+          stemsStatus.textContent = "获取失败: " + String(e);
+        });
+      });
+
+      document.getElementById("positiveStyleInput").addEventListener("keypress", (e) => {
+        if (e.key === "Enter") { e.preventDefault(); addPositiveStyle(); }
+      });
+      document.getElementById("negativeStyleInput").addEventListener("keypress", (e) => {
+        if (e.key === "Enter") { e.preventDefault(); addNegativeStyle(); }
+      });
 
       generateStoreBtn.addEventListener("click", () => {
         generateWithStore().catch(e => {
