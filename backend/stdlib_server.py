@@ -38,6 +38,11 @@ def _error(handler: BaseHTTPRequestHandler, status: int, msg: str) -> None:
     _json_response(handler, status, {"error": msg})
 
 
+def _is_minimax_music_model(version: str) -> bool:
+    """Check if the Replicate model version is a MiniMax music model."""
+    return version.lower().startswith("minimax/music")
+
+
 def _build_prompt(*, base_prompt: str, lyrics: str | None, vocals: bool) -> str:
     parts: list[str] = [base_prompt.strip()]
     if vocals:
@@ -105,6 +110,7 @@ def _validate_generate(payload: dict[str, Any]) -> tuple[str, dict[str, Any]]:
         "model_id": model_id,
         "provider": provider,
         "provider_params": provider_params,
+        "lyrics": lyrics,  # Pass lyrics to run_job for MiniMax music
     }
     raw_prompt = bool(provider_params.get("raw_prompt", False))
     if raw_prompt:
@@ -272,17 +278,38 @@ class AppState:
                     timeout_s=self.settings.request_timeout_s,
                 )
                 version = str(provider_params.get("version") or "stability-ai/stable-audio-2.5")
-                duration = provider_params.get("duration")
-                if duration is None:
-                    duration = int(params["duration_sec"])
-                inp: dict[str, Any] = {"prompt": prompt, "duration": int(duration)}
-                seed = provider_params.get("seed", params.get("seed"))
-                if seed is not None:
-                    inp["seed"] = int(seed)
-                if provider_params.get("steps") is not None:
-                    inp["steps"] = int(provider_params["steps"])
-                if provider_params.get("cfg_scale") is not None:
-                    inp["cfg_scale"] = float(provider_params["cfg_scale"])
+
+                # MiniMax music models have different input parameters
+                is_minimax_music = _is_minimax_music_model(version)
+                if is_minimax_music:
+                    # MiniMax music: prompt, lyrics, style_strength (no duration)
+                    inp: dict[str, Any] = {"prompt": prompt}
+                    # Add lyrics if provided
+                    lyrics = params.get("lyrics") or provider_params.get("lyrics")
+                    if lyrics and str(lyrics).strip():
+                        inp["lyrics"] = str(lyrics).strip()
+                    # Add style_strength if provided (0.0-1.0)
+                    if provider_params.get("style_strength") is not None:
+                        inp["style_strength"] = float(provider_params["style_strength"])
+                    seed = provider_params.get("seed", params.get("seed"))
+                    if seed is not None:
+                        inp["seed"] = int(seed)
+                    out_ext = "mp3"  # MiniMax outputs mp3
+                else:
+                    # Standard Replicate models (Stable Audio, etc.)
+                    duration = provider_params.get("duration")
+                    if duration is None:
+                        duration = int(params["duration_sec"])
+                    inp = {"prompt": prompt, "duration": int(duration)}
+                    seed = provider_params.get("seed", params.get("seed"))
+                    if seed is not None:
+                        inp["seed"] = int(seed)
+                    if provider_params.get("steps") is not None:
+                        inp["steps"] = int(provider_params["steps"])
+                    if provider_params.get("cfg_scale") is not None:
+                        inp["cfg_scale"] = float(provider_params["cfg_scale"])
+                    out_ext = "wav"
+
                 pid = client.create_prediction(version=version, input_json=inp)
                 pred = client.poll_until_done(
                     prediction_id=pid,
@@ -294,7 +321,6 @@ class AppState:
 
                 with urllib.request.urlopen(audio_url, timeout=self.settings.request_timeout_s) as dl:
                     out_bytes = dl.read()
-                out_ext = "wav"
             elif provider_name == "stability":
                 client = StabilityAudioClientStdlib(
                     api_key=self.settings.stability_api_key,
@@ -657,8 +683,12 @@ class Handler(BaseHTTPRequestHandler):
 
             provider_params = params.get("provider_params") or {}
             output_format = str(provider_params.get("output_format") or STATE.settings.output_format)
-            # force vocals off for non-elevenlabs providers
-            if provider_name not in ("elevenlabs", "suno"):
+            # force vocals off for non-elevenlabs/suno providers, unless MiniMax music
+            is_minimax = (
+                provider_name == "replicate"
+                and _is_minimax_music_model(str(provider_params.get("version") or ""))
+            )
+            if provider_name not in ("elevenlabs", "suno") and not is_minimax:
                 params["vocals"] = False
             params = {**params, "output_format": output_format, "provider": provider_name}
 
@@ -699,7 +729,12 @@ class Handler(BaseHTTPRequestHandler):
 
             provider_params = params.get("provider_params") or {}
             output_format = str(provider_params.get("output_format") or STATE.settings.output_format)
-            if provider_name not in ("elevenlabs", "suno"):
+            # force vocals off for non-elevenlabs/suno providers, unless MiniMax music
+            is_minimax = (
+                provider_name == "replicate"
+                and _is_minimax_music_model(str(provider_params.get("version") or ""))
+            )
+            if provider_name not in ("elevenlabs", "suno") and not is_minimax:
                 params["vocals"] = False
             params = {**params, "output_format": output_format, "provider": provider_name}
             job_id = STATE.store.create_job(provider=provider_name, prompt=prompt, params=params, kind="generate")

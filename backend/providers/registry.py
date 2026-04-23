@@ -158,8 +158,26 @@ def get_providers(settings: Settings, *, include_disabled: bool = False) -> list
             kind="string",
             required=True,
             advanced=False,
-            default=_def("replicate", "version", "stability-ai/stable-audio-2.5"),
-            help="通常写模型名即可；也可填具体 version id（更稳定但需自行维护）。",
+            default=_def("replicate", "version", "minimax/music-1.5"),
+            help="模型名称。推荐 minimax/music-1.5（支持人声+中文歌词）。其他：stability-ai/stable-audio-2.5（纯器乐）。",
+        ),
+        ProviderField(
+            key="lyrics",
+            label="歌词（MiniMax music）",
+            kind="string",
+            required=False,
+            advanced=False,
+            default=None,
+            help="MiniMax music 模型歌词（支持中英文）。使用 minimax/music-* 模型时可填写。",
+        ),
+        ProviderField(
+            key="style_strength",
+            label="风格强度（MiniMax）",
+            kind="number",
+            required=False,
+            advanced=True,
+            default=None,
+            help="MiniMax music 风格强度 0.0-1.0。值越高风格越明显。",
         ),
         ProviderField(
             key="duration",
@@ -168,7 +186,7 @@ def get_providers(settings: Settings, *, include_disabled: bool = False) -> list
             required=False,
             advanced=False,
             default=None,
-            help="留空则用通用 duration_sec。",
+            help="时长。MiniMax music 模型无需此参数（自动生成完整歌曲）。",
         ),
         ProviderField(
             key="steps",
@@ -177,6 +195,7 @@ def get_providers(settings: Settings, *, include_disabled: bool = False) -> list
             required=False,
             advanced=True,
             default=_def("replicate", "steps", 150),
+            help="推理步数（仅 Stable Audio 等模型）。",
         ),
         ProviderField(
             key="cfg_scale",
@@ -185,6 +204,7 @@ def get_providers(settings: Settings, *, include_disabled: bool = False) -> list
             required=False,
             advanced=True,
             default=_def("replicate", "cfg_scale", 7.0),
+            help="CFG Scale（仅 Stable Audio 等模型）。",
         ),
         ProviderField(
             key="seed",
@@ -361,12 +381,12 @@ def get_providers(settings: Settings, *, include_disabled: bool = False) -> list
             ),
             ProviderInfo(
                 id="replicate",
-                name="Replicate (Stable Audio)",
-                description="通过 Replicate predictions 调用 Stable Audio（通常为器乐/音效）。",
+                name="Replicate (MiniMax Music / Stable Audio)",
+                description="通过 Replicate 运行 AI 音乐模型。推荐 minimax/music-1.5（支持人声+中英文歌词）。",
                 capabilities={
-                    "supports_vocals": False,
+                    "supports_vocals": True,  # MiniMax music models support vocals
                     "supports_true_extend": False,
-                    "max_duration_sec": 180,
+                    "max_duration_sec": 240,  # MiniMax music supports up to 4 minutes
                 },
                 fields=replicate_fields,
                 config_secret_key="replicate_api_token",

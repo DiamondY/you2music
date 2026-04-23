@@ -2,25 +2,27 @@
 
 本文档记录 you2music 支持的所有 AI 音乐生成 Provider，包括 API 配置和免费额度获取方式。
 
+**🚀 快速开始**：推荐使用 **Replicate + MiniMax Music**，新用户免费额度可生成约 50-200 首带人声歌曲。
+
 ---
 
 ## 目录
 
-- [ElevenLabs](#elevenlabs) - 推荐，支持人声
+- [Replicate](#replicate) - ⭐ 默认推荐，支持人声+中英文歌词
+- [ElevenLabs](#elevenlabs) - 支持人声（需付费套餐）
 - [Suno](#suno) - 第三方 API，支持人声
-- [Replicate](#replicate) - MiniMax Music 等模型
-- [fal.ai](#falai) - Stable Audio
-- [Stability AI](#stability-ai) - 官方 API
+- [fal.ai](#falai) - Stable Audio（纯器乐）
+- [Stability AI](#stability-ai) - 官方 API（纯器乐）
 
 ---
 
 ## ElevenLabs
 
-> **状态**: ✅ 已实现 | **推荐**: 是 | **支持人声**: 是
+> **状态**: ✅ 已实现 | **推荐**: 否（需付费） | **支持人声**: 是
 
-ElevenLabs Music API 是本项目的主要 Provider，支持完整歌曲生成（含人声）、Composition Plan、Stems 分离和 Inpainting。
+ElevenLabs Music API 支持完整歌曲生成（含人声）、Composition Plan、Stems 分离和 Inpainting。
 
-> 注意：我们在 2026-04-23 的实际测试中，免费账号调用 ElevenLabs **Music API** 会返回 `HTTP 402 paid_plan_required`。即使账号有免费 credits，也不代表有 Music API 访问权限；请以 ElevenLabs 控制台的当前套餐/权限为准。
+> ⚠️ **注意**：免费账号调用 ElevenLabs **Music API** 会返回 `HTTP 402 paid_plan_required`。即使账号有免费 credits，也不代表有 Music API 访问权限；需要付费套餐。
 
 ### 免费额度
 
@@ -146,32 +148,41 @@ ElevenLabs Music API 是本项目的主要 Provider，支持完整歌曲生成�
 
 ## Replicate
 
-> **状态**: ✅ 已实现 | **推荐**: 是 | **支持人声**: 部分模型支持
+> **状态**: ✅ 已实现 | **推荐**: 是（默认） | **支持人声**: ✅ MiniMax music 支持
 
-通过 Replicate 平台运行开源音乐生成模型。
+通过 Replicate 平台运行 AI 音乐生成模型。**推荐使用 MiniMax Music 模型**，支持人声和中英文歌词，新用户有免费额度。
 
 ### 免费额度
 
 | 项目 | 详情 |
 |------|------|
-| 新用户 | 注册即送免费 credits |
+| 新用户 | 注册即送 **免费 credits**（约 $5-10）|
 | Try for Free | 部分模型可免费运行有限次数 |
 | 信用卡 | 首次试用不需要 |
+| 免费额度可生成 | 约 50-200 首歌曲（MiniMax music）|
 
 ### 支持的音乐模型
 
-| 模型 | 说明 | 人声支持 |
-|------|------|---------|
-| `minimax/music-1.5` | 完整歌曲生成 | ✅ 是 |
-| `minimax/music-2.5` | 完整歌曲生成 | ✅ 是 |
-| `stability-ai/stable-audio-2.5` | Stable Audio | ❌ 否 |
-| `riffusion/riffusion` | Riffusion | ❌ 否 |
+| 模型 | 说明 | 人声支持 | 推荐度 |
+|------|------|---------|--------|
+| `minimax/music-1.5` | 完整歌曲生成（最多 4 分钟）| ✅ 是 | ⭐⭐⭐ 推荐 |
+| `minimax/music-1` | 完整歌曲生成 | ✅ 是 | ⭐⭐ |
+| `stability-ai/stable-audio-2.5` | Stable Audio（纯器乐/音效）| ❌ 否 | ⭐ |
+| `riffusion/riffusion` | Riffusion | ❌ 否 | ⭐ |
+
+### MiniMax Music 特性
+
+- **支持人声**：生成带人声的完整歌曲
+- **中英文歌词**：可在歌词框输入中文或英文歌词
+- **风格控制**：通过 `style_strength` 参数控制风格强度（0.0-1.0）
+- **输出格式**：MP3
 
 ### 获取步骤
 
 1. **注册账户**
    - 访问 [replicate.com](https://replicate.com)
    - 使用 GitHub 账号或邮箱注册
+   - **无需信用卡**即可获得免费额度
 
 2. **获取 API Token**
    - 访问 [replicate.com/account/api-tokens](https://replicate.com/account/api-tokens)
@@ -181,7 +192,7 @@ ElevenLabs Music API 是本项目的主要 Provider，支持完整歌曲生成�
    ```bash
    export REPLICATE_API_TOKEN="your-token-here"
 
-   # 或配置文件
+   # 或配置文件 config/providers.local.json
    {
      "secrets": {
        "replicate_api_token": "your-token-here"
@@ -189,9 +200,16 @@ ElevenLabs Music API 是本项目的主要 Provider，支持完整歌曲生成�
    }
    ```
 
+4. **使用 MiniMax Music**
+   - 在 UI 中选择 Provider: `replicate`
+   - Model 默认已设置为 `minimax/music-1.5`
+   - 输入音乐风格描述和歌词
+   - 开启「人声」开关
+
 ### 价格参考
 
-- 约 $0.005-0.02 per generation（取决于模型）
+- MiniMax music: 约 $0.05-0.10 per song
+- Stable Audio: 约 $0.01-0.02 per generation
 
 ---
 
@@ -287,33 +305,47 @@ Stability AI 官方的 Stable Audio API。
 
 ### Q: 哪个 Provider 推荐用于开发测试？
 
-**A**: ElevenLabs 或 Replicate
+**A**: **Replicate + MiniMax Music**（默认）
 
-- **ElevenLabs**: 支持人声与高级能力，但 Music API 可能需要付费套餐（免费账号可能 402）
-- **Replicate**: 新用户有免费额度，可测试多种模型
+- **Replicate**: 新用户有免费额度，无需信用卡，支持人声+中英文歌词
+- **ElevenLabs**: 支持人声与高级能力，但 Music API 需要付费套餐（免费账号会 402）
 
 ### Q: 如何切换 Provider？
 
 **A**: 在 UI 界面选择 "Provider" 下拉框，或设置环境变量：
 
 ```bash
-export AI_MUSIC_PROVIDER_DEFAULT="suno"
+export AI_MUSIC_PROVIDER_DEFAULT="replicate"
 ```
 
 ### Q: 免费额度用完了怎么办？
 
 **A**:
-1. ElevenLabs: 等待下月重置，或升级付费计划
-2. Replicate: 添加付款方式，按量付费
+1. Replicate: 添加付款方式，按量付费（约 $0.05-0.10/首）
+2. ElevenLabs: 等待下月重置，或升级付费计划
 3. Suno 第三方: 切换到其他服务商或付费
+
+### Q: 国内用户如何使用 Replicate？
+
+**A**: Replicate 在国内可能需要配置代理。在 `config/providers.local.json` 中配置：
+
+```json
+{
+  "proxy": {
+    "http": "http://127.0.0.1:7890",
+    "https": "http://127.0.0.1:7890"
+  }
+}
+```
 
 ---
 
 ## 相关链接
 
+- [Replicate 官网](https://replicate.com/) - 默认推荐
+- [Replicate MiniMax Music 1.5](https://replicate.com/minimax/music-1.5) - 推荐模型
 - [ElevenLabs 官网](https://elevenlabs.io/)
 - [ElevenLabs API 文档](https://elevenlabs.io/docs/api-reference)
-- [Replicate 官网](https://replicate.com/)
 - [Replicate AI Music Models](https://replicate.com/collections/ai-music-generation)
 - [musicapi.ai (Suno API)](https://musicapi.ai/suno-api)
 - [fal.ai](https://fal.ai/)

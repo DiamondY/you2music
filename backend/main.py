@@ -96,6 +96,11 @@ def _apply_provider_prompt_options(
     return _build_prompt(base_prompt=base_prompt, lyrics=lyrics, vocals=vocals)
 
 
+def _is_minimax_music_model(version: str) -> bool:
+    """Check if the Replicate model version is a MiniMax music model."""
+    return version.lower().startswith("minimax/music")
+
+
 def _resolve_provider(req_provider: str | None) -> str:
     p = (req_provider or STATE.settings.default_provider or "elevenlabs").strip()
     return p or "elevenlabs"
@@ -413,7 +418,12 @@ async def generate(req: GenerateRequest) -> dict[str, Any]:
 
     provider_params = req.provider_params or {}
     vocals = req.vocals
-    if provider_name != "elevenlabs":
+    # MiniMax music models (via Replicate) also support vocals
+    is_minimax = (
+        provider_name == "replicate"
+        and _is_minimax_music_model(str(provider_params.get("version") or ""))
+    )
+    if provider_name != "elevenlabs" and not is_minimax:
         vocals = False
     params: dict[str, Any] = {
         "duration_sec": req.duration_sec,
@@ -423,6 +433,7 @@ async def generate(req: GenerateRequest) -> dict[str, Any]:
         "output_format": _resolve_output_format(provider_params),
         "provider": provider_name,
         "provider_params": provider_params,
+        "lyrics": req.lyrics,  # Pass lyrics to _run_job for MiniMax music
     }
 
     prompt = _apply_provider_prompt_options(
@@ -444,7 +455,12 @@ async def generate_many(req: GenerateManyRequest) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail=f"unknown provider: {provider_name}")
     provider_params = req.provider_params or {}
     vocals = req.vocals
-    if provider_name != "elevenlabs":
+    # MiniMax music models (via Replicate) also support vocals
+    is_minimax = (
+        provider_name == "replicate"
+        and _is_minimax_music_model(str(provider_params.get("version") or ""))
+    )
+    if provider_name != "elevenlabs" and not is_minimax:
         vocals = False
     params: dict[str, Any] = {
         "duration_sec": req.duration_sec,
@@ -454,6 +470,7 @@ async def generate_many(req: GenerateManyRequest) -> dict[str, Any]:
         "output_format": _resolve_output_format(provider_params),
         "provider": provider_name,
         "provider_params": provider_params,
+        "lyrics": req.lyrics,  # Pass lyrics to _run_job for MiniMax music
     }
     prompt = _apply_provider_prompt_options(
         base_prompt=req.prompt,
@@ -799,17 +816,38 @@ async def _run_job(*, job_id: str, prompt: str, params: dict[str, Any]) -> None:
                 timeout_s=STATE.settings.request_timeout_s,
             )
             version = str(provider_params.get("version") or "stability-ai/stable-audio-2.5")
-            duration = provider_params.get("duration")
-            if duration is None:
-                duration = int(params["duration_sec"])
-            inp: dict[str, Any] = {"prompt": prompt, "duration": int(duration)}
-            seed = provider_params.get("seed", params.get("seed"))
-            if seed is not None:
-                inp["seed"] = int(seed)
-            if provider_params.get("steps") is not None:
-                inp["steps"] = int(provider_params["steps"])
-            if provider_params.get("cfg_scale") is not None:
-                inp["cfg_scale"] = float(provider_params["cfg_scale"])
+
+            # MiniMax music models have different input parameters
+            is_minimax_music = _is_minimax_music_model(version)
+            if is_minimax_music:
+                # MiniMax music: prompt, lyrics, style_strength (no duration)
+                inp: dict[str, Any] = {"prompt": prompt}
+                # Add lyrics if provided
+                lyrics = params.get("lyrics") or provider_params.get("lyrics")
+                if lyrics and str(lyrics).strip():
+                    inp["lyrics"] = str(lyrics).strip()
+                # Add style_strength if provided (0.0-1.0)
+                if provider_params.get("style_strength") is not None:
+                    inp["style_strength"] = float(provider_params["style_strength"])
+                seed = provider_params.get("seed", params.get("seed"))
+                if seed is not None:
+                    inp["seed"] = int(seed)
+                out_ext = "mp3"  # MiniMax outputs mp3
+            else:
+                # Standard Replicate models (Stable Audio, etc.)
+                duration = provider_params.get("duration")
+                if duration is None:
+                    duration = int(params["duration_sec"])
+                inp = {"prompt": prompt, "duration": int(duration)}
+                seed = provider_params.get("seed", params.get("seed"))
+                if seed is not None:
+                    inp["seed"] = int(seed)
+                if provider_params.get("steps") is not None:
+                    inp["steps"] = int(provider_params["steps"])
+                if provider_params.get("cfg_scale") is not None:
+                    inp["cfg_scale"] = float(provider_params["cfg_scale"])
+                out_ext = "wav"
+
             pid = await client.create_prediction(version=version, input_json=inp)
             pred = await client.poll_until_done(
                 prediction_id=pid,
@@ -821,7 +859,6 @@ async def _run_job(*, job_id: str, prompt: str, params: dict[str, Any]) -> None:
                 r = await dl.get(audio_url)
                 r.raise_for_status()
                 out_bytes = r.content
-            out_ext = "wav"
         elif provider_name == "stability":
             client = StabilityAudioClient(
                 api_key=STATE.settings.stability_api_key,
