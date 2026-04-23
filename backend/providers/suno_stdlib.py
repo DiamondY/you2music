@@ -14,6 +14,18 @@ class SunoStdlibResult:
     task_id: str
 
 
+def _join_url(base_url: str, path_or_url: str) -> str:
+    v = str(path_or_url or "").strip()
+    if not v:
+        raise ValueError("Suno path/url is required")
+    if v.startswith("http://") or v.startswith("https://"):
+        return v
+    base = str(base_url or "").rstrip("/")
+    if not v.startswith("/"):
+        v = "/" + v
+    return base + v
+
+
 class SunoClientStdlib:
     """Suno API client via third-party services (stdlib-only version)"""
 
@@ -48,10 +60,11 @@ class SunoClientStdlib:
         duration_sec: int = 30,
         model: str = "v4.5",
         instrumental: bool = False,
+        generate_path: str = "/suno/generate",
         **kwargs: Any,
     ) -> str:
         """Create a Suno generation task."""
-        url = f"{self._base}/suno/generate"
+        url = _join_url(self._base, generate_path)
         body = {
             "prompt": prompt,
             "duration": duration_sec,
@@ -70,11 +83,12 @@ class SunoClientStdlib:
         self,
         *,
         task_id: str,
+        task_path_template: str = "/suno/task/{task_id}",
         poll_interval_s: float = 2.0,
         max_wait_s: float = 300.0,
     ) -> dict[str, Any]:
         """Poll for generation completion."""
-        url = f"{self._base}/suno/task/{task_id}"
+        url = _join_url(self._base, task_path_template.format(task_id=task_id))
         deadline = time.time() + max_wait_s
 
         while True:
@@ -97,6 +111,8 @@ class SunoClientStdlib:
         """Extract audio URL from Suno response."""
         if result_json.get("audio_url"):
             return str(result_json["audio_url"])
+        if result_json.get("audioUrl"):
+            return str(result_json["audioUrl"])
 
         output = result_json.get("output")
         if isinstance(output, dict):
@@ -104,6 +120,8 @@ class SunoClientStdlib:
                 return str(output["audio_url"])
             if output.get("audio"):
                 return str(output["audio"])
+            if output.get("audioUrl"):
+                return str(output["audioUrl"])
 
         data = result_json.get("data")
         if isinstance(data, list) and data:
@@ -113,5 +131,7 @@ class SunoClientStdlib:
                     return str(first["audio_url"])
                 if first.get("audio"):
                     return str(first["audio"])
+                if first.get("audioUrl"):
+                    return str(first["audioUrl"])
 
         raise RuntimeError(f"Suno output missing audio url: {result_json}")

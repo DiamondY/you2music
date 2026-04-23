@@ -20,11 +20,13 @@
 
 ElevenLabs Music API 是本项目的主要 Provider，支持完整歌曲生成（含人声）、Composition Plan、Stems 分离和 Inpainting。
 
+> 注意：我们在 2026-04-23 的实际测试中，免费账号调用 ElevenLabs **Music API** 会返回 `HTTP 402 paid_plan_required`。即使账号有免费 credits，也不代表有 Music API 访问权限；请以 ElevenLabs 控制台的当前套餐/权限为准。
+
 ### 免费额度
 
 | 项目 | 详情 |
 |------|------|
-| 免费额度 | 每月 **10,000 credits** |
+| 免费额度 | 视账号套餐而定（免费账号通常无 Music API 访问权限） |
 | 约等于 | ~10 分钟音频（Multilingual 模型）|
 | | ~20 分钟音频（Flash 模型，0.5 credits/字符）|
 | 重置周期 | 每月重置，不累积 |
@@ -110,15 +112,29 @@ ElevenLabs Music API 是本项目的主要 Provider，支持完整歌曲生成�
    export SUNO_BASE_URL="https://api.musicapi.ai"
 
    # 或配置文件
-   {
-     "secrets": {
-       "suno_api_key": "your-api-key-here"
-     },
-     "endpoints": {
-       "suno_base_url": "https://api.musicapi.ai"
-     }
-   }
-   ```
+    {
+      "secrets": {
+        "suno_api_key": "your-api-key-here"
+      },
+      "endpoints": {
+        "suno_base_url": "https://api.musicapi.ai"
+      }
+    }
+    ```
+
+### 接口约定（默认 musicapi.ai）
+
+本项目内置的 Suno provider 默认按以下第三方 API 约定调用（以 `SUNO_BASE_URL` 为 base）：
+
+- 生成任务：`POST /suno/generate`
+- 查询任务：`GET /suno/task/{task_id}`
+
+不同第三方服务商可能路径不同，可在请求里通过 `provider_params` 覆盖（高级参数）：
+
+- `generate_path`：生成接口 path 或完整 URL（默认 `/suno/generate`）
+- `task_path_template`：任务查询 URL 模板（默认 `/suno/task/{task_id}`，支持 `{task_id}` 占位符）
+- `poll_interval_s`：轮询间隔秒数（默认 2.0）
+- `max_wait_s`：轮询最长等待秒数（默认 300）
 
 ### 注意事项
 
@@ -273,7 +289,7 @@ Stability AI 官方的 Stable Audio API。
 
 **A**: ElevenLabs 或 Replicate
 
-- **ElevenLabs**: 每月 10,000 credits 免费额度，支持人声
+- **ElevenLabs**: 支持人声与高级能力，但 Music API 可能需要付费套餐（免费账号可能 402）
 - **Replicate**: 新用户有免费额度，可测试多种模型
 
 ### Q: 如何切换 Provider？
@@ -305,4 +321,4 @@ export AI_MUSIC_PROVIDER_DEFAULT="suno"
 
 ---
 
-*最后更新: 2025-04*
+*最后更新: 2026-04-23*

@@ -13,6 +13,18 @@ class SunoResult:
     task_id: str
 
 
+def _join_url(base_url: str, path_or_url: str) -> str:
+    v = str(path_or_url or "").strip()
+    if not v:
+        raise ValueError("Suno path/url is required")
+    if v.startswith("http://") or v.startswith("https://"):
+        return v
+    base = str(base_url or "").rstrip("/")
+    if not v.startswith("/"):
+        v = "/" + v
+    return base + v
+
+
 class SunoClient:
     """Suno API client via third-party services like musicapi.ai"""
 
@@ -30,6 +42,7 @@ class SunoClient:
         duration_sec: int = 30,
         model: str = "v4.5",
         instrumental: bool = False,
+        generate_path: str = "/suno/generate",
         **kwargs: Any,
     ) -> str:
         """Create a Suno generation task.
@@ -43,7 +56,7 @@ class SunoClient:
         Returns:
             Task ID for polling
         """
-        url = f"{self._base}/suno/generate"
+        url = _join_url(self._base, generate_path)
         headers = {
             "Authorization": f"Bearer {self._key}",
             "Content-Type": "application/json",
@@ -72,13 +85,14 @@ class SunoClient:
         self,
         *,
         task_id: str,
+        task_path_template: str = "/suno/task/{task_id}",
         poll_interval_s: float = 2.0,
         max_wait_s: float = 300.0,
     ) -> dict[str, Any]:
         """Poll for generation completion."""
-        url = f"{self._base}/suno/task/{task_id}"
+        url = _join_url(self._base, task_path_template.format(task_id=task_id))
         headers = {"Authorization": f"Bearer {self._key}"}
-        deadline = asyncio.get_event_loop().time() + max_wait_s
+        deadline = asyncio.get_running_loop().time() + max_wait_s
 
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             while True:
@@ -94,7 +108,7 @@ class SunoClient:
                     error_msg = data.get("error") or data.get("message") or "Unknown error"
                     raise RuntimeError(f"Suno generation failed: {error_msg}")
 
-                if asyncio.get_event_loop().time() > deadline:
+                if asyncio.get_running_loop().time() > deadline:
                     raise TimeoutError("Suno generation timed out")
 
                 await asyncio.sleep(poll_interval_s)
@@ -129,5 +143,7 @@ class SunoClient:
                     return str(first["audio_url"])
                 if first.get("audio"):
                     return str(first["audio"])
+                if first.get("audioUrl"):
+                    return str(first["audioUrl"])
 
         raise RuntimeError(f"Suno output missing audio url: {result_json}")

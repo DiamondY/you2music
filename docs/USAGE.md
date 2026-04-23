@@ -28,6 +28,8 @@ $env:ELEVENLABS_API_KEY="YOUR_KEY"
 - `AI_MUSIC_HOST`：监听地址，默认 `127.0.0.1`
 - `AI_MUSIC_PORT`：监听端口，默认 `8000`
 - `ELEVENLABS_BASE_URL`：API base（一般不用改），默认 `https://api.elevenlabs.io`
+- `SUNO_API_KEY`：Suno 第三方 API Key（用于 provider=`suno`）
+- `SUNO_BASE_URL`：Suno 第三方 API base（用于 provider=`suno`），默认 `https://api.musicapi.ai`
 
 ---
 
@@ -91,6 +93,18 @@ curl -s http://127.0.0.1:8000/api/generate ^
 返回：
 
 - `{"job_id":"..."}`
+
+#### 生成（Suno 第三方 API）
+
+`POST /api/generate`
+
+> Suno 是通过第三方 API 服务商接入（例如 musicapi.ai）。请先配置 `SUNO_API_KEY` / `SUNO_BASE_URL`，并在请求中指定 `provider="suno"`。
+
+```bash
+curl -s http://127.0.0.1:8000/api/generate ^
+  -H "content-type: application/json" ^
+  -d "{\"prompt\":\"一首中文流行歌，女声，副歌抓耳\",\"lyrics\":null,\"duration_sec\":30,\"vocals\":true,\"seed\":null,\"model_id\":null,\"provider\":\"suno\",\"provider_params\":{\"model\":\"v4.5\",\"instrumental\":false,\"poll_interval_s\":2.0}}"
+```
 
 #### 生成多候选（2–4 首）
 

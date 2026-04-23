@@ -859,16 +859,35 @@ async def _run_job(*, job_id: str, prompt: str, params: dict[str, Any]) -> None:
             if duration is None:
                 duration = int(params["duration_sec"])
             poll_interval = float(provider_params.get("poll_interval_s", 2.0))
+            generate_path = str(provider_params.get("generate_path") or "/suno/generate")
+            task_path_template = str(provider_params.get("task_path_template") or "/suno/task/{task_id}")
+            max_wait_s = float(provider_params.get("max_wait_s") or 300.0)
+
+            extra: dict[str, Any] = dict(provider_params)
+            for k in (
+                "model",
+                "instrumental",
+                "duration",
+                "poll_interval_s",
+                "generate_path",
+                "task_path_template",
+                "max_wait_s",
+            ):
+                extra.pop(k, None)
 
             task_id = await client.create_generation(
                 prompt=prompt,
                 duration_sec=int(duration),
                 model=model,
                 instrumental=instrumental,
+                generate_path=generate_path,
+                **extra,
             )
             result = await client.poll_until_done(
                 task_id=task_id,
                 poll_interval_s=poll_interval,
+                max_wait_s=max_wait_s,
+                task_path_template=task_path_template,
             )
             audio_url = SunoClient.extract_audio_url(result)
 

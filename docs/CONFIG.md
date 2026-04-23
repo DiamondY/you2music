@@ -105,6 +105,23 @@ Stability API Key（用于 provider=`stability`）。
 $env:STABILITY_API_KEY="YOUR_STABILITY_KEY"
 ```
 
+### `SUNO_API_KEY`
+
+Suno 第三方 API Key（用于 provider=`suno`，例如 musicapi.ai）。
+
+```powershell
+$env:SUNO_API_KEY="YOUR_SUNO_KEY"
+```
+
+### `SUNO_BASE_URL`
+
+Suno 第三方 API base URL（用于 provider=`suno`）。
+- 默认：`https://api.musicapi.ai`
+
+```powershell
+$env:SUNO_BASE_URL="https://api.musicapi.ai"
+```
+
 ### `AI_MUSIC_DATA_DIR`
 
 数据落盘目录（SQLite + 音频文件）。

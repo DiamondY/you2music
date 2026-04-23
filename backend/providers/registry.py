@@ -294,6 +294,33 @@ def get_providers(settings: Settings, *, include_disabled: bool = False) -> list
             advanced=True,
             default=_def("suno", "poll_interval_s", 2.0),
         ),
+        ProviderField(
+            key="max_wait_s",
+            label="最大等待（秒）",
+            kind="number",
+            required=False,
+            advanced=True,
+            default=_def("suno", "max_wait_s", 300.0),
+            help="Suno 第三方 API 任务轮询超时，默认 300 秒。",
+        ),
+        ProviderField(
+            key="generate_path",
+            label="生成接口 Path",
+            kind="string",
+            required=False,
+            advanced=True,
+            default=_def("suno", "generate_path", "/suno/generate"),
+            help="第三方 Suno API 的生成接口路径。也可填写完整 URL。",
+        ),
+        ProviderField(
+            key="task_path_template",
+            label="任务接口模板",
+            kind="string",
+            required=False,
+            advanced=True,
+            default=_def("suno", "task_path_template", "/suno/task/{task_id}"),
+            help="轮询任务状态的 URL 模板，使用 {task_id} 占位符。也可填写完整 URL。",
+        ),
     ]
 
     providers: list[ProviderInfo] = [

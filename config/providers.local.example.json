@@ -1,6 +1,6 @@
 {
   "default_provider": "elevenlabs",
-  "enabled_providers": ["elevenlabs", "fal", "replicate", "stability"],
+  "enabled_providers": ["elevenlabs", "fal", "replicate", "stability", "suno"],
   "admin_token": "CHANGE_ME_ADMIN_TOKEN",
   "proxy": {
     "http": "",
@@ -11,14 +11,16 @@
     "elevenlabs_api_key": "PASTE_ELEVENLABS_KEY_HERE",
     "fal_key": "PASTE_FAL_KEY_HERE",
     "replicate_api_token": "PASTE_REPLICATE_TOKEN_HERE",
-    "stability_api_key": "PASTE_STABILITY_KEY_HERE"
+    "stability_api_key": "PASTE_STABILITY_KEY_HERE",
+    "suno_api_key": "PASTE_SUNO_KEY_HERE"
   },
   "endpoints": {
     "elevenlabs_base_url": "https://api.elevenlabs.io",
     "fal_queue_base_url": "https://queue.fal.run",
     "fal_platform_base_url": "https://api.fal.ai",
     "replicate_base_url": "https://api.replicate.com",
-    "stability_base_url": "https://api.stability.ai"
+    "stability_base_url": "https://api.stability.ai",
+    "suno_base_url": "https://api.musicapi.ai"
   },
   "ui_defaults": {
     "elevenlabs": {
@@ -42,6 +44,14 @@
       "endpoint_path": "/v2beta/audio/stable-audio-2/text-to-audio",
       "steps": 150,
       "cfg_scale": 7.0
+    },
+    "suno": {
+      "model": "v4.5",
+      "instrumental": false,
+      "poll_interval_s": 2.0,
+      "max_wait_s": 300.0,
+      "generate_path": "/suno/generate",
+      "task_path_template": "/suno/task/{task_id}"
     }
   }
 }
