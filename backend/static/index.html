@@ -1246,6 +1246,26 @@
 
         <p class="status-text" style="margin-bottom: var(--space-md);">点击可切换播放</p>
 
+        <div class="form-row" style="align-items: flex-end; margin-bottom: var(--space-md);">
+          <div class="form-group" style="max-width: 140px;">
+            <label for="historyPageSize">每页</label>
+            <select id="historyPageSize">
+              <option value="10">10</option>
+              <option value="20" selected>20</option>
+              <option value="50">50</option>
+              <option value="100">100</option>
+            </select>
+          </div>
+          <div class="form-group" style="flex: 1;">
+            <label>分页</label>
+            <div style="display: flex; align-items: center; gap: var(--space-sm);">
+              <button id="historyPrevBtn" class="btn btn-secondary btn-sm">上一页</button>
+              <button id="historyNextBtn" class="btn btn-secondary btn-sm">下一页</button>
+              <span id="historyInfo" class="status-text" style="margin: 0;"></span>
+            </div>
+          </div>
+        </div>
+
         <div id="list" class="job-list"></div>
       </div>
     </div>
@@ -1262,6 +1282,10 @@
       const refreshBtn = document.getElementById("refreshBtn");
       const extendBtn = document.getElementById("extendBtn");
       const listEl = document.getElementById("list");
+      const historyPageSizeEl = document.getElementById("historyPageSize");
+      const historyPrevBtn = document.getElementById("historyPrevBtn");
+      const historyNextBtn = document.getElementById("historyNextBtn");
+      const historyInfoEl = document.getElementById("historyInfo");
       const stemsSection = document.getElementById("stemsSection");
       const getStemsBtn = document.getElementById("getStemsBtn");
       const vocalsLink = document.getElementById("vocalsLink");
@@ -1281,16 +1305,20 @@
       // ========================================
       // State
       // ========================================
-      const JOB_HISTORY_KEY = "you2music.jobHistoryIds.v1";
-      const JOB_HISTORY_MAX = 20;
+      const HISTORY_PAGE_SIZE_KEY = "you2music.historyPageSize.v1";
 
       let currentJobId = null;
       let currentJobs = [];
-      let jobHistoryIds = [];
       let currentJobSongId = null;
       let currentJobProvider = null;
       let pollTimer = null;
       let providersMeta = null;
+
+      let historyOffset = 0;
+      let historyLimit = 20;
+      let historyTotal = 0;
+      let historyJobs = [];
+      const liveJobsById = new Map();
 
       // Composition Plan State
       let cpState = {
@@ -1325,43 +1353,6 @@
         errorEl.style.display = msg ? "block" : "none";
       }
 
-      function loadJobHistoryIds() {
-        try {
-          const raw = localStorage.getItem(JOB_HISTORY_KEY);
-          if (!raw) return [];
-          const arr = JSON.parse(raw);
-          if (!Array.isArray(arr)) return [];
-          return arr.map(x => String(x || "").trim()).filter(Boolean).slice(0, JOB_HISTORY_MAX);
-        } catch {
-          return [];
-        }
-      }
-
-      function saveJobHistoryIds() {
-        try {
-          localStorage.setItem(JOB_HISTORY_KEY, JSON.stringify(jobHistoryIds));
-        } catch {
-          // ignore storage failures (private mode, quota, etc.)
-        }
-      }
-
-      function rememberJobIds(ids) {
-        const incoming = (ids || []).map(x => String(x || "").trim()).filter(Boolean);
-        if (incoming.length === 0) return;
-        const merged = [...incoming, ...jobHistoryIds];
-        const seen = new Set();
-        const out = [];
-        for (const id of merged) {
-          if (seen.has(id)) continue;
-          seen.add(id);
-          out.push(id);
-          if (out.length >= JOB_HISTORY_MAX) break;
-        }
-        jobHistoryIds = out;
-        saveJobHistoryIds();
-        currentJobs = jobHistoryIds.slice();
-      }
-
       async function fetchJson(url, opts) {
         const res = await fetch(url, opts);
         const text = await res.text();
@@ -1374,32 +1365,52 @@
         return data;
       }
 
-      async function initJobHistory() {
-        jobHistoryIds = loadJobHistoryIds();
-        if (jobHistoryIds.length > 0) {
-          currentJobs = jobHistoryIds.slice();
-          if (!currentJobId) {
-            currentJobId = currentJobs[0] || null;
-            jobIdEl.textContent = currentJobId || "-";
-          }
-          await refreshJobs(currentJobs, { updateStatus: false });
-          return;
-        }
-
+      function loadHistoryPageSizePref() {
         try {
-          const data = await fetchJson(`/api/jobs/recent?limit=${JOB_HISTORY_MAX}`);
-          const jobs = data.jobs || [];
-          const ids = jobs.map(j => String(j.job_id || "").trim()).filter(Boolean);
-          jobHistoryIds = ids.slice(0, JOB_HISTORY_MAX);
-          saveJobHistoryIds();
-          currentJobs = jobHistoryIds.slice();
-          if (!currentJobId) {
-            currentJobId = currentJobs[0] || null;
-            jobIdEl.textContent = currentJobId || "-";
-          }
-          renderList(jobs);
+          const raw = localStorage.getItem(HISTORY_PAGE_SIZE_KEY);
+          const n = parseInt(String(raw || ""), 10);
+          if (Number.isFinite(n) && n > 0) return n;
         } catch {
           // ignore
+        }
+        return 20;
+      }
+
+      function saveHistoryPageSizePref() {
+        try {
+          localStorage.setItem(HISTORY_PAGE_SIZE_KEY, String(historyLimit));
+        } catch {
+          // ignore
+        }
+      }
+
+      function updateHistoryPagerUi() {
+        const totalPages = historyLimit > 0 ? Math.max(1, Math.ceil((historyTotal || 0) / historyLimit)) : 1;
+        const page = historyLimit > 0 ? Math.floor(historyOffset / historyLimit) + 1 : 1;
+        const from = historyTotal === 0 ? 0 : (historyOffset + 1);
+        const to = Math.min(historyOffset + historyLimit, historyTotal);
+
+        if (historyInfoEl) {
+          historyInfoEl.textContent = `${from}-${to} / ${historyTotal}（第 ${page}/${totalPages} 页）`;
+        }
+        if (historyPrevBtn) historyPrevBtn.disabled = historyOffset <= 0;
+        if (historyNextBtn) historyNextBtn.disabled = (historyOffset + historyLimit) >= historyTotal;
+      }
+
+      async function loadHistoryPage(offset) {
+        const off = Math.max(0, parseInt(String(offset || "0"), 10) || 0);
+        historyOffset = off;
+        updateHistoryPagerUi();
+        try {
+          const data = await fetchJson(`/api/jobs/history?offset=${historyOffset}&limit=${historyLimit}`);
+          historyJobs = data.jobs || [];
+          historyTotal = parseInt(String(data.total || "0"), 10) || 0;
+          historyOffset = parseInt(String(data.offset || historyOffset), 10) || historyOffset;
+          historyLimit = parseInt(String(data.limit || historyLimit), 10) || historyLimit;
+          if (historyPageSizeEl) historyPageSizeEl.value = String(historyLimit);
+          renderList(historyJobs);
+        } finally {
+          updateHistoryPagerUi();
         }
       }
 
@@ -2102,7 +2113,8 @@
         listEl.innerHTML = "";
         if (!jobs || jobs.length === 0) return;
 
-        for (const j of jobs) {
+        for (const base of jobs) {
+          const j = (base && base.job_id && liveJobsById.has(base.job_id)) ? liveJobsById.get(base.job_id) : base;
           const row = document.createElement("div");
           row.className = "job-item";
 
@@ -2199,10 +2211,11 @@
         });
 
         currentJobId = data.job_id;
-        rememberJobIds([currentJobId]);
+        currentJobs = [currentJobId];
         jobIdEl.textContent = currentJobId;
         refreshBtn.style.display = "inline-flex";
         setStatus("已提交，生成中…");
+        loadHistoryPage(0).catch(() => {});
 
         if (pollTimer) clearInterval(pollTimer);
         pollTimer = setInterval(() => refreshJobs(currentJobs), 1500);
@@ -2215,7 +2228,10 @@
           const updateStatus = !(opts && opts.updateStatus === false);
           const data = await fetchJson(`/api/jobs?ids=${jobIds.join(",")}`);
           const jobs = (data.jobs || []);
-          renderList(jobs);
+          for (const j of jobs) {
+            if (j && j.job_id) liveJobsById.set(j.job_id, j);
+          }
+          renderList((historyJobs && historyJobs.length > 0) ? historyJobs : jobs);
 
           const current = jobs.find(j => j.job_id === currentJobId) || jobs[0];
           if (current) {
@@ -2236,6 +2252,10 @@
           }
 
           if (!anyRunning && pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+          if (!anyRunning && updateStatus) {
+            // Refresh history page once the current job(s) settle.
+            loadHistoryPage(historyOffset).catch(() => {});
+          }
 
           if (current && current.audio_url) {
             player.src = current.audio_url;
@@ -2340,11 +2360,12 @@
         });
 
         const newIds = data.job_ids || [];
-        rememberJobIds(newIds);
-        currentJobId = newIds[0] || currentJobs[0] || null;
+        currentJobs = newIds;
+        currentJobId = newIds[0] || null;
         jobIdEl.textContent = currentJobId || "-";
         refreshBtn.style.display = "inline-flex";
         setStatus("已提交，生成中…");
+        loadHistoryPage(0).catch(() => {});
 
         if (pollTimer) clearInterval(pollTimer);
         pollTimer = setInterval(() => refreshJobs(currentJobs), 1500);
@@ -2371,11 +2392,12 @@
           })
         });
         const newJobId = data.job_id;
-        rememberJobIds([newJobId]);
+        currentJobs = [newJobId];
         currentJobId = newJobId;
         jobIdEl.textContent = newJobId;
         refreshBtn.style.display = "inline-flex";
         extendBtn.style.display = "none";
+        loadHistoryPage(0).catch(() => {});
 
         if (pollTimer) clearInterval(pollTimer);
         pollTimer = setInterval(() => refreshJobs(currentJobs), 1500);
@@ -2452,10 +2474,11 @@
           });
 
           currentJobId = data.job_id;
-          rememberJobIds([currentJobId]);
+          currentJobs = [currentJobId];
           jobIdEl.textContent = currentJobId;
           refreshBtn.style.display = "inline-flex";
           setStatus("已提交，生成并存储中…");
+          loadHistoryPage(0).catch(() => {});
 
           if (pollTimer) clearInterval(pollTimer);
           pollTimer = setInterval(() => refreshJobs(currentJobs), 1500);
@@ -2569,11 +2592,12 @@
           });
 
           const newJobId = data.job_id;
-          rememberJobIds([newJobId]);
+          currentJobs = [newJobId];
           currentJobId = newJobId;
           jobIdEl.textContent = newJobId;
           refreshBtn.style.display = "inline-flex";
           setStatus("Inpainting 任务已提交");
+          loadHistoryPage(0).catch(() => {});
           inpaintStatus.textContent = "任务已提交，生成中…";
 
           inpaintEditor.classList.remove("visible");
@@ -2602,7 +2626,32 @@
       providerEl.addEventListener("change", () => renderProviderFields());
       advancedEl.addEventListener("change", () => renderProviderFields());
 
-      initProviders().then(() => initJobHistory());
+      historyLimit = loadHistoryPageSizePref();
+      if (historyPageSizeEl) {
+        historyPageSizeEl.value = String(historyLimit);
+        historyPageSizeEl.addEventListener("change", () => {
+          const n = parseInt(String(historyPageSizeEl.value || "20"), 10);
+          historyLimit = (Number.isFinite(n) && n > 0) ? n : 20;
+          saveHistoryPageSizePref();
+          loadHistoryPage(0).catch(e => setError(String(e)));
+        });
+      }
+      if (historyPrevBtn) {
+        historyPrevBtn.addEventListener("click", () => {
+          const nextOffset = Math.max(0, historyOffset - historyLimit);
+          loadHistoryPage(nextOffset).catch(e => setError(String(e)));
+        });
+      }
+      if (historyNextBtn) {
+        historyNextBtn.addEventListener("click", () => {
+          const nextOffset = historyOffset + historyLimit;
+          if (nextOffset >= historyTotal) return;
+          loadHistoryPage(nextOffset).catch(e => setError(String(e)));
+        });
+      }
+      updateHistoryPagerUi();
+
+      initProviders().then(() => loadHistoryPage(0));
 
       document.getElementById("generateManyBtn").addEventListener("click", () => {
         startGenerateMany().catch(e => {

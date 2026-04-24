@@ -565,6 +565,33 @@ def get_recent_jobs(limit: int = Query(default=20, ge=1, le=50)) -> dict[str, An
     return {"jobs": out}
 
 
+@app.get("/api/jobs/history")
+def get_jobs_history(
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=20, ge=1, le=200),
+) -> dict[str, Any]:
+    total = STATE.store.count_jobs()
+    out: list[dict[str, Any]] = []
+    for rec in STATE.store.list_page(offset=offset, limit=limit):
+        audio_url = None
+        if rec.status == "succeeded" and rec.output_path:
+            audio_url = f"/api/audio/{rec.job_id}"
+        out.append(
+            {
+                "job_id": rec.job_id,
+                "status": rec.status,
+                "created_at_ms": rec.created_at_ms,
+                "updated_at_ms": rec.updated_at_ms,
+                "provider": rec.provider,
+                "params": json.loads(rec.params_json),
+                "audio_url": audio_url,
+                "error": rec.error,
+                "song_id": rec.song_id,
+            }
+        )
+    return {"jobs": out, "total": total, "offset": offset, "limit": limit}
+
+
 @app.get("/api/jobs/{job_id}")
 def get_job(job_id: str) -> dict[str, Any]:
     rec = STATE.store.get(job_id)

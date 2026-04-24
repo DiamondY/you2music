@@ -607,6 +607,54 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(data)
             return
 
+        if self.path.startswith("/api/jobs/history"):
+            # /api/jobs/history?offset=0&limit=20
+            offset = 0
+            limit = 20
+            if "?" in self.path:
+                qs = self.path.split("?", 1)[1]
+                for part in qs.split("&"):
+                    if part.startswith("offset="):
+                        raw = part.split("=", 1)[1].strip()
+                        try:
+                            offset = int(raw)
+                        except Exception:
+                            offset = 0
+                    elif part.startswith("limit="):
+                        raw = part.split("=", 1)[1].strip()
+                        try:
+                            limit = int(raw)
+                        except Exception:
+                            limit = 20
+            if offset < 0:
+                offset = 0
+            if limit < 1:
+                limit = 1
+            if limit > 200:
+                limit = 200
+
+            total = STATE.store.count_jobs()
+            out: list[dict[str, Any]] = []
+            for rec in STATE.store.list_page(offset=offset, limit=limit):
+                audio_url = None
+                if rec.status == "succeeded" and rec.output_path:
+                    audio_url = f"/api/audio/{rec.job_id}"
+                out.append(
+                    {
+                        "job_id": rec.job_id,
+                        "status": rec.status,
+                        "created_at_ms": rec.created_at_ms,
+                        "updated_at_ms": rec.updated_at_ms,
+                        "provider": rec.provider,
+                        "params": json.loads(rec.params_json),
+                        "audio_url": audio_url,
+                        "error": rec.error,
+                        "song_id": rec.song_id,
+                    }
+                )
+            _json_response(self, 200, {"jobs": out, "total": total, "offset": offset, "limit": limit})
+            return
+
         if self.path.startswith("/api/jobs/recent"):
             # /api/jobs/recent?limit=20
             limit = 20

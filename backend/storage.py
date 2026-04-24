@@ -175,6 +175,54 @@ class JobStore:
             )
         return out
 
+    def count_jobs(self) -> int:
+        with self._lock:
+            with self._connect() as conn:
+                row = conn.execute("SELECT COUNT(*) FROM jobs").fetchone()
+        if not row:
+            return 0
+        return int(row[0] or 0)
+
+    def list_page(self, *, offset: int = 0, limit: int = 20) -> list[JobRecord]:
+        off = int(offset)
+        lim = int(limit)
+        if off < 0:
+            off = 0
+        if lim < 1:
+            lim = 1
+        if lim > 200:
+            lim = 200
+
+        with self._lock:
+            with self._connect() as conn:
+                rows = conn.execute(
+                    """
+                    SELECT job_id, status, created_at_ms, updated_at_ms, provider, prompt, params_json, output_path, error, song_id
+                    FROM jobs
+                    ORDER BY created_at_ms DESC
+                    LIMIT ? OFFSET ?
+                    """,
+                    (lim, off),
+                ).fetchall()
+
+        out: list[JobRecord] = []
+        for row in rows:
+            out.append(
+                JobRecord(
+                    job_id=row[0],
+                    status=row[1],
+                    created_at_ms=int(row[2]),
+                    updated_at_ms=int(row[3]),
+                    provider=row[4],
+                    prompt=row[5],
+                    params_json=row[6],
+                    output_path=row[7],
+                    error=row[8],
+                    song_id=row[9] if len(row) > 9 else None,
+                )
+            )
+        return out
+
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(str(self._db_path))
         conn.execute("PRAGMA journal_mode=WAL;")
