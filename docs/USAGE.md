@@ -35,7 +35,7 @@ $env:ELEVENLABS_API_KEY="YOUR_ELEVENLABS_KEY"
 - `AI_MUSIC_PORT`：监听端口，默认 `8000`
 - `ELEVENLABS_BASE_URL`：API base（一般不用改），默认 `https://api.elevenlabs.io`
 - `REPLICATE_BASE_URL`：Replicate API base（一般不用改），默认 `https://api.replicate.com`
-- `MINIMAX_BASE_URL`：MiniMax API base（一般不用改），默认 `https://api.minimax.io`
+- `MINIMAX_BASE_URL`：MiniMax API base（一般不用改），默认 `https://api.minimaxi.com`（国内）；国际/海外用 `https://api.minimax.io`
 - `SUNO_API_KEY`：Suno 第三方 API Key（用于 provider=`suno`）
 - `SUNO_BASE_URL`：Suno 第三方 API base（用于 provider=`suno`），默认 `https://api.musicapi.ai`
 

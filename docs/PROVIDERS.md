@@ -10,10 +10,125 @@
 
 - [Replicate](#replicate) - ⭐ 默认推荐，支持人声+中英文歌词
 - [MiniMax](#minimax-官方-api) - 国内直连，支持人声+中英文歌词
+- [Mureka](#mureka) - 国内直连，支持人声+中英文歌词
+- [Google Lyria 3](#google-lyria-3) - 高质量音乐生成，需代理
 - [ElevenLabs](#elevenlabs) - 支持人声（需付费套餐）
 - [Suno](#suno) - 第三方 API，支持人声
 - [fal.ai](#falai) - Stable Audio（纯器乐）
 - [Stability AI](#stability-ai) - 官方 API（纯器乐）
+
+---
+
+## Mureka
+
+> **状态**: ✅ 已实现 | **推荐**: 国内用户 | **支持人声**: ✅ 是
+
+Mureka AI（昆仑万维）音乐生成 API，支持人声和中英文歌词，**国内可直接访问**。
+
+### 特性
+
+| 项目 | 详情 |
+|------|------|
+| 模型 | `auto`（默认） |
+| 国内访问 | ✅ 直连，无需代理 |
+| 人声支持 | ✅ 是 |
+| 歌词支持 | ✅ 中英文（结构化歌词，支持 [Verse], [Chorus] 等标签） |
+
+### 获取步骤
+
+1. **注册账户**
+   - 访问 [platform.mureka.ai](https://platform.mureka.ai)
+   - 注册并获取 API Key
+
+2. **配置到项目**
+   ```bash
+   export MUREKA_API_KEY="your-key-here"
+
+   # 或配置文件 config/providers.local.json
+   {
+     "secrets": {
+       "mureka_api_key": "your-key-here"
+     }
+   }
+   ```
+
+3. **切换默认 Provider**
+   ```bash
+   export AI_MUSIC_PROVIDER_DEFAULT="mureka"
+   # 或在配置文件中设置 "default_provider": "mureka"
+   ```
+
+### API 参数
+
+| 参数 | 说明 | 默认值 |
+|------|------|--------|
+| `model` | 模型版本 | `auto` |
+| `prompt` | 风格描述（如 "r&b, slow, passionate, male vocal"） | 无 |
+| `poll_interval_s` | 轮询间隔（秒） | 2.0 |
+| `max_wait_s` | 最大等待（秒） | 300.0 |
+
+### 相关链接
+
+- [Mureka 开发者平台](https://platform.mureka.ai)
+- [Mureka API 文档](https://platform.mureka.ai/docs/)
+
+---
+
+## Google Lyria 3
+
+> **状态**: ✅ 已实现 | **推荐**: 国际用户 | **支持人声**: ✅ 是
+
+Google Lyria 3 音乐生成 API，通过 Gemini API 访问，支持高质量音乐生成。
+
+### 特性
+
+| 项目 | 详情 |
+|------|------|
+| 模型 | `lyria-3-clip-preview`、`lyria-3-pro-preview` |
+| 国内访问 | ❌ 需代理 |
+| 人声支持 | ✅ 是 |
+| 歌词支持 | ✅ 是 |
+
+### 获取步骤
+
+1. **获取 API Key**
+   - 访问 [Google AI Studio](https://aistudio.google.com/app/apikey)
+   - 创建 API Key
+
+2. **配置到项目**
+   ```bash
+   export GOOGLE_API_KEY="your-api-key-here"
+
+   # 或配置文件 config/providers.local.json
+   {
+     "secrets": {
+       "google_api_key": "your-api-key-here"
+     }
+   }
+   ```
+
+3. **切换默认 Provider**
+   ```bash
+   export AI_MUSIC_PROVIDER_DEFAULT="lyria"
+   # 或在配置文件中设置 "default_provider": "lyria"
+   ```
+
+### API 参数
+
+| 参数 | 说明 | 默认值 |
+|------|------|--------|
+| `model` | 模型版本 | `lyria-3-clip-preview` |
+| `seed` | Seed 值（可复现） | 无 |
+
+### 注意事项
+
+- ⚠️ 国内访问需要代理
+- ⚠️ 需要有效的 Google API Key
+
+### 相关链接
+
+- [Google AI Studio](https://aistudio.google.com)
+- [Gemini API Lyria 文档](https://ai.google.dev/gemini-api/docs/lyria)
 
 ---
 
@@ -293,7 +408,7 @@ Stability AI 官方的 Stable Audio API。
   },
   "endpoints": {
     "replicate_base_url": "https://api.replicate.com",
-    "minimax_base_url": "https://api.minimax.io",
+    "minimax_base_url": "https://api.minimaxi.com",
     "elevenlabs_base_url": "https://api.elevenlabs.io",
     "suno_base_url": "https://api.musicapi.ai"
   },
@@ -301,6 +416,8 @@ Stability AI 官方的 Stable Audio API。
   "enabled_providers": ["replicate", "minimax", "elevenlabs", "suno"]
 }
 ```
+
+> MiniMax 鍥介檯/娴峰 Key 璇锋妸 `minimax_base_url` 鏀逛负 `https://api.minimax.io`銆?
 
 ---
 
@@ -421,4 +538,4 @@ MiniMax 官方音乐生成 API（music-2.6 模型），支持人声和中英文�
 
 ---
 
-*最后更新: 2026-04-23*
+*最后更新: 2026-04-24*

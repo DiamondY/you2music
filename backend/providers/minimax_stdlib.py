@@ -15,9 +15,20 @@ from dataclasses import dataclass
 from typing import Any
 
 
+def _maybe_region_hint(*, msg: str, http_status: int | None = None) -> str:
+    raw = (msg or "").strip()
+    low = raw.lower()
+    if http_status in (401, 403) or "invalidkey" in low or "invalid key" in low or "unauthorized" in low:
+        return (
+            " (Hint: check MiniMax API region/base_url: CN=https://api.minimaxi.com, "
+            "INTL=https://api.minimax.io)"
+        )
+    return ""
+
+
 @dataclass(frozen=True)
 class MiniMaxMusicStdlibResult:
-    audio_url: str
+    audio_url: str | None
     task_id: str | None
     audio_bytes: bytes | None = None
 
@@ -52,9 +63,14 @@ class MiniMaxMusicClientStdlib:
                 base_resp = data.get("base_resp") or {}
                 status_code = base_resp.get("status_code")
                 status_msg = base_resp.get("status_msg") or text
-                raise RuntimeError(f"MiniMax API error (status_code={status_code}): {status_msg}") from e
+                raise RuntimeError(
+                    f"MiniMax API error (status_code={status_code}): {status_msg}"
+                    f"{_maybe_region_hint(msg=str(status_msg), http_status=e.code)}"
+                ) from e
             except json.JSONDecodeError:
-                raise RuntimeError(f"MiniMax API HTTP {e.code}: {text}") from e
+                raise RuntimeError(
+                    f"MiniMax API HTTP {e.code}: {text}{_maybe_region_hint(msg=text, http_status=e.code)}"
+                ) from e
 
     def generate(
         self,
@@ -108,15 +124,27 @@ class MiniMaxMusicClientStdlib:
         status_code = base_resp.get("status_code")
         if status_code != 0:
             status_msg = base_resp.get("status_msg") or "Unknown error"
-            raise RuntimeError(f"MiniMax API error: status_code={status_code}, msg={status_msg}")
+            raise RuntimeError(
+                f"MiniMax API error: status_code={status_code}, msg={status_msg}"
+                f"{_maybe_region_hint(msg=str(status_msg))}"
+            )
 
-        audio_url = data.get("data", {}).get("audio_url")
-        task_id = data.get("data", {}).get("task_id")
+        data_obj = data.get("data") or {}
+        task_id = data_obj.get("task_id")
+        audio_val = data_obj.get("audio_url") or data_obj.get("audio")
 
-        if not audio_url:
-            raise RuntimeError(f"MiniMax response missing audio_url: {data}")
+        if not audio_val:
+            raise RuntimeError(f"MiniMax response missing audio field: {data}")
 
-        return MiniMaxMusicStdlibResult(audio_url=audio_url, task_id=task_id)
+        if str(output_format).lower() == "url":
+            return MiniMaxMusicStdlibResult(audio_url=str(audio_val), task_id=task_id)
+
+        audio_str = str(audio_val)
+        try:
+            audio_bytes = bytes.fromhex(audio_str)
+        except ValueError:
+            raise RuntimeError(f"MiniMax response audio is not hex: {data}")
+        return MiniMaxMusicStdlibResult(audio_url=None, task_id=task_id, audio_bytes=audio_bytes)
 
     def download_audio(self, audio_url: str) -> bytes:
         """Download audio from MiniMax result URL."""

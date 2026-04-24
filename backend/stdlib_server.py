@@ -18,6 +18,8 @@ from providers.replicate_stdlib import ReplicateClientStdlib
 from providers.stability_stdlib import StabilityAudioClientStdlib
 from providers.suno_stdlib import SunoClientStdlib
 from providers.minimax_stdlib import MiniMaxMusicClientStdlib
+from providers.mureka import MurekaClientStdlib
+from providers.lyria import LyriaClientStdlib
 from storage import JobStore
 from admin_config import load_local_config, redacted_config, save_local_config
 
@@ -429,8 +431,60 @@ class AppState:
                     bitrate=bitrate,
                     format=audio_format,
                 )
-                out_bytes = client.download_audio(result.audio_url)
+                if result.audio_bytes is not None:
+                    out_bytes = result.audio_bytes
+                else:
+                    if not result.audio_url:
+                        raise RuntimeError("MiniMax response missing audio_url")
+                    out_bytes = client.download_audio(result.audio_url)
                 out_ext = audio_format
+            elif provider_name == "mureka":
+                # Mureka AI (昆仑万维) Music API
+                client = MurekaClientStdlib(
+                    api_key=self.settings.mureka_api_key,
+                    base_url=self.settings.mureka_base_url,
+                    timeout_s=self.settings.request_timeout_s,
+                )
+                model = str(provider_params.get("model") or "auto")
+                mureka_prompt = provider_params.get("prompt")  # Optional style description
+                lyrics = params.get("lyrics") or provider_params.get("lyrics")
+                poll_interval = float(provider_params.get("poll_interval_s", 2.0))
+                max_wait = float(provider_params.get("max_wait_s", 300.0))
+
+                result = client.generate_song(
+                    lyrics=lyrics or "",
+                    prompt=mureka_prompt,
+                    model=model,
+                    poll_interval_s=poll_interval,
+                    max_wait_s=max_wait,
+                )
+                out_bytes = client.download_audio(result.audio_url)
+                out_ext = "mp3"
+            elif provider_name == "lyria":
+                # Google Lyria 3 via Gemini API
+                client = LyriaClientStdlib(
+                    api_key=self.settings.google_api_key,
+                    base_url=self.settings.google_base_url,
+                    timeout_s=self.settings.request_timeout_s,
+                )
+                model = str(provider_params.get("model") or "lyria-3-clip-preview")
+                lyrics = params.get("lyrics") or provider_params.get("lyrics")
+                seed = provider_params.get("seed", params.get("seed"))
+
+                result = client.generate(
+                    prompt=prompt,
+                    model=model,
+                    lyrics=lyrics,
+                    seed=int(seed) if seed is not None else None,
+                )
+
+                if result.audio_bytes:
+                    out_bytes = result.audio_bytes
+                elif result.audio_url:
+                    out_bytes = client.download_audio(result.audio_url)
+                else:
+                    raise RuntimeError("Lyria result missing audio data")
+                out_ext = "mp3"
             else:
                 raise RuntimeError(f"unknown provider: {provider_name}")
 
@@ -716,18 +770,18 @@ class Handler(BaseHTTPRequestHandler):
             provider_name = STATE.settings.default_provider
             if isinstance(payload, dict) and payload.get("provider") and str(payload.get("provider")).strip():
                 provider_name = str(payload.get("provider")).strip()
-            if provider_name not in ("elevenlabs", "fal", "replicate", "stability", "suno", "minimax"):
+            if provider_name not in ("elevenlabs", "fal", "replicate", "stability", "suno", "minimax", "mureka", "lyria"):
                 _error(self, 400, f"unknown provider: {provider_name}")
                 return
 
             provider_params = params.get("provider_params") or {}
             output_format = str(provider_params.get("output_format") or STATE.settings.output_format)
-            # force vocals off for non-elevenlabs/suno/minimax providers, unless MiniMax music via Replicate
+            # force vocals off for non-elevenlabs/suno/minimax/mureka/lyria providers, unless MiniMax music via Replicate
             is_minimax_replicate = (
                 provider_name == "replicate"
                 and _is_minimax_music_model(str(provider_params.get("version") or ""))
             )
-            if provider_name not in ("elevenlabs", "suno", "minimax") and not is_minimax_replicate:
+            if provider_name not in ("elevenlabs", "suno", "minimax", "mureka", "lyria") and not is_minimax_replicate:
                 params["vocals"] = False
             params = {**params, "output_format": output_format, "provider": provider_name}
 
@@ -762,18 +816,18 @@ class Handler(BaseHTTPRequestHandler):
             provider_name = STATE.settings.default_provider
             if isinstance(payload, dict) and payload.get("provider") and str(payload.get("provider")).strip():
                 provider_name = str(payload.get("provider")).strip()
-            if provider_name not in ("elevenlabs", "fal", "replicate", "stability", "suno", "minimax"):
+            if provider_name not in ("elevenlabs", "fal", "replicate", "stability", "suno", "minimax", "mureka", "lyria"):
                 _error(self, 400, f"unknown provider: {provider_name}")
                 return
 
             provider_params = params.get("provider_params") or {}
             output_format = str(provider_params.get("output_format") or STATE.settings.output_format)
-            # force vocals off for non-elevenlabs/suno/minimax providers, unless MiniMax music via Replicate
+            # force vocals off for non-elevenlabs/suno/minimax/mureka/lyria providers, unless MiniMax music via Replicate
             is_minimax_replicate = (
                 provider_name == "replicate"
                 and _is_minimax_music_model(str(provider_params.get("version") or ""))
             )
-            if provider_name not in ("elevenlabs", "suno", "minimax") and not is_minimax_replicate:
+            if provider_name not in ("elevenlabs", "suno", "minimax", "mureka", "lyria") and not is_minimax_replicate:
                 params["vocals"] = False
             params = {**params, "output_format": output_format, "provider": provider_name}
             job_id = STATE.store.create_job(provider=provider_name, prompt=prompt, params=params, kind="generate")

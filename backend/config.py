@@ -5,6 +5,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 
 @dataclass(frozen=True)
@@ -23,6 +24,10 @@ class Settings:
     suno_base_url: str
     minimax_api_key: str
     minimax_base_url: str
+    mureka_api_key: str
+    mureka_base_url: str
+    google_api_key: str
+    google_base_url: str
     enabled_providers: list[str] | None
     provider_ui_defaults: dict[str, dict[str, Any]]
     admin_token: str
@@ -32,6 +37,9 @@ class Settings:
     data_dir: Path
     output_format: str
     request_timeout_s: float
+
+
+MINIMAX_BASE_URL_DEFAULT = "https://api.minimaxi.com"
 
 
 def _read_json_if_exists(path: Path) -> dict[str, Any] | None:
@@ -61,7 +69,11 @@ def load_settings() -> Settings:
     suno_api_key = os.getenv("SUNO_API_KEY", "").strip()
     suno_base_url = os.getenv("SUNO_BASE_URL", "https://api.musicapi.ai").strip().rstrip("/")
     minimax_api_key = os.getenv("MINIMAX_API_KEY", "").strip()
-    minimax_base_url = os.getenv("MINIMAX_BASE_URL", "https://api.minimax.io").strip().rstrip("/")
+    minimax_base_url = os.getenv("MINIMAX_BASE_URL", MINIMAX_BASE_URL_DEFAULT).strip().rstrip("/")
+    mureka_api_key = os.getenv("MUREKA_API_KEY", "").strip()
+    mureka_base_url = os.getenv("MUREKA_BASE_URL", "https://api.mureka.ai").strip().rstrip("/")
+    google_api_key = os.getenv("GOOGLE_API_KEY", "").strip()
+    google_base_url = os.getenv("GOOGLE_BASE_URL", "https://generativelanguage.googleapis.com").strip().rstrip("/")
     admin_token = os.getenv("AI_MUSIC_ADMIN_TOKEN", "").strip()
 
     data_dir_raw = os.getenv(
@@ -110,8 +122,18 @@ def load_settings() -> Settings:
 
         if not minimax_api_key:
             minimax_api_key = str(secrets.get("minimax_api_key") or "").strip()
-        if minimax_base_url == "https://api.minimax.io":
+        if minimax_base_url == MINIMAX_BASE_URL_DEFAULT:
             minimax_base_url = str(endpoints.get("minimax_base_url") or minimax_base_url).strip().rstrip("/")
+
+        if not mureka_api_key:
+            mureka_api_key = str(secrets.get("mureka_api_key") or "").strip()
+        if mureka_base_url == "https://api.mureka.ai":
+            mureka_base_url = str(endpoints.get("mureka_base_url") or mureka_base_url).strip().rstrip("/")
+
+        if not google_api_key:
+            google_api_key = str(secrets.get("google_api_key") or "").strip()
+        if google_base_url == "https://generativelanguage.googleapis.com":
+            google_base_url = str(endpoints.get("google_base_url") or google_base_url).strip().rstrip("/")
 
         if default_provider == "elevenlabs":
             dp = cfg.get("default_provider")
@@ -152,6 +174,19 @@ def load_settings() -> Settings:
     proxy_https = (os.getenv("HTTPS_PROXY") or os.getenv("https_proxy") or "").strip()
     proxy_no = (os.getenv("NO_PROXY") or os.getenv("no_proxy") or "").strip()
 
+    # MiniMax base_url should be a domain root; the client will append `/v1/music_generation`.
+    # A common mistake is to set MINIMAX_BASE_URL=".../v1", which results in "/v1/v1/music_generation".
+    try:
+        minimax_path = urlsplit(minimax_base_url).path or ""
+    except Exception:
+        minimax_path = ""
+    minimax_path_parts = [p for p in minimax_path.split("/") if p]
+    if any(p.lower() == "v1" for p in minimax_path_parts):
+        raise RuntimeError(
+            f"Invalid MINIMAX_BASE_URL={minimax_base_url!r}: base_url must not include '/v1'. "
+            "Use 'https://api.minimaxi.com' (CN) or 'https://api.minimax.io' (INTL)."
+        )
+
     return Settings(
         elevenlabs_api_key=api_key,
         elevenlabs_base_url=base_url,
@@ -167,6 +202,10 @@ def load_settings() -> Settings:
         suno_base_url=suno_base_url,
         minimax_api_key=minimax_api_key,
         minimax_base_url=minimax_base_url,
+        mureka_api_key=mureka_api_key,
+        mureka_base_url=mureka_base_url,
+        google_api_key=google_api_key,
+        google_base_url=google_base_url,
         enabled_providers=enabled_providers,
         provider_ui_defaults=provider_ui_defaults,
         admin_token=admin_token,

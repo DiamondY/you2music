@@ -229,10 +229,13 @@ $env:REPLICATE_BASE_URL="https://api.replicate.com"
 
 MiniMax API base URL。
 
-- 默认：`https://api.minimax.io`
+- 默认（国内）：`https://api.minimaxi.com`
+- 国际/海外：`https://api.minimax.io`
+
+> 注意：不要包含 `/v1`（例如 `.../v1`），程序会自动拼接 `/v1/music_generation`。
 
 ```powershell
-$env:MINIMAX_BASE_URL="https://api.minimax.io"
+$env:MINIMAX_BASE_URL="https://api.minimaxi.com"
 ```
 
 ### `STABILITY_BASE_URL`

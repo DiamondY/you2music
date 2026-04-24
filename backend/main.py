@@ -22,6 +22,8 @@ from providers.registry import providers_payload
 from providers.stability import StabilityAudioClient
 from providers.suno import SunoClient
 from providers.minimax import MiniMaxMusicClient
+from providers.mureka import MurekaClient
+from providers.lyria import LyriaClient
 from admin_config import load_local_config, redacted_config, save_local_config
 
 
@@ -414,7 +416,7 @@ async def admin_test(x_admin_token: str | None = Header(default=None, alias="x-a
 @app.post("/api/generate")
 async def generate(req: GenerateRequest) -> dict[str, Any]:
     provider_name = _resolve_provider(req.provider)
-    if provider_name not in ("elevenlabs", "fal", "replicate", "stability", "suno", "minimax"):
+    if provider_name not in ("elevenlabs", "fal", "replicate", "stability", "suno", "minimax", "mureka", "lyria"):
         raise HTTPException(status_code=400, detail=f"unknown provider: {provider_name}")
 
     provider_params = req.provider_params or {}
@@ -424,7 +426,7 @@ async def generate(req: GenerateRequest) -> dict[str, Any]:
         provider_name == "replicate"
         and _is_minimax_music_model(str(provider_params.get("version") or ""))
     )
-    if provider_name not in ("elevenlabs", "minimax") and not is_minimax_replicate:
+    if provider_name not in ("elevenlabs", "minimax", "mureka", "lyria") and not is_minimax_replicate:
         vocals = False
     params: dict[str, Any] = {
         "duration_sec": req.duration_sec,
@@ -439,7 +441,7 @@ async def generate(req: GenerateRequest) -> dict[str, Any]:
 
     # Providers that accept a separate `lyrics` field should not also get lyrics injected into `prompt`.
     lyrics_for_prompt = req.lyrics
-    if provider_name == "minimax" or is_minimax_replicate:
+    if provider_name in ("minimax", "mureka", "lyria") or is_minimax_replicate:
         lyrics_for_prompt = None
 
     prompt = _apply_provider_prompt_options(
@@ -457,7 +459,7 @@ async def generate(req: GenerateRequest) -> dict[str, Any]:
 @app.post("/api/generate_many")
 async def generate_many(req: GenerateManyRequest) -> dict[str, Any]:
     provider_name = _resolve_provider(req.provider)
-    if provider_name not in ("elevenlabs", "fal", "replicate", "stability", "suno", "minimax"):
+    if provider_name not in ("elevenlabs", "fal", "replicate", "stability", "suno", "minimax", "mureka", "lyria"):
         raise HTTPException(status_code=400, detail=f"unknown provider: {provider_name}")
     provider_params = req.provider_params or {}
     vocals = req.vocals
@@ -466,7 +468,7 @@ async def generate_many(req: GenerateManyRequest) -> dict[str, Any]:
         provider_name == "replicate"
         and _is_minimax_music_model(str(provider_params.get("version") or ""))
     )
-    if provider_name not in ("elevenlabs", "minimax") and not is_minimax_replicate:
+    if provider_name not in ("elevenlabs", "minimax", "mureka", "lyria") and not is_minimax_replicate:
         vocals = False
     params: dict[str, Any] = {
         "duration_sec": req.duration_sec,
@@ -481,7 +483,7 @@ async def generate_many(req: GenerateManyRequest) -> dict[str, Any]:
 
     # Providers that accept a separate `lyrics` field should not also get lyrics injected into `prompt`.
     lyrics_for_prompt = req.lyrics
-    if provider_name == "minimax" or is_minimax_replicate:
+    if provider_name in ("minimax", "mureka", "lyria") or is_minimax_replicate:
         lyrics_for_prompt = None
     prompt = _apply_provider_prompt_options(
         base_prompt=req.prompt,
@@ -965,8 +967,60 @@ async def _run_job(*, job_id: str, prompt: str, params: dict[str, Any]) -> None:
                 bitrate=bitrate,
                 format=audio_format,
             )
-            out_bytes = await client.download_audio(result.audio_url)
+            if result.audio_bytes is not None:
+                out_bytes = result.audio_bytes
+            else:
+                if not result.audio_url:
+                    raise RuntimeError("MiniMax response missing audio_url")
+                out_bytes = await client.download_audio(result.audio_url)
             out_ext = audio_format
+        elif provider_name == "mureka":
+            # Mureka AI (昆仑万维) Music API
+            client = MurekaClient(
+                api_key=STATE.settings.mureka_api_key,
+                base_url=STATE.settings.mureka_base_url,
+                timeout_s=STATE.settings.request_timeout_s,
+            )
+            model = str(provider_params.get("model") or "auto")
+            mureka_prompt = provider_params.get("prompt")  # Optional style description
+            lyrics = params.get("lyrics") or provider_params.get("lyrics")
+            poll_interval = float(provider_params.get("poll_interval_s", 2.0))
+            max_wait = float(provider_params.get("max_wait_s", 300.0))
+
+            result = await client.generate_song(
+                lyrics=lyrics or "",
+                prompt=mureka_prompt,
+                model=model,
+                poll_interval_s=poll_interval,
+                max_wait_s=max_wait,
+            )
+            out_bytes = await client.download_audio(result.audio_url)
+            out_ext = "mp3"
+        elif provider_name == "lyria":
+            # Google Lyria 3 via Gemini API
+            client = LyriaClient(
+                api_key=STATE.settings.google_api_key,
+                base_url=STATE.settings.google_base_url,
+                timeout_s=STATE.settings.request_timeout_s,
+            )
+            model = str(provider_params.get("model") or "lyria-3-clip-preview")
+            lyrics = params.get("lyrics") or provider_params.get("lyrics")
+            seed = provider_params.get("seed", params.get("seed"))
+
+            result = await client.generate(
+                prompt=prompt,
+                model=model,
+                lyrics=lyrics,
+                seed=int(seed) if seed is not None else None,
+            )
+
+            if result.audio_bytes:
+                out_bytes = result.audio_bytes
+            elif result.audio_url:
+                out_bytes = await client.download_audio(result.audio_url)
+            else:
+                raise RuntimeError("Lyria result missing audio data")
+            out_ext = "mp3"
         else:
             raise RuntimeError(f"unknown provider: {provider_name}")
 

@@ -371,6 +371,66 @@ def get_providers(settings: Settings, *, include_disabled: bool = False) -> list
         ),
     ]
 
+    mureka_fields: list[ProviderField] = [
+        ProviderField(
+            key="model",
+            label="Mureka 模型",
+            kind="string",
+            required=False,
+            advanced=False,
+            default=_def("mureka", "model", "auto"),
+            help="Mureka 模型：auto（默认）。",
+        ),
+        ProviderField(
+            key="prompt",
+            label="风格描述",
+            kind="string",
+            required=False,
+            advanced=False,
+            default=None,
+            help="音乐风格描述，如 \"r&b, slow, passionate, male vocal\"。",
+        ),
+        ProviderField(
+            key="poll_interval_s",
+            label="轮询间隔（秒）",
+            kind="number",
+            required=False,
+            advanced=True,
+            default=_def("mureka", "poll_interval_s", 2.0),
+        ),
+        ProviderField(
+            key="max_wait_s",
+            label="最大等待（秒）",
+            kind="number",
+            required=False,
+            advanced=True,
+            default=_def("mureka", "max_wait_s", 300.0),
+            help="Mureka 任务轮询超时，默认 300 秒。",
+        ),
+    ]
+
+    lyria_fields: list[ProviderField] = [
+        ProviderField(
+            key="model",
+            label="Lyria 模型",
+            kind="enum",
+            required=False,
+            advanced=False,
+            default=_def("lyria", "model", "lyria-3-clip-preview"),
+            enum=["lyria-3-clip-preview", "lyria-3-pro-preview"],
+            help="Google Lyria 模型：lyria-3-clip-preview（推荐）或 lyria-3-pro-preview。",
+        ),
+        ProviderField(
+            key="seed",
+            label="Seed（可复现）",
+            kind="integer",
+            required=False,
+            advanced=True,
+            default=None,
+            help="Seed 值，用于可复现生成。",
+        ),
+    ]
+
     providers: list[ProviderInfo] = [
         ProviderInfo(
             id="elevenlabs",
@@ -467,6 +527,36 @@ def get_providers(settings: Settings, *, include_disabled: bool = False) -> list
                 config_endpoint_key="minimax_base_url",
                 env_endpoint_name="MINIMAX_BASE_URL",
             ),
+            ProviderInfo(
+                id="mureka",
+                name="Mureka AI Music",
+                description="Mureka AI（昆仑万维）音乐生成 API，支持人声+中英文歌词，国内直连。",
+                capabilities={
+                    "supports_vocals": True,
+                    "supports_true_extend": False,
+                    "max_duration_sec": 240,
+                },
+                fields=mureka_fields,
+                config_secret_key="mureka_api_key",
+                env_secret_name="MUREKA_API_KEY",
+                config_endpoint_key="mureka_base_url",
+                env_endpoint_name="MUREKA_BASE_URL",
+            ),
+            ProviderInfo(
+                id="lyria",
+                name="Google Lyria 3",
+                description="Google Lyria 3 音乐生成 API（通过 Gemini API），高质量音乐生成，需代理访问。",
+                capabilities={
+                    "supports_vocals": True,
+                    "supports_true_extend": False,
+                    "max_duration_sec": 180,
+                },
+                fields=lyria_fields,
+                config_secret_key="google_api_key",
+                env_secret_name="GOOGLE_API_KEY",
+                config_endpoint_key="google_base_url",
+                env_endpoint_name="GOOGLE_BASE_URL",
+            ),
         ]
     )
 
@@ -489,6 +579,8 @@ def providers_payload(settings: Settings, *, include_disabled: bool = False) -> 
         "stability": (["STABILITY_API_KEY"] if not settings.stability_api_key else []),
         "suno": (["SUNO_API_KEY"] if not settings.suno_api_key else []),
         "minimax": (["MINIMAX_API_KEY"] if not settings.minimax_api_key else []),
+        "mureka": (["MUREKA_API_KEY"] if not settings.mureka_api_key else []),
+        "lyria": (["GOOGLE_API_KEY"] if not settings.google_api_key else []),
     }
     return {
         "default_provider": getattr(settings, "default_provider", "elevenlabs"),
