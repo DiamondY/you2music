@@ -484,6 +484,16 @@ export AI_MUSIC_PROVIDER_DEFAULT="minimax"
 
 MiniMax 官方音乐生成 API（music-2.6 模型），支持人声和中英文歌词，**国内可直接访问**。
 
+**Base URL**
+
+- 国内：`https://api.minimaxi.com`
+- 国际/海外：`https://api.minimax.io`
+
+**歌词（Lyrics）是否必填？**
+
+- 开启人声（`vocals=true`）时，MiniMax 通常需要提供歌词；本项目在你不填歌词时会自动启用 `lyrics_optimizer=true`，由 MiniMax 自动生成歌词。
+- 关闭人声（`vocals=false`）时，本项目会自动设置 `is_instrumental=true`，此时歌词可以不填。
+
 ### 特性
 
 | 项目 | 详情 |
@@ -496,8 +506,8 @@ MiniMax 官方音乐生成 API（music-2.6 模型），支持人声和中英文�
 ### 获取步骤
 
 1. **注册账户**
-   - 访问 [platform.minimax.io](https://platform.minimax.io)
-   - 注册并获取 API Key
+   - 国内：访问 [platform.minimaxi.com](https://platform.minimaxi.com) 注册并获取 API Key
+   - 国际/海外：访问 [platform.minimax.io](https://platform.minimax.io) 注册并获取 API Key
 
 2. **配置到项目**
    ```bash

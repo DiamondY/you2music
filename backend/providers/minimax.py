@@ -86,8 +86,12 @@ class MiniMaxMusicClient:
             "output_format": output_format,
         }
 
-        if lyrics and lyrics.strip():
-            body["lyrics"] = lyrics.strip()
+        # MiniMax API supports running without lyrics when:
+        # - is_instrumental=true, or
+        # - lyrics_optimizer=true with empty lyrics
+        # In those cases, the caller may pass lyrics="" intentionally.
+        if lyrics is not None:
+            body["lyrics"] = str(lyrics).strip()
 
         # Add additional parameters
         for k, v in kwargs.items():

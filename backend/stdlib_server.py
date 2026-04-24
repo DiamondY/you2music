@@ -418,18 +418,38 @@ class AppState:
                     timeout_s=self.settings.request_timeout_s,
                 )
                 model = str(provider_params.get("model") or "music-2.6")
-                lyrics = params.get("lyrics") or provider_params.get("lyrics")
+                lyrics_raw = params.get("lyrics") or provider_params.get("lyrics")
+                lyrics_text = str(lyrics_raw).strip() if lyrics_raw is not None else ""
                 sample_rate = int(provider_params.get("sample_rate") or 44100)
                 bitrate = int(provider_params.get("bitrate") or 256000)
                 audio_format = str(provider_params.get("format") or "mp3")
 
+                lyrics_optimizer_val = provider_params.get("lyrics_optimizer")
+                lyrics_optimizer = (
+                    bool(lyrics_optimizer_val)
+                    if isinstance(lyrics_optimizer_val, bool)
+                    else (True if vocals and not lyrics_text else False)
+                )
+                is_instrumental = not vocals
+                lyrics_to_send: str | None
+                if is_instrumental:
+                    lyrics_to_send = None
+                    lyrics_optimizer = False
+                elif lyrics_text:
+                    lyrics_to_send = lyrics_text
+                else:
+                    lyrics_to_send = ""
+                    lyrics_optimizer = True
+
                 result = client.generate(
                     prompt=prompt,
-                    lyrics=lyrics,
+                    lyrics=lyrics_to_send,
                     model=model,
                     sample_rate=sample_rate,
                     bitrate=bitrate,
                     format=audio_format,
+                    lyrics_optimizer=lyrics_optimizer,
+                    is_instrumental=is_instrumental,
                 )
                 if result.audio_bytes is not None:
                     out_bytes = result.audio_bytes
