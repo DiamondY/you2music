@@ -138,6 +138,43 @@ class JobStore:
             song_id=row[9] if len(row) > 9 else None,
         )
 
+    def list_recent(self, *, limit: int = 20) -> list[JobRecord]:
+        limit_int = int(limit)
+        if limit_int < 1:
+            limit_int = 1
+        if limit_int > 50:
+            limit_int = 50
+
+        with self._lock:
+            with self._connect() as conn:
+                rows = conn.execute(
+                    """
+                    SELECT job_id, status, created_at_ms, updated_at_ms, provider, prompt, params_json, output_path, error, song_id
+                    FROM jobs
+                    ORDER BY created_at_ms DESC
+                    LIMIT ?
+                    """,
+                    (limit_int,),
+                ).fetchall()
+
+        out: list[JobRecord] = []
+        for row in rows:
+            out.append(
+                JobRecord(
+                    job_id=row[0],
+                    status=row[1],
+                    created_at_ms=int(row[2]),
+                    updated_at_ms=int(row[3]),
+                    provider=row[4],
+                    prompt=row[5],
+                    params_json=row[6],
+                    output_path=row[7],
+                    error=row[8],
+                    song_id=row[9] if len(row) > 9 else None,
+                )
+            )
+        return out
+
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(str(self._db_path))
         conn.execute("PRAGMA journal_mode=WAL;")

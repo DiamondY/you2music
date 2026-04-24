@@ -607,6 +607,45 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(data)
             return
 
+        if self.path.startswith("/api/jobs/recent"):
+            # /api/jobs/recent?limit=20
+            limit = 20
+            if "?" in self.path:
+                qs = self.path.split("?", 1)[1]
+                for part in qs.split("&"):
+                    if part.startswith("limit="):
+                        raw = part.split("=", 1)[1].strip()
+                        try:
+                            limit = int(raw)
+                        except Exception:
+                            limit = 20
+                        break
+            if limit < 1:
+                limit = 1
+            if limit > 50:
+                limit = 50
+
+            out: list[dict[str, Any]] = []
+            for rec in STATE.store.list_recent(limit=limit):
+                audio_url = None
+                if rec.status == "succeeded" and rec.output_path:
+                    audio_url = f"/api/audio/{rec.job_id}"
+                out.append(
+                    {
+                        "job_id": rec.job_id,
+                        "status": rec.status,
+                        "created_at_ms": rec.created_at_ms,
+                        "updated_at_ms": rec.updated_at_ms,
+                        "provider": rec.provider,
+                        "params": json.loads(rec.params_json),
+                        "audio_url": audio_url,
+                        "error": rec.error,
+                        "song_id": rec.song_id,
+                    }
+                )
+            _json_response(self, 200, {"jobs": out})
+            return
+
         if self.path.startswith("/api/jobs/"):
             job_id = self.path.split("/api/jobs/", 1)[1].strip().split("?", 1)[0]
             rec = STATE.store.get(job_id)

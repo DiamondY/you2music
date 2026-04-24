@@ -1281,8 +1281,12 @@
       // ========================================
       // State
       // ========================================
+      const JOB_HISTORY_KEY = "you2music.jobHistoryIds.v1";
+      const JOB_HISTORY_MAX = 20;
+
       let currentJobId = null;
       let currentJobs = [];
+      let jobHistoryIds = [];
       let currentJobSongId = null;
       let currentJobProvider = null;
       let pollTimer = null;
@@ -1321,6 +1325,43 @@
         errorEl.style.display = msg ? "block" : "none";
       }
 
+      function loadJobHistoryIds() {
+        try {
+          const raw = localStorage.getItem(JOB_HISTORY_KEY);
+          if (!raw) return [];
+          const arr = JSON.parse(raw);
+          if (!Array.isArray(arr)) return [];
+          return arr.map(x => String(x || "").trim()).filter(Boolean).slice(0, JOB_HISTORY_MAX);
+        } catch {
+          return [];
+        }
+      }
+
+      function saveJobHistoryIds() {
+        try {
+          localStorage.setItem(JOB_HISTORY_KEY, JSON.stringify(jobHistoryIds));
+        } catch {
+          // ignore storage failures (private mode, quota, etc.)
+        }
+      }
+
+      function rememberJobIds(ids) {
+        const incoming = (ids || []).map(x => String(x || "").trim()).filter(Boolean);
+        if (incoming.length === 0) return;
+        const merged = [...incoming, ...jobHistoryIds];
+        const seen = new Set();
+        const out = [];
+        for (const id of merged) {
+          if (seen.has(id)) continue;
+          seen.add(id);
+          out.push(id);
+          if (out.length >= JOB_HISTORY_MAX) break;
+        }
+        jobHistoryIds = out;
+        saveJobHistoryIds();
+        currentJobs = jobHistoryIds.slice();
+      }
+
       async function fetchJson(url, opts) {
         const res = await fetch(url, opts);
         const text = await res.text();
@@ -1331,6 +1372,35 @@
           throw new Error(detail || `HTTP ${res.status}`);
         }
         return data;
+      }
+
+      async function initJobHistory() {
+        jobHistoryIds = loadJobHistoryIds();
+        if (jobHistoryIds.length > 0) {
+          currentJobs = jobHistoryIds.slice();
+          if (!currentJobId) {
+            currentJobId = currentJobs[0] || null;
+            jobIdEl.textContent = currentJobId || "-";
+          }
+          await refreshJobs(currentJobs, { updateStatus: false });
+          return;
+        }
+
+        try {
+          const data = await fetchJson(`/api/jobs/recent?limit=${JOB_HISTORY_MAX}`);
+          const jobs = data.jobs || [];
+          const ids = jobs.map(j => String(j.job_id || "").trim()).filter(Boolean);
+          jobHistoryIds = ids.slice(0, JOB_HISTORY_MAX);
+          saveJobHistoryIds();
+          currentJobs = jobHistoryIds.slice();
+          if (!currentJobId) {
+            currentJobId = currentJobs[0] || null;
+            jobIdEl.textContent = currentJobId || "-";
+          }
+          renderList(jobs);
+        } catch {
+          // ignore
+        }
       }
 
       function getSelectedProviderId() {
@@ -2073,7 +2143,6 @@
       async function startGenerate() {
         setError("");
         setStatus("提交任务中…");
-        listEl.innerHTML = "";
         downloadLink.style.display = "none";
         refreshBtn.style.display = "none";
         extendBtn.style.display = "none";
@@ -2130,7 +2199,7 @@
         });
 
         currentJobId = data.job_id;
-        currentJobs = [currentJobId];
+        rememberJobIds([currentJobId]);
         jobIdEl.textContent = currentJobId;
         refreshBtn.style.display = "inline-flex";
         setStatus("已提交，生成中…");
@@ -2140,9 +2209,10 @@
         await refreshJobs(currentJobs);
       }
 
-      async function refreshJobs(jobIds) {
+      async function refreshJobs(jobIds, opts) {
         try {
           if (!jobIds || jobIds.length === 0) return;
+          const updateStatus = !(opts && opts.updateStatus === false);
           const data = await fetchJson(`/api/jobs?ids=${jobIds.join(",")}`);
           const jobs = (data.jobs || []);
           renderList(jobs);
@@ -2159,9 +2229,11 @@
           const anyFailed = jobs.some(j => j.status === "failed");
           const anySucceeded = jobs.some(j => j.status === "succeeded");
 
-          if (anyRunning) setStatus("生成中…");
-          if (!anyRunning && anySucceeded) setStatus("生成完成", "ok");
-          if (!anyRunning && !anySucceeded && anyFailed) setStatus("生成失败", "err");
+          if (updateStatus) {
+            if (anyRunning) setStatus("生成中…");
+            if (!anyRunning && anySucceeded) setStatus("生成完成", "ok");
+            if (!anyRunning && !anySucceeded && anyFailed) setStatus("生成失败", "err");
+          }
 
           if (!anyRunning && pollTimer) { clearInterval(pollTimer); pollTimer = null; }
 
@@ -2187,7 +2259,7 @@
             stemsSection.style.display = "none";
           }
 
-          if (jobs.length === 1 && jobs[0].status === "failed") {
+          if (updateStatus && jobs.length === 1 && jobs[0].status === "failed") {
             setError(jobs[0].error || "未知错误");
           }
         } catch (e) {
@@ -2221,7 +2293,6 @@
       async function startGenerateMany() {
         setError("");
         setStatus("提交多候选任务中…");
-        listEl.innerHTML = "";
         downloadLink.style.display = "none";
         refreshBtn.style.display = "none";
         extendBtn.style.display = "none";
@@ -2268,8 +2339,9 @@
           body: JSON.stringify(payload)
         });
 
-        currentJobs = data.job_ids || [];
-        currentJobId = currentJobs[0] || null;
+        const newIds = data.job_ids || [];
+        rememberJobIds(newIds);
+        currentJobId = newIds[0] || currentJobs[0] || null;
         jobIdEl.textContent = currentJobId || "-";
         refreshBtn.style.display = "inline-flex";
         setStatus("已提交，生成中…");
@@ -2299,7 +2371,7 @@
           })
         });
         const newJobId = data.job_id;
-        currentJobs = [newJobId];
+        rememberJobIds([newJobId]);
         currentJobId = newJobId;
         jobIdEl.textContent = newJobId;
         refreshBtn.style.display = "inline-flex";
@@ -2380,7 +2452,7 @@
           });
 
           currentJobId = data.job_id;
-          currentJobs = [currentJobId];
+          rememberJobIds([currentJobId]);
           jobIdEl.textContent = currentJobId;
           refreshBtn.style.display = "inline-flex";
           setStatus("已提交，生成并存储中…");
@@ -2497,7 +2569,7 @@
           });
 
           const newJobId = data.job_id;
-          currentJobs = [newJobId];
+          rememberJobIds([newJobId]);
           currentJobId = newJobId;
           jobIdEl.textContent = newJobId;
           refreshBtn.style.display = "inline-flex";
@@ -2530,7 +2602,7 @@
       providerEl.addEventListener("change", () => renderProviderFields());
       advancedEl.addEventListener("change", () => renderProviderFields());
 
-      initProviders();
+      initProviders().then(() => initJobHistory());
 
       document.getElementById("generateManyBtn").addEventListener("click", () => {
         startGenerateMany().catch(e => {
