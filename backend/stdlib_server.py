@@ -113,14 +113,29 @@ def _validate_generate(payload: dict[str, Any]) -> tuple[str, dict[str, Any]]:
         "provider_params": provider_params,
         "lyrics": lyrics,  # Pass lyrics to run_job for MiniMax music
     }
+
+    # Providers that accept a separate `lyrics` field should not also get lyrics injected into `prompt`.
+    state = globals().get("STATE", None)
+    default_provider = getattr(getattr(state, "settings", None), "default_provider", None)
+    effective_provider = str(provider or default_provider or "elevenlabs").strip()
+    is_minimax_replicate = (
+        effective_provider == "replicate"
+        and _is_minimax_music_model(str(provider_params.get("version") or ""))
+    )
+    include_lyrics_in_prompt = not (effective_provider == "minimax" or is_minimax_replicate)
+
     raw_prompt = bool(provider_params.get("raw_prompt", False))
     if raw_prompt:
         parts = [prompt.strip()]
-        if lyrics and str(lyrics).strip():
+        if include_lyrics_in_prompt and lyrics and str(lyrics).strip():
             parts.append(str(lyrics).strip())
         full_prompt = "\n\n".join(parts).strip()
     else:
-        full_prompt = _build_prompt(base_prompt=prompt, lyrics=lyrics, vocals=vocals)
+        full_prompt = _build_prompt(
+            base_prompt=prompt,
+            lyrics=(lyrics if include_lyrics_in_prompt else None),
+            vocals=vocals,
+        )
     return full_prompt, params
 
 

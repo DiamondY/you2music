@@ -1098,10 +1098,11 @@
         </div>
 
         <!-- Additional Options -->
-        <div class="form-row" style="margin-top: var(--space-md);">
+        <div id="lyricsRow" class="form-row" style="margin-top: var(--space-md);">
           <div class="form-group">
             <label for="lyrics">歌词（可选）</label>
             <textarea id="lyrics" style="min-height: 60px;" placeholder="可粘贴歌词。建议分段：主歌/副歌/桥段。"></textarea>
+            <div id="lyricsHint" class="muted" style="margin-top: var(--space-xs); display: none;"></div>
           </div>
         </div>
 
@@ -1257,6 +1258,9 @@
       const durationSlider = document.getElementById("duration");
       const durationValue = document.getElementById("durationValue");
       const promptEl = document.getElementById("prompt");
+      const lyricsRowEl = document.getElementById("lyricsRow");
+      const lyricsEl = document.getElementById("lyrics");
+      const lyricsHintEl = document.getElementById("lyricsHint");
 
       // ========================================
       // State
@@ -1346,6 +1350,75 @@
           try { return JSON.parse(raw); } catch { return raw; }
         }
         return raw === "" ? null : raw;
+      }
+
+      function _isMiniMaxMusicVersion(version) {
+        return String(version || "").toLowerCase().startsWith("minimax/music");
+      }
+
+      function shouldShowLyricsInputForProvider(providerId) {
+        // Keep lyrics input available for all providers. Some providers/models treat lyrics as a separate field.
+        return true;
+      }
+
+      function shouldShowLyricsInput() {
+        return shouldShowLyricsInputForProvider(getSelectedProviderId());
+      }
+
+      function updateLyricsUi() {
+        if (!lyricsRowEl) return;
+
+        const providerId = getSelectedProviderId();
+        const inpaintSectionEl = document.getElementById("inpaintSection");
+        const inpaintVisible = Boolean(inpaintSectionEl && inpaintSectionEl.style.display !== "none");
+
+        const showByProvider = shouldShowLyricsInput();
+        const showByInpaint = inpaintVisible; // inpainting/store uses ElevenLabs prompt/lyrics
+        const show = showByProvider || showByInpaint;
+
+        lyricsRowEl.style.display = show ? "" : "none";
+
+        if (!lyricsHintEl) return;
+        if (!show) {
+          lyricsHintEl.style.display = "none";
+          lyricsHintEl.textContent = "";
+          return;
+        }
+
+        if (showByInpaint && !showByProvider) {
+          lyricsHintEl.style.display = "block";
+          lyricsHintEl.textContent = "用于 Inpainting/Store（ElevenLabs）：歌词会参与 Prompt 组装（除非开启「原始 Prompt 模式」）。";
+          return;
+        }
+
+        if (providerId === "minimax") {
+          lyricsHintEl.style.display = "block";
+          lyricsHintEl.textContent = "MiniMax 官方 API：歌词会作为独立参数发送（不会拼接到 Prompt）。";
+          return;
+        }
+        if (providerId === "replicate") {
+          const p = collectProviderParams();
+          if (_isMiniMaxMusicVersion(p.version)) {
+            lyricsHintEl.style.display = "block";
+            lyricsHintEl.textContent = "Replicate + MiniMax music：歌词会作为独立参数发送（不会拼接到 Prompt）。";
+            return;
+          }
+        }
+        if (providerId === "elevenlabs") {
+          lyricsHintEl.style.display = "block";
+          lyricsHintEl.textContent = "ElevenLabs：歌词会参与 Prompt 组装（除非开启「原始 Prompt 模式」）。";
+          return;
+        }
+
+        lyricsHintEl.style.display = "none";
+        lyricsHintEl.textContent = "";
+      }
+
+      function getLyricsPayloadValue(providerOverride) {
+        const pid = providerOverride ? String(providerOverride).trim() : getSelectedProviderId();
+        if (!shouldShowLyricsInputForProvider(pid)) return null;
+        const val = (lyricsEl && lyricsEl.value ? lyricsEl.value : "").trim();
+        return val ? val : null;
       }
 
       // ========================================
@@ -1900,6 +1973,8 @@
             renderProviderFields();
           });
         });
+
+        updateLyricsUi();
       }
 
       async function initProviders() {
@@ -1915,6 +1990,7 @@
           const def = providersMeta.default_provider || (readyFirst ? readyFirst.id : (ps[0] ? ps[0].id : ""));
           providerEl.value = def;
           renderProviderFields();
+          updateLyricsUi();
           renderSections();
         } catch (e) {
           providerFieldsEl.innerHTML = `<div class="err">加载 provider 失败：${String(e)}</div>`;
@@ -1977,7 +2053,7 @@
         player.load();
 
         const prompt = document.getElementById("prompt").value.trim();
-        const lyrics = document.getElementById("lyrics").value.trim();
+        const lyrics = getLyricsPayloadValue();
         const duration = parseInt(document.getElementById("duration").value, 10);
         const vocals = document.getElementById("vocals").value === "on";
         const seedRaw = document.getElementById("seed").value.trim();
@@ -1987,7 +2063,7 @@
 
         const payload = {
           prompt,
-          lyrics: lyrics || null,
+          lyrics: lyrics,
           duration_sec: duration,
           vocals,
           seed: seedRaw ? parseInt(seedRaw, 10) : null,
@@ -2125,7 +2201,7 @@
         player.load();
 
         const prompt = document.getElementById("prompt").value.trim();
-        const lyrics = document.getElementById("lyrics").value.trim();
+        const lyrics = getLyricsPayloadValue();
         const duration = parseInt(document.getElementById("duration").value, 10);
         const vocals = document.getElementById("vocals").value === "on";
         const seedRaw = document.getElementById("seed").value.trim();
@@ -2136,7 +2212,7 @@
 
         const payload = {
           prompt,
-          lyrics: lyrics || null,
+          lyrics: lyrics,
           duration_sec: duration,
           vocals,
           seed: seedRaw ? parseInt(seedRaw, 10) : null,
@@ -2226,6 +2302,7 @@
           inpaintSection.style.display = "none";
           inpaintEditor.classList.remove("visible");
         }
+        updateLyricsUi();
       }
 
       async function generateWithStore() {
@@ -2233,7 +2310,7 @@
         setStatus("生成并存储中…");
 
         const prompt = document.getElementById("prompt").value.trim();
-        const lyrics = document.getElementById("lyrics").value.trim();
+        const lyrics = getLyricsPayloadValue("elevenlabs");
         const duration = parseInt(document.getElementById("duration").value, 10);
         const vocals = document.getElementById("vocals").value === "on";
         const seedRaw = document.getElementById("seed").value.trim();
@@ -2242,7 +2319,7 @@
 
         const payload = {
           prompt,
-          lyrics: lyrics || null,
+          lyrics: lyrics,
           duration_sec: duration,
           vocals,
           seed: seedRaw ? parseInt(seedRaw, 10) : null,

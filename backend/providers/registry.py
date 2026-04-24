@@ -162,15 +162,6 @@ def get_providers(settings: Settings, *, include_disabled: bool = False) -> list
             help="模型名称。推荐 minimax/music-1.5（支持人声+中文歌词）。其他：stability-ai/stable-audio-2.5（纯器乐）。",
         ),
         ProviderField(
-            key="lyrics",
-            label="歌词（MiniMax music）",
-            kind="string",
-            required=False,
-            advanced=False,
-            default=None,
-            help="MiniMax music 模型歌词（支持中英文）。使用 minimax/music-* 模型时可填写。",
-        ),
-        ProviderField(
             key="style_strength",
             label="风格强度（MiniMax）",
             kind="number",
@@ -352,15 +343,6 @@ def get_providers(settings: Settings, *, include_disabled: bool = False) -> list
             advanced=False,
             default=_def("minimax", "model", "music-2.6"),
             help="MiniMax 音乐模型：music-2.6（推荐）。",
-        ),
-        ProviderField(
-            key="lyrics",
-            label="歌词",
-            kind="string",
-            required=False,
-            advanced=False,
-            default=None,
-            help="歌词文本，支持中英文。",
         ),
         ProviderField(
             key="sample_rate",

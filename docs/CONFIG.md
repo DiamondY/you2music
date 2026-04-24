@@ -75,10 +75,11 @@ $env:ELEVENLABS_API_KEY="YOUR_KEY"
 
 默认 Provider（如果请求未指定 `provider`，就用这个）。
 
-- 默认：`elevenlabs`
+- 默认：优先读配置文件里的 `default_provider`；若都未配置，则 fallback 为 `elevenlabs`
+- 推荐：`replicate`（默认模型 `minimax/music-1.5`，新用户通常有免费 credits）
 
 ```powershell
-$env:AI_MUSIC_PROVIDER_DEFAULT="elevenlabs"
+$env:AI_MUSIC_PROVIDER_DEFAULT="replicate"
 ```
 
 ### `FAL_KEY`
@@ -95,6 +96,14 @@ Replicate API Token（用于 provider=`replicate`）。
 
 ```powershell
 $env:REPLICATE_API_TOKEN="YOUR_REPLICATE_TOKEN"
+```
+
+### `MINIMAX_API_KEY`
+
+MiniMax 官方 API Key（用于 provider=`minimax`）。
+
+```powershell
+$env:MINIMAX_API_KEY="YOUR_MINIMAX_KEY"
 ```
 
 ### `STABILITY_API_KEY`
@@ -214,6 +223,16 @@ Replicate API base URL。
 
 ```powershell
 $env:REPLICATE_BASE_URL="https://api.replicate.com"
+```
+
+### `MINIMAX_BASE_URL`
+
+MiniMax API base URL。
+
+- 默认：`https://api.minimax.io`
+
+```powershell
+$env:MINIMAX_BASE_URL="https://api.minimax.io"
 ```
 
 ### `STABILITY_BASE_URL`

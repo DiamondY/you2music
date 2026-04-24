@@ -5,20 +5,26 @@
 - **FastAPI 模式（推荐）**：接口更标准，带 `/docs` 文档页；需要先安装 `backend\requirements.txt`。
 - **零依赖 stdlib 模式**：只用 Python 标准库，不需要 pip；适合在依赖安装受限的环境快速跑通。
 
-> 说明：本工具默认对接 **ElevenLabs Music API**，支持“人声唱歌（vocals）/纯器乐（instrumental）”、多候选（variations）、延长（extend）。
+> 说明：本工具默认推荐 **Replicate + MiniMax Music**（新用户通常有免费 credits），同时支持 ElevenLabs / Suno / fal / Stability / MiniMax 官方 API 等 Provider。歌词输入在 UI 中始终可用；MiniMax/Replicate-MiniMax 会作为独立参数发送，其余 Provider 会拼接到 Prompt。
 
 ---
 
 ## 1. 环境变量
 
-### 必需
+### 必需（按 Provider 选择其一或多个）
 
-- `ELEVENLABS_API_KEY`：你的 ElevenLabs API Key（需要开通 Music 能力）
+- `REPLICATE_API_TOKEN`：Replicate API Token（推荐默认 provider=`replicate`，默认模型 `minimax/music-1.5`）
+- `MINIMAX_API_KEY`：MiniMax 官方 API Key（provider=`minimax`，国内直连）
+- `ELEVENLABS_API_KEY`：ElevenLabs API Key（provider=`elevenlabs`，Music API 需要付费套餐）
 
 PowerShell 示例：
 
 ```powershell
-$env:ELEVENLABS_API_KEY="YOUR_KEY"
+$env:REPLICATE_API_TOKEN="YOUR_REPLICATE_TOKEN"
+# 或
+$env:MINIMAX_API_KEY="YOUR_MINIMAX_KEY"
+# 或
+$env:ELEVENLABS_API_KEY="YOUR_ELEVENLABS_KEY"
 ```
 
 ### 可选
@@ -28,6 +34,8 @@ $env:ELEVENLABS_API_KEY="YOUR_KEY"
 - `AI_MUSIC_HOST`：监听地址，默认 `127.0.0.1`
 - `AI_MUSIC_PORT`：监听端口，默认 `8000`
 - `ELEVENLABS_BASE_URL`：API base（一般不用改），默认 `https://api.elevenlabs.io`
+- `REPLICATE_BASE_URL`：Replicate API base（一般不用改），默认 `https://api.replicate.com`
+- `MINIMAX_BASE_URL`：MiniMax API base（一般不用改），默认 `https://api.minimax.io`
 - `SUNO_API_KEY`：Suno 第三方 API Key（用于 provider=`suno`）
 - `SUNO_BASE_URL`：Suno 第三方 API base（用于 provider=`suno`），默认 `https://api.musicapi.ai`
 
@@ -38,7 +46,7 @@ $env:ELEVENLABS_API_KEY="YOUR_KEY"
 ### 2.1 启动
 
 ```powershell
-cd C:\Users\Administrator\Documents\Playground\ai-music-tool\backend
+cd backend
 python .\main.py
 ```
 
@@ -67,7 +75,7 @@ python .\main.py
 
 UI 支持按 **provider** 动态切换：
 
-- Provider 下拉框：选择 `elevenlabs`（当前内置）
+- Provider 下拉框：可选择 `replicate` / `minimax` / `elevenlabs` / `suno` / `fal` / `stability`
 - 模式：`普通 / 高级`
   - 普通：只显示少量常用 provider 参数
   - 高级：显示更多 provider 专有参数（含 JSON 参数）

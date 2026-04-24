@@ -437,9 +437,14 @@ async def generate(req: GenerateRequest) -> dict[str, Any]:
         "lyrics": req.lyrics,  # Pass lyrics to _run_job for MiniMax music
     }
 
+    # Providers that accept a separate `lyrics` field should not also get lyrics injected into `prompt`.
+    lyrics_for_prompt = req.lyrics
+    if provider_name == "minimax" or is_minimax_replicate:
+        lyrics_for_prompt = None
+
     prompt = _apply_provider_prompt_options(
         base_prompt=req.prompt,
-        lyrics=req.lyrics,
+        lyrics=lyrics_for_prompt,
         vocals=vocals,
         provider_params=provider_params,
     )
@@ -473,9 +478,14 @@ async def generate_many(req: GenerateManyRequest) -> dict[str, Any]:
         "provider_params": provider_params,
         "lyrics": req.lyrics,  # Pass lyrics to _run_job for MiniMax music
     }
+
+    # Providers that accept a separate `lyrics` field should not also get lyrics injected into `prompt`.
+    lyrics_for_prompt = req.lyrics
+    if provider_name == "minimax" or is_minimax_replicate:
+        lyrics_for_prompt = None
     prompt = _apply_provider_prompt_options(
         base_prompt=req.prompt,
-        lyrics=req.lyrics,
+        lyrics=lyrics_for_prompt,
         vocals=vocals,
         provider_params=provider_params,
     )

@@ -286,17 +286,19 @@ Stability AI 官方的 Stable Audio API。
 ```json
 {
   "secrets": {
+    "replicate_api_token": "r8_xxx...",
+    "minimax_api_key": "mm_xxx...",
     "elevenlabs_api_key": "xi_xxx...",
-    "suno_api_key": "xxx...",
-    "replicate_api_token": "r8_xxx..."
+    "suno_api_key": "xxx..."
   },
   "endpoints": {
+    "replicate_base_url": "https://api.replicate.com",
+    "minimax_base_url": "https://api.minimax.io",
     "elevenlabs_base_url": "https://api.elevenlabs.io",
-    "suno_base_url": "https://api.musicapi.ai",
-    "replicate_base_url": "https://api.replicate.com"
+    "suno_base_url": "https://api.musicapi.ai"
   },
-  "default_provider": "elevenlabs",
-  "enabled_providers": ["elevenlabs", "suno", "replicate"]
+  "default_provider": "replicate",
+  "enabled_providers": ["replicate", "minimax", "elevenlabs", "suno"]
 }
 ```
 
