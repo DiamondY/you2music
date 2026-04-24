@@ -28,7 +28,8 @@ from admin_config import load_local_config, redacted_config, save_local_config
 
 
 class GenerateRequest(BaseModel):
-    prompt: str = Field(min_length=1, max_length=5000)
+    # Prompt can be empty only when using ElevenLabs Composition Plan.
+    prompt: str = Field(default="", max_length=5000)
     lyrics: str | None = Field(default=None, max_length=12000)
     duration_sec: int = Field(ge=3, le=300)
     vocals: bool = True
@@ -420,6 +421,10 @@ async def generate(req: GenerateRequest) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail=f"unknown provider: {provider_name}")
 
     provider_params = req.provider_params or {}
+    composition_plan = _parse_composition_plan(provider_params)
+    base_prompt = (req.prompt or "").strip()
+    if not base_prompt and not (provider_name == "elevenlabs" and composition_plan):
+        raise HTTPException(status_code=400, detail="prompt is required (or provide composition_plan_json for ElevenLabs)")
     vocals = req.vocals
     # MiniMax music models (via Replicate) and MiniMax official API support vocals
     is_minimax_replicate = (
@@ -429,6 +434,7 @@ async def generate(req: GenerateRequest) -> dict[str, Any]:
     if provider_name not in ("elevenlabs", "minimax", "mureka", "lyria") and not is_minimax_replicate:
         vocals = False
     params: dict[str, Any] = {
+        "base_prompt": req.prompt,
         "duration_sec": req.duration_sec,
         "vocals": vocals,
         "seed": req.seed,
@@ -445,7 +451,7 @@ async def generate(req: GenerateRequest) -> dict[str, Any]:
         lyrics_for_prompt = None
 
     prompt = _apply_provider_prompt_options(
-        base_prompt=req.prompt,
+        base_prompt=base_prompt,
         lyrics=lyrics_for_prompt,
         vocals=vocals,
         provider_params=provider_params,
@@ -462,6 +468,10 @@ async def generate_many(req: GenerateManyRequest) -> dict[str, Any]:
     if provider_name not in ("elevenlabs", "fal", "replicate", "stability", "suno", "minimax", "mureka", "lyria"):
         raise HTTPException(status_code=400, detail=f"unknown provider: {provider_name}")
     provider_params = req.provider_params or {}
+    composition_plan = _parse_composition_plan(provider_params)
+    base_prompt = (req.prompt or "").strip()
+    if not base_prompt and not (provider_name == "elevenlabs" and composition_plan):
+        raise HTTPException(status_code=400, detail="prompt is required (or provide composition_plan_json for ElevenLabs)")
     vocals = req.vocals
     # MiniMax music models (via Replicate) and MiniMax official API support vocals
     is_minimax_replicate = (
@@ -471,6 +481,7 @@ async def generate_many(req: GenerateManyRequest) -> dict[str, Any]:
     if provider_name not in ("elevenlabs", "minimax", "mureka", "lyria") and not is_minimax_replicate:
         vocals = False
     params: dict[str, Any] = {
+        "base_prompt": req.prompt,
         "duration_sec": req.duration_sec,
         "vocals": vocals,
         "seed": req.seed,
@@ -486,7 +497,7 @@ async def generate_many(req: GenerateManyRequest) -> dict[str, Any]:
     if provider_name in ("minimax", "mureka", "lyria") or is_minimax_replicate:
         lyrics_for_prompt = None
     prompt = _apply_provider_prompt_options(
-        base_prompt=req.prompt,
+        base_prompt=base_prompt,
         lyrics=lyrics_for_prompt,
         vocals=vocals,
         provider_params=provider_params,
@@ -556,6 +567,7 @@ def get_recent_jobs(limit: int = Query(default=20, ge=1, le=50)) -> dict[str, An
                 "created_at_ms": rec.created_at_ms,
                 "updated_at_ms": rec.updated_at_ms,
                 "provider": rec.provider,
+                "prompt": rec.prompt,
                 "params": json.loads(rec.params_json),
                 "audio_url": audio_url,
                 "error": rec.error,
@@ -583,6 +595,7 @@ def get_jobs_history(
                 "created_at_ms": rec.created_at_ms,
                 "updated_at_ms": rec.updated_at_ms,
                 "provider": rec.provider,
+                "prompt": rec.prompt,
                 "params": json.loads(rec.params_json),
                 "audio_url": audio_url,
                 "error": rec.error,
@@ -608,6 +621,7 @@ def get_job(job_id: str) -> dict[str, Any]:
         "created_at_ms": rec.created_at_ms,
         "updated_at_ms": rec.updated_at_ms,
         "provider": rec.provider,
+        "prompt": rec.prompt,
         "params": json.loads(rec.params_json),
         "audio_url": audio_url,
         "error": rec.error,
@@ -633,6 +647,7 @@ def get_jobs(ids: str = Query(default="")) -> dict[str, Any]:
                 "created_at_ms": rec.created_at_ms,
                 "updated_at_ms": rec.updated_at_ms,
                 "provider": rec.provider,
+                "prompt": rec.prompt,
                 "params": json.loads(rec.params_json),
                 "audio_url": audio_url,
                 "error": rec.error,
@@ -747,7 +762,13 @@ async def generate_store(req: GenerateStoreRequest) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail="store_for_inpainting only available for elevenlabs provider")
 
     provider_params = req.provider_params or {}
+    composition_plan = _parse_composition_plan(provider_params)
+    base_prompt = (req.prompt or "").strip()
+    if not base_prompt and not composition_plan:
+        raise HTTPException(status_code=400, detail="prompt is required (or provide composition_plan_json for ElevenLabs)")
     params: dict[str, Any] = {
+        "base_prompt": req.prompt,
+        "lyrics": req.lyrics,
         "duration_sec": req.duration_sec,
         "vocals": req.vocals,
         "seed": req.seed,
@@ -759,7 +780,7 @@ async def generate_store(req: GenerateStoreRequest) -> dict[str, Any]:
     }
 
     prompt = _apply_provider_prompt_options(
-        base_prompt=req.prompt,
+        base_prompt=base_prompt,
         lyrics=req.lyrics,
         vocals=req.vocals,
         provider_params=provider_params,

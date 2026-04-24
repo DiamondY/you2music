@@ -59,8 +59,6 @@ def _build_prompt(*, base_prompt: str, lyrics: str | None, vocals: bool) -> str:
 
 def _validate_generate(payload: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     prompt = str(payload.get("prompt") or "").strip()
-    if not prompt:
-        raise ValueError("prompt is required")
     if len(prompt) > 5000:
         raise ValueError("prompt too long")
 
@@ -107,6 +105,7 @@ def _validate_generate(payload: dict[str, Any]) -> tuple[str, dict[str, Any]]:
         raise ValueError("provider_params must be an object")
 
     params = {
+        "base_prompt": prompt,
         "duration_sec": duration_sec,
         "vocals": vocals,
         "seed": seed,
@@ -125,6 +124,26 @@ def _validate_generate(payload: dict[str, Any]) -> tuple[str, dict[str, Any]]:
         and _is_minimax_music_model(str(provider_params.get("version") or ""))
     )
     include_lyrics_in_prompt = not (effective_provider == "minimax" or is_minimax_replicate)
+
+    allow_empty_prompt = False
+    if effective_provider == "elevenlabs" and provider_params.get("use_composition_plan") is True:
+        raw_plan = provider_params.get("composition_plan_json")
+        if raw_plan is not None and raw_plan != "":
+            if isinstance(raw_plan, dict):
+                allow_empty_prompt = True
+            elif isinstance(raw_plan, str) and raw_plan.strip():
+                try:
+                    parsed = json.loads(raw_plan)
+                except Exception as e:
+                    raise ValueError(f"composition_plan_json invalid JSON: {e}")
+                if not isinstance(parsed, dict):
+                    raise ValueError("composition_plan_json must be a JSON object")
+                allow_empty_prompt = True
+            else:
+                raise ValueError("composition_plan_json must be JSON object or string")
+
+    if not prompt and not allow_empty_prompt:
+        raise ValueError("prompt is required (or provide composition_plan_json for elevenlabs)")
 
     raw_prompt = bool(provider_params.get("raw_prompt", False))
     if raw_prompt:
@@ -646,6 +665,7 @@ class Handler(BaseHTTPRequestHandler):
                         "created_at_ms": rec.created_at_ms,
                         "updated_at_ms": rec.updated_at_ms,
                         "provider": rec.provider,
+                        "prompt": rec.prompt,
                         "params": json.loads(rec.params_json),
                         "audio_url": audio_url,
                         "error": rec.error,
@@ -685,6 +705,7 @@ class Handler(BaseHTTPRequestHandler):
                         "created_at_ms": rec.created_at_ms,
                         "updated_at_ms": rec.updated_at_ms,
                         "provider": rec.provider,
+                        "prompt": rec.prompt,
                         "params": json.loads(rec.params_json),
                         "audio_url": audio_url,
                         "error": rec.error,
@@ -712,6 +733,7 @@ class Handler(BaseHTTPRequestHandler):
                     "created_at_ms": rec.created_at_ms,
                     "updated_at_ms": rec.updated_at_ms,
                     "provider": rec.provider,
+                    "prompt": rec.prompt,
                     "params": json.loads(rec.params_json),
                     "audio_url": audio_url,
                     "error": rec.error,
@@ -738,6 +760,7 @@ class Handler(BaseHTTPRequestHandler):
                         "created_at_ms": rec.created_at_ms,
                         "updated_at_ms": rec.updated_at_ms,
                         "provider": rec.provider,
+                        "prompt": rec.prompt,
                         "params": json.loads(rec.params_json),
                         "audio_url": audio_url,
                         "error": rec.error,

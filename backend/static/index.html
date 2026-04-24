@@ -427,6 +427,46 @@
       }
 
       /* ========================================
+         Required/Optional & Validation
+         ======================================== */
+      .field-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        margin-left: 8px;
+        padding: 2px 8px;
+        font-size: 11px;
+        border-radius: 999px;
+        border: 1px solid var(--color-border);
+        background: var(--color-bg-card);
+        line-height: 1.2;
+        user-select: none;
+      }
+
+      .field-badge.required {
+        color: var(--color-error);
+        border-color: rgba(239, 68, 68, 0.35);
+        background: rgba(239, 68, 68, 0.08);
+      }
+
+      .field-badge.optional {
+        color: var(--color-text-muted);
+        border-color: var(--color-border);
+        background: var(--color-bg-card);
+      }
+
+      .input-error {
+        border-color: rgba(239, 68, 68, 0.7) !important;
+        box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.15) !important;
+      }
+
+      .field-error-msg {
+        margin-top: var(--space-xs);
+        font-size: 12px;
+        color: var(--color-error);
+      }
+
+      /* ========================================
          Composition Plan Editor
          ======================================== */
       .cp-editor {
@@ -1449,6 +1489,198 @@
         return raw === "" ? null : raw;
       }
 
+      function _ensureFieldBadge(labelEl, kind) {
+        if (!labelEl) return;
+        const existing = labelEl.querySelector(".field-badge");
+        if (existing) existing.remove();
+        const badge = document.createElement("span");
+        badge.className = `field-badge ${kind}`;
+        badge.textContent = (kind === "required") ? "必填" : "可选";
+        labelEl.appendChild(badge);
+      }
+
+      function _decorateStaticBadges() {
+        const mapping = [
+          { id: "provider", kind: "required" },
+          { id: "advanced", kind: "optional" },
+          { id: "duration", kind: "required" },
+          { id: "vocals", kind: "required" },
+          { id: "lyrics", kind: "optional" },
+          { id: "seed", kind: "optional" },
+          { id: "modelId", kind: "optional" },
+        ];
+        for (const m of mapping) {
+          const label = document.querySelector(`label[for="${m.id}"]`);
+          _ensureFieldBadge(label, m.kind);
+        }
+        // Prompt is conditional; set a default and update later.
+        const promptLabel = document.querySelector(`label[for="prompt"]`);
+        _ensureFieldBadge(promptLabel, "required");
+      }
+
+      function _isCompositionPlanProvidedNow() {
+        if (getSelectedProviderId() !== "elevenlabs") return false;
+        if (!advancedEl || advancedEl.value !== "advanced") return false;
+
+        // Option A: user typed composition_plan_json in provider fields (advanced).
+        const usePlan = providerFieldsEl.querySelector(`[data-key="use_composition_plan"]`);
+        const planEl = providerFieldsEl.querySelector(`[data-key="composition_plan_json"]`);
+        if (usePlan && usePlan.type === "checkbox" && usePlan.checked) {
+          const raw = planEl ? String(planEl.value || "").trim() : "";
+          if (raw) return true;
+        }
+
+        // Option B: user built plan in the visual Composition Plan editor.
+        try {
+          return Boolean(buildCompositionPlan());
+        } catch {
+          return false;
+        }
+      }
+
+      function _updatePromptBadge() {
+        const label = document.querySelector(`label[for="prompt"]`);
+        const optional = _isCompositionPlanProvidedNow();
+        _ensureFieldBadge(label, optional ? "optional" : "required");
+      }
+
+      function _clearValidationUi() {
+        document.querySelectorAll(".field-error-msg").forEach(n => n.remove());
+        document.querySelectorAll(".input-error").forEach(n => n.classList.remove("input-error"));
+      }
+
+      function _setFieldError(el, msg, opts) {
+        if (!el) return;
+        el.classList.add("input-error");
+        const m = document.createElement("div");
+        m.className = "field-error-msg";
+        m.textContent = msg;
+        const anchor = (opts && opts.anchor) ? opts.anchor : el;
+        anchor.insertAdjacentElement("afterend", m);
+      }
+
+      function _focusField(el) {
+        try {
+          if (!el) return;
+          el.scrollIntoView({ behavior: "smooth", block: "center" });
+          if (typeof el.focus === "function") el.focus();
+        } catch {
+          // ignore
+        }
+      }
+
+      function _validateGenerateCommon(payload, opts) {
+        _clearValidationUi();
+        _updatePromptBadge();
+
+        const providerId = String(payload.provider || getSelectedProviderId() || "").trim();
+        const meta = providerId ? getProviderMeta(providerId) : null;
+
+        const errors = [];
+        let firstEl = null;
+
+        function fail(el, msg, extra) {
+          errors.push(msg);
+          if (!firstEl && el) firstEl = el;
+          _setFieldError(el, msg, extra);
+        }
+
+        if (!providerId) {
+          fail(providerEl, "请选择 Provider（必填）。");
+        } else if (!meta) {
+          setError("Provider 列表尚未加载完成，请稍后再试。");
+          setStatus("");
+          _focusField(providerEl);
+          return false;
+        }
+
+        if (meta && meta.ready === false) {
+          const missing = Array.isArray(meta.missing_env) ? meta.missing_env.join(", ") : "";
+          setError(`该 provider 未配置密钥，无法生成。\n缺少：${missing || "(unknown)"}`);
+          setStatus("");
+          return false;
+        }
+
+        const promptVal = String(payload.prompt || "").trim();
+        const hasCompositionPlan = Boolean(
+          providerId === "elevenlabs"
+          && payload.provider_params
+          && (payload.provider_params.use_composition_plan === true || payload.provider_params.composition_plan_json)
+          && payload.provider_params.composition_plan_json
+        );
+        if (!promptVal && !hasCompositionPlan) {
+          fail(promptEl, "请填写 Prompt（必填）。");
+        }
+
+        const duration = parseInt(String(payload.duration_sec ?? ""), 10);
+        if (!Number.isFinite(duration) || duration < 3 || duration > 300) {
+          const anchor = durationSlider ? durationSlider.parentElement : null;
+          fail(durationSlider, "时长建议 3–300 秒。", { anchor: anchor || durationSlider });
+        }
+
+        const seedEl = document.getElementById("seed");
+        const seedRaw = seedEl ? String(seedEl.value || "").trim() : "";
+        if (seedRaw) {
+          const seed = parseInt(seedRaw, 10);
+          if (!Number.isFinite(seed) || seed < 0 || seed > 2_147_483_647) {
+            fail(seedEl, "Seed 必须是 0–2147483647 的整数，或留空。");
+          }
+        }
+
+        const modelIdEl = document.getElementById("modelId");
+        if (modelIdEl) {
+          const s = String(modelIdEl.value || "");
+          if (s.length > 128) fail(modelIdEl, "model_id 太长（最多 128 字符）。");
+        }
+
+        // Provider-specific required fields (based on backend metadata)
+        if (meta && Array.isArray(meta.fields)) {
+          for (const field of meta.fields) {
+            if (!field || field.required !== true) continue;
+
+            // Only validate fields that are currently rendered (visible).
+            const input = providerFieldsEl.querySelector(`[data-key="${field.key}"]`);
+            if (!input) continue;
+
+            if (input.tagName === "INPUT" && input.type === "checkbox") {
+              if (!input.checked) fail(input, `${field.label}：必填。`);
+              continue;
+            }
+
+            const raw = String(input.value ?? "");
+            if (!raw.trim()) {
+              fail(input, `${field.label}：必填。`);
+              continue;
+            }
+
+            if (field.kind === "integer") {
+              const n = parseInt(raw, 10);
+              if (!Number.isFinite(n)) fail(input, `${field.label}：请输入整数。`);
+            } else if (field.kind === "number") {
+              const n = parseFloat(raw);
+              if (!Number.isFinite(n)) fail(input, `${field.label}：请输入数字。`);
+            } else if (field.kind === "json") {
+              try {
+                const parsed = JSON.parse(raw);
+                if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+                  fail(input, `${field.label}：必须是 JSON 对象。`);
+                }
+              } catch {
+                fail(input, `${field.label}：JSON 格式不合法。`);
+              }
+            }
+          }
+        }
+
+        if (errors.length > 0) {
+          setError("请补全必填项后再提交：\n- " + errors.join("\n- "));
+          setStatus("");
+          _focusField(firstEl);
+          return false;
+        }
+        return true;
+      }
+
       function _isMiniMaxMusicVersion(version) {
         return String(version || "").toLowerCase().startsWith("minimax/music");
       }
@@ -2039,7 +2271,7 @@
         const fields = (meta.fields || []).filter(f => advancedMode || !f.advanced);
         for (const field of fields) {
           if (!shouldShowField(field, values)) continue;
-          html += `<label>${field.label}${field.required ? " *" : ""}</label>`;
+          html += `<label>${field.label}<span class="field-badge ${field.required ? "required" : "optional"}">${field.required ? "必填" : "可选"}</span></label>`;
           if (field.kind === "enum" && Array.isArray(field.enum)) {
             html += `<select data-key="${field.key}">`;
             for (const opt of field.enum) {
@@ -2084,6 +2316,7 @@
         });
 
         updateLyricsUi();
+        _updatePromptBadge();
       }
 
       async function initProviders() {
@@ -2109,6 +2342,169 @@
       // ========================================
       // Job List Rendering
       // ========================================
+      function _shortText(s, maxLen) {
+        const n = Number.isFinite(maxLen) ? maxLen : 80;
+        const t = String(s || "").replace(/\s+/g, " ").trim();
+        if (!t) return "";
+        return t.length > n ? (t.slice(0, n) + "…") : t;
+      }
+
+      function _coerceInt(v, fallback) {
+        const n = parseInt(String(v ?? ""), 10);
+        return Number.isFinite(n) ? n : fallback;
+      }
+
+      function _normalizeVocalsFlag(v) {
+        if (v === true) return true;
+        if (v === false) return false;
+        return Boolean(v);
+      }
+
+      function _tryParseJsonObject(v) {
+        if (v && typeof v === "object" && !Array.isArray(v)) return v;
+        if (typeof v === "string" && v.trim()) {
+          try {
+            const parsed = JSON.parse(v);
+            if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed;
+          } catch {
+            return null;
+          }
+        }
+        return null;
+      }
+
+      function _restoreCompositionPlanFromObject(plan) {
+        if (!plan || typeof plan !== "object") return false;
+
+        const pos = Array.isArray(plan.positive_global_styles) ? plan.positive_global_styles.filter(Boolean) : [];
+        const neg = Array.isArray(plan.negative_global_styles) ? plan.negative_global_styles.filter(Boolean) : [];
+        const sections = Array.isArray(plan.sections) ? plan.sections : [];
+
+        cpState = {
+          positive_global_styles: [...pos],
+          negative_global_styles: [...neg],
+          sections: sections.map(s => {
+            const localStyles = Array.isArray(s?.local_styles) ? s.local_styles.filter(Boolean) : [];
+            const durationMs = (typeof s?.duration_ms === "number" && s.duration_ms > 0) ? s.duration_ms : null;
+            const lyrics = (typeof s?.lyrics === "string") ? s.lyrics : "";
+            return { local_styles: [...localStyles], duration_ms: durationMs, lyrics };
+          }),
+          bpm: (typeof plan.bpm === "number" && plan.bpm > 0) ? plan.bpm : null,
+          key: (typeof plan.key === "string") ? plan.key : null
+        };
+
+        const bpmEl = document.getElementById("cpBpm");
+        const keyEl = document.getElementById("cpKey");
+        if (bpmEl) bpmEl.value = cpState.bpm ? String(cpState.bpm) : "";
+        if (keyEl) keyEl.value = cpState.key ? String(cpState.key) : "";
+
+        renderTags("positiveStyles", cpState.positive_global_styles, "removePositiveStyle");
+        renderTags("negativeStyles", cpState.negative_global_styles, "removeNegativeStyle");
+        renderSections();
+        return true;
+      }
+
+      function restoreJobParams(job) {
+        const j = job || {};
+        const params = (j.params && typeof j.params === "object") ? j.params : {};
+        const providerId = String(j.provider || params.provider || "").trim();
+        const providerParams = (params.provider_params && typeof params.provider_params === "object") ? params.provider_params : {};
+
+        const basePrompt = (typeof params.base_prompt === "string")
+          ? params.base_prompt
+          : (typeof j.prompt === "string" ? j.prompt : "");
+        const lyrics = (typeof params.lyrics === "string") ? params.lyrics : "";
+        const durationSec = _coerceInt(params.duration_sec, 45);
+        const vocals = _normalizeVocalsFlag(params.vocals);
+        const seed = (typeof params.seed === "number") ? params.seed : null;
+        const modelId = (typeof params.model_id === "string") ? params.model_id : "";
+
+        const lines = [
+          "将用该生成记录的参数覆盖当前表单设置：",
+          `- provider: ${providerId || "(unknown)"}`,
+          `- duration_sec: ${durationSec}`,
+          `- vocals: ${vocals ? "on" : "off"}`,
+          `- seed: ${seed === null ? "(null)" : seed}`,
+          `- model_id: ${modelId || "(null)"}`,
+          `- prompt: ${_shortText(basePrompt, 80) || "(empty)"}`,
+          `- lyrics: ${lyrics ? "有" : "无"}`,
+          "",
+          "继续恢复？",
+        ];
+        const ok = window.confirm(lines.join("\n"));
+        if (!ok) return;
+
+        if (providerId) providerEl.value = providerId;
+
+        const compositionPlan = (providerId === "elevenlabs" && (providerParams?.use_composition_plan === true || providerParams?.composition_plan_json))
+          ? _tryParseJsonObject(providerParams?.composition_plan_json)
+          : null;
+        if (providerId === "elevenlabs") {
+          advancedEl.value = compositionPlan ? "advanced" : "simple";
+        }
+
+        renderProviderFields();
+
+        if (durationSlider) {
+          const clamped = Math.max(3, Math.min(300, durationSec));
+          durationSlider.value = String(clamped);
+          durationValue.textContent = String(clamped) + " 秒";
+        }
+
+        const vocalsEl = document.getElementById("vocals");
+        if (vocalsEl && !vocalsEl.disabled) vocalsEl.value = vocals ? "on" : "off";
+
+        const seedEl = document.getElementById("seed");
+        if (seedEl) seedEl.value = (seed === null || seed === undefined) ? "" : String(seed);
+
+        const modelIdEl = document.getElementById("modelId");
+        if (modelIdEl) modelIdEl.value = modelId || "";
+
+        if (promptEl) promptEl.value = basePrompt || "";
+        if (lyricsEl) lyricsEl.value = lyrics || "";
+        updateLyricsUi();
+
+        const meta = getProviderMeta(getSelectedProviderId());
+        const normalizedProviderParams = { ...(providerParams || {}) };
+        if (normalizedProviderParams.output_format == null && params.output_format != null) {
+          normalizedProviderParams.output_format = params.output_format;
+        }
+
+        if (meta && Array.isArray(meta.fields) && meta.fields.length > 0) {
+          for (const field of meta.fields) {
+            const el = providerFieldsEl.querySelector(`[data-key="${field.key}"]`);
+            if (!el) continue;
+            const v = normalizedProviderParams[field.key];
+            if (el.tagName === "INPUT" && el.type === "checkbox") {
+              el.checked = Boolean(v);
+              continue;
+            }
+            if (field.kind === "json") {
+              if (v === null || v === undefined || v === "") {
+                el.value = "";
+              } else if (typeof v === "string") {
+                el.value = v;
+              } else {
+                try {
+                  el.value = JSON.stringify(v, null, 2);
+                } catch {
+                  el.value = String(v);
+                }
+              }
+              continue;
+            }
+            el.value = (v === null || v === undefined) ? "" : String(v);
+          }
+          renderProviderFields();
+        }
+
+        if (compositionPlan) {
+          _restoreCompositionPlanFromObject(compositionPlan);
+        }
+
+        setStatus("已恢复参数（来自生成记录）", "ok");
+      }
+
       function renderList(jobs) {
         listEl.innerHTML = "";
         if (!jobs || jobs.length === 0) return;
@@ -2120,7 +2516,34 @@
 
           const header = document.createElement("div");
           header.className = "job-header";
-          header.innerHTML = `<span class="mono" style="font-size: 12px;">${j.job_id}</span><span class="job-status ${j.status}">${j.status}</span>`;
+          const left = document.createElement("div");
+          left.style.display = "flex";
+          left.style.gap = "8px";
+          left.style.alignItems = "center";
+          left.innerHTML = `<span class="mono" style="font-size: 12px;">${j.job_id}</span><span class="muted" style="font-size: 12px;">${String(j.provider || "").trim()}</span>`;
+
+          const right = document.createElement("div");
+          right.style.display = "flex";
+          right.style.gap = "8px";
+          right.style.alignItems = "center";
+
+          const restoreBtn = document.createElement("button");
+          restoreBtn.className = "btn btn-outline btn-sm";
+          restoreBtn.textContent = "恢复参数";
+          restoreBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            restoreJobParams(j);
+          });
+
+          const status = document.createElement("span");
+          status.className = `job-status ${j.status}`;
+          status.textContent = j.status;
+
+          right.appendChild(restoreBtn);
+          right.appendChild(status);
+
+          header.appendChild(left);
+          header.appendChild(right);
           row.appendChild(header);
 
           if (j.audio_url) {
@@ -2193,16 +2616,7 @@
           }
         }
 
-        if (!payload.prompt && !payload.provider_params?.composition_plan_json) {
-          setError("请填写 Prompt 或在高级模式下配置 Composition Plan。");
-          setStatus("");
-          return;
-        }
-        if (!Number.isFinite(duration) || duration < 3 || duration > 300) {
-          setError("时长建议 3–300 秒。");
-          setStatus("");
-          return;
-        }
+        if (!_validateGenerateCommon(payload)) return;
 
         const data = await fetchJson("/api/generate", {
           method: "POST",
@@ -2350,8 +2764,15 @@
           }
         }
 
-        if (!payload.prompt && !payload.provider_params?.composition_plan_json) { setError("请填写 Prompt 或在高级模式下配置 Composition Plan。"); setStatus(""); return; }
-        if (!Number.isFinite(duration) || duration < 3 || duration > 300) { setError("时长建议 3–300 秒。"); setStatus(""); return; }
+        if (!_validateGenerateCommon(payload)) return;
+        if (!Number.isFinite(count) || count < 1 || count > 4) {
+          const countEl = document.getElementById("count");
+          _setFieldError(countEl, "候选数量必须是 1–4。");
+          setError("候选数量必须是 1–4。");
+          setStatus("");
+          _focusField(countEl);
+          return;
+        }
 
         const data = await fetchJson("/api/generate_many", {
           method: "POST",
@@ -2460,11 +2881,7 @@
           }
         }
 
-        if (!payload.prompt && !payload.provider_params?.composition_plan_json) {
-          setError("请填写 Prompt 或在高级模式下配置 Composition Plan。");
-          setStatus("");
-          return;
-        }
+        if (!_validateGenerateCommon(payload)) return;
 
         try {
           const data = await fetchJson("/api/generate_store", {
@@ -2650,6 +3067,15 @@
         });
       }
       updateHistoryPagerUi();
+
+      _decorateStaticBadges();
+      _updatePromptBadge();
+
+      if (cpEditorEl) {
+        ["input", "change", "click", "keyup"].forEach(evt => {
+          cpEditorEl.addEventListener(evt, () => _updatePromptBadge());
+        });
+      }
 
       initProviders().then(() => loadHistoryPage(0));
 
