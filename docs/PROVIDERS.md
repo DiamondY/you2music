@@ -9,6 +9,7 @@
 ## 目录
 
 - [Replicate](#replicate) - ⭐ 默认推荐，支持人声+中英文歌词
+- [MiniMax](#minimax-官方-api) - 国内直连，支持人声+中英文歌词
 - [ElevenLabs](#elevenlabs) - 支持人声（需付费套餐）
 - [Suno](#suno) - 第三方 API，支持人声
 - [fal.ai](#falai) - Stable Audio（纯器乐）
@@ -338,12 +339,77 @@ export AI_MUSIC_PROVIDER_DEFAULT="replicate"
 }
 ```
 
+或者使用 **MiniMax 官方 API**（国内直连，无需代理）：
+
+```bash
+export MINIMAX_API_KEY="your-minimax-key-here"
+export AI_MUSIC_PROVIDER_DEFAULT="minimax"
+```
+
+### Q: Replicate 和 MiniMax 官方 API 有什么区别？
+
+**A**:
+
+| 特性 | Replicate + MiniMax Music | MiniMax 官方 API |
+|------|---------------------------|-----------------|
+| 模型 | music-1.5 | music-2.6 |
+| 国内访问 | ❌ 需代理 | ✅ 直连 |
+| 免费额度 | ✅ 新用户免费 | 需确认 |
+| 推荐场景 | 国际用户 | 国内用户 |
+
+---
+
+## MiniMax (官方 API)
+
+> **状态**: ✅ 已实现 | **推荐**: 国内用户 | **支持人声**: ✅ 是
+
+MiniMax 官方音乐生成 API（music-2.6 模型），支持人声和中英文歌词，**国内可直接访问**。
+
+### 特性
+
+| 项目 | 详情 |
+|------|------|
+| 模型 | `music-2.6` |
+| 国内访问 | ✅ 直连，无需代理 |
+| 人声支持 | ✅ 是 |
+| 歌词支持 | ✅ 中英文 |
+
+### 获取步骤
+
+1. **注册账户**
+   - 访问 [platform.minimax.io](https://platform.minimax.io)
+   - 注册并获取 API Key
+
+2. **配置到项目**
+   ```bash
+   export MINIMAX_API_KEY="your-key-here"
+
+   # 或配置文件 config/providers.local.json
+   {
+     "secrets": {
+       "minimax_api_key": "your-key-here"
+     }
+   }
+   ```
+
+3. **切换默认 Provider**
+   ```bash
+   export AI_MUSIC_PROVIDER_DEFAULT="minimax"
+   # 或在配置文件中设置 "default_provider": "minimax"
+   ```
+
+### 相关链接
+
+- [MiniMax 开发者平台](https://platform.minimax.io)
+- [MiniMax 音乐生成 API 文档](https://platform.minimax.io/docs/api-reference/music-generation)
+
 ---
 
 ## 相关链接
 
 - [Replicate 官网](https://replicate.com/) - 默认推荐
 - [Replicate MiniMax Music 1.5](https://replicate.com/minimax/music-1.5) - 推荐模型
+- [MiniMax 开发者平台](https://platform.minimax.io) - 国内直连
 - [ElevenLabs 官网](https://elevenlabs.io/)
 - [ElevenLabs API 文档](https://elevenlabs.io/docs/api-reference)
 - [Replicate AI Music Models](https://replicate.com/collections/ai-music-generation)
