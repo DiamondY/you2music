@@ -974,6 +974,16 @@
           <span class="tag" data-genre="电子舞曲，节奏强劲，合成器音色">电子</span>
           <span class="tag" data-genre="摇滚风格，电吉他，鼓点强烈">摇滚</span>
           <span class="tag" data-genre="氛围音乐，空灵飘渺，适合冥想">氛围</span>
+          <span class="tag" data-genre="国风，中国传统乐器（古筝/二胡/笛子），东方旋律，古典氛围">国风</span>
+          <span class="tag" data-genre="民谣，木吉他伴奏，质朴温暖，叙事感强">民谣</span>
+          <span class="tag" data-genre="嘻哈/说唱，鼓点律动，808 低频，flow 清晰">嘻哈</span>
+          <span class="tag" data-genre="R&B，律动丝滑，和声丰富，氛围性感">R&B</span>
+          <span class="tag" data-genre="爵士，swing 节奏，钢琴/贝斯/鼓，萨克斯点缀">爵士</span>
+          <span class="tag" data-genre="古典，钢琴与弦乐，旋律严谨，情绪推进">古典</span>
+          <span class="tag" data-genre="Lo-fi，低保真质感，鼓点松弛，适合学习/放松">Lo-fi</span>
+          <span class="tag" data-genre="影视配乐，管弦与氛围铺垫，情绪电影感">影视</span>
+          <span class="tag" data-genre="游戏 BGM，循环友好，层次丰富，氛围沉浸">游戏</span>
+          <span class="tag" data-genre="赛博朋克，合成器主导，未来感，霓虹夜景氛围">赛博</span>
         </div>
 
         <!-- Duration Slider -->
@@ -1018,6 +1028,7 @@
             <button class="cp-genre-btn" onclick="applyGenrePreset('electronic')">电子舞曲</button>
             <button class="cp-genre-btn" onclick="applyGenrePreset('rock')">摇滚</button>
             <button class="cp-genre-btn" onclick="applyGenrePreset('ambient')">氛围音乐</button>
+            <button class="cp-genre-btn" onclick="applyGenrePreset('guofeng')">国风</button>
             <button class="cp-genre-btn" onclick="clearCompositionPlan()">清空</button>
           </div>
 
@@ -1038,6 +1049,11 @@
                 <button class="cp-preset-btn" onclick="addPresetStyle('positive', 'strings')">弦乐</button>
                 <button class="cp-preset-btn" onclick="addPresetStyle('positive', 'electric guitar')">电吉他</button>
                 <button class="cp-preset-btn" onclick="addPresetStyle('positive', 'saxophone')">萨克斯</button>
+                <button class="cp-preset-btn" onclick="addPresetStyle('positive', 'guzheng')">古筝</button>
+                <button class="cp-preset-btn" onclick="addPresetStyle('positive', 'erhu')">二胡</button>
+                <button class="cp-preset-btn" onclick="addPresetStyle('positive', 'dizi')">笛子</button>
+                <button class="cp-preset-btn" onclick="addPresetStyle('positive', 'pipa')">琵琶</button>
+                <button class="cp-preset-btn" onclick="addPresetStyle('positive', 'guqin')">古琴</button>
               </div>
             </div>
             <div>
@@ -1804,6 +1820,18 @@
               { local_styles: ['intro'], duration_ms: 60000, lyrics: '' },
               { local_styles: ['verse'], duration_ms: 90000, lyrics: '' },
               { local_styles: ['outro'], duration_ms: 60000, lyrics: '' }
+            ]
+          },
+          guofeng: {
+            positive_global_styles: ['guzheng', 'erhu', 'dizi', 'pipa', 'strings'],
+            bpm: 90,
+            sections: [
+              { local_styles: ['intro'], duration_ms: 20000, lyrics: '' },
+              { local_styles: ['verse'], duration_ms: 35000, lyrics: '' },
+              { local_styles: ['chorus'], duration_ms: 35000, lyrics: '' },
+              { local_styles: ['bridge'], duration_ms: 25000, lyrics: '' },
+              { local_styles: ['chorus'], duration_ms: 35000, lyrics: '' },
+              { local_styles: ['outro'], duration_ms: 20000, lyrics: '' }
             ]
           }
         };
