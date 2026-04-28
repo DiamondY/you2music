@@ -261,10 +261,21 @@ class AppState:
                 out_ext = audio_format
             elif provider_name == "acestep":
                 # ACE-Step 1.5 via acemusic.ai (OpenAI-compatible API)
+                # User-configurable timeout with minimum floor
+                _min_timeout = 120
+                _user_timeout = provider_params.get("request_timeout_s")
+                if _user_timeout is not None:
+                    try:
+                        _timeout_s = max(int(_user_timeout), _min_timeout)
+                    except (ValueError, TypeError):
+                        _timeout_s = self.settings.request_timeout_s
+                else:
+                    _timeout_s = self.settings.request_timeout_s
+
                 client = ACEStepClientStdlib(
                     api_key=self.settings.acestep_api_key,
                     base_url=self.settings.acestep_base_url,
-                    timeout_s=self.settings.request_timeout_s,
+                    timeout_s=_timeout_s,
                 )
                 model = str(provider_params.get("model") or "acemusic/acestep-v1.5-turbo")
                 lyrics = params.get("lyrics") or provider_params.get("lyrics")
