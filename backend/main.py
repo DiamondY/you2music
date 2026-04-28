@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
+import random
 import re
 from pathlib import Path
 from typing import Any, Callable
@@ -15,23 +17,16 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from app_state import AppState
-from providers.elevenlabs import ElevenLabsMusicProvider, ElevenLabsInpaintResult
-from providers.fal import FalQueueClient
-from providers.replicate import ReplicateClient
 from providers.registry import providers_payload
-from providers.stability import StabilityAudioClient
-from providers.suno import SunoClient
 from providers.minimax import MiniMaxMusicClient
-from providers.mureka import MurekaClient
-from providers.lyria import LyriaClient
+from providers.acestep import ACEStepClient
 from admin_config import load_local_config, redacted_config, save_local_config
 
 
 class GenerateRequest(BaseModel):
-    # Prompt can be empty only when using ElevenLabs Composition Plan.
     prompt: str = Field(default="", max_length=5000)
     lyrics: str | None = Field(default=None, max_length=12000)
-    duration_sec: int = Field(ge=3, le=300)
+    duration_sec: int = Field(ge=3, le=600)  # ACE-Step supports up to 600s
     vocals: bool = True
     seed: int | None = Field(default=None, ge=0, le=2_147_483_647)
     model_id: str | None = Field(default=None, max_length=128)
@@ -45,25 +40,9 @@ class GenerateManyRequest(GenerateRequest):
 
 class ExtendRequest(BaseModel):
     job_id: str = Field(min_length=1, max_length=64)
-    extra_sec: int = Field(ge=3, le=180)
+    extra_sec: int = Field(ge=3, le=600)
     provider: str | None = Field(default=None, max_length=64)
     provider_params: dict[str, Any] | None = Field(default=None)
-
-
-class InpaintRequest(BaseModel):
-    """Request to inpaint/edit an existing song.
-
-    Inpainting is an Enterprise-only feature from ElevenLabs.
-    Use source_from in composition_plan sections to reference existing song parts.
-    """
-    source_job_id: str = Field(min_length=1, max_length=64, description="Job ID of the source song to edit")
-    composition_plan: dict[str, Any] = Field(description="Composition plan with source_from references")
-    output_format: str | None = Field(default=None, max_length=32)
-
-
-class GenerateStoreRequest(GenerateRequest):
-    """Generate and store for inpainting (Enterprise-only)."""
-    store_for_inpainting: bool = Field(default=False, description="Store song for later inpainting")
 
 
 def _sanitize_filename(text: str) -> str:
@@ -100,14 +79,9 @@ def _apply_provider_prompt_options(
     return _build_prompt(base_prompt=base_prompt, lyrics=lyrics, vocals=vocals)
 
 
-def _is_minimax_music_model(version: str) -> bool:
-    """Check if the Replicate model version is a MiniMax music model."""
-    return version.lower().startswith("minimax/music")
-
-
 def _resolve_provider(req_provider: str | None) -> str:
-    p = (req_provider or STATE.settings.default_provider or "elevenlabs").strip()
-    return p or "elevenlabs"
+    p = (req_provider or STATE.settings.default_provider or "minimax").strip()
+    return p or "minimax"
 
 
 def _resolve_output_format(provider_params: dict[str, Any] | None) -> str:
@@ -117,30 +91,107 @@ def _resolve_output_format(provider_params: dict[str, Any] | None) -> str:
     return STATE.settings.output_format
 
 
-def _parse_composition_plan(provider_params: dict[str, Any] | None) -> dict[str, Any] | None:
-    if not provider_params:
-        return None
-    if provider_params.get("use_composition_plan") is not True:
-        return None
-    raw = provider_params.get("composition_plan_json")
-    if raw is None or raw == "":
-        return None
-    if isinstance(raw, dict):
-        return raw
-    if isinstance(raw, str):
-        try:
-            return json.loads(raw)
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=f"composition_plan_json invalid JSON: {e}")
-    raise HTTPException(status_code=400, detail="composition_plan_json must be JSON object or string")
-
-
 STATE = AppState.create()
 
 app = FastAPI(title="you2music", version="0.1.0")
 
 static_dir = Path(__file__).resolve().parent / "static"
 app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+
+
+def _install_windows_asyncio_connection_reset_suppression() -> None:
+    """
+    Suppress noisy Windows Proactor loop warnings on client disconnects.
+
+    On Windows (ProactorEventLoop), a normal client disconnect during/after a response
+    can surface as:
+      - ConnectionResetError: [WinError 10054] ...
+      - ConnectionAbortedError: [WinError 10053] ...
+    via the event loop exception handler ("Exception in callback ..._call_connection_lost()").
+
+    This is a local tool and these tracebacks are typically not actionable for users.
+    We ignore only these specific network disconnect errors and let everything else through.
+    """
+
+    if os.name != "nt":
+        return
+
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        # No running loop yet; called too early.
+        return
+
+    previous_handler = loop.get_exception_handler()
+
+    def handler(loop: asyncio.AbstractEventLoop, context: dict[str, Any]) -> None:
+        exc = context.get("exception")
+        msg = str(context.get("message") or "")
+
+        if isinstance(exc, (ConnectionResetError, ConnectionAbortedError)):
+            text = str(exc)
+            if "WinError 10054" in text or "WinError 10053" in text or "_call_connection_lost" in msg:
+                return
+
+        if previous_handler is not None:
+            previous_handler(loop, context)
+        else:
+            loop.default_exception_handler(context)
+
+    loop.set_exception_handler(handler)
+
+
+def _spawn_job_task(coro: "asyncio.Future[Any] | asyncio.Task[Any] | Any") -> None:
+    """
+    Spawn a background job task and track it for shutdown cancellation.
+
+    Uvicorn on Windows may appear to "not stop" on Ctrl+C if there are long-running
+    background tasks. Tracking lets us cancel them promptly on shutdown.
+    """
+    task = asyncio.create_task(coro)
+
+    tasks = getattr(app.state, "job_tasks", None)
+    if tasks is None:
+        tasks = set()
+        setattr(app.state, "job_tasks", tasks)
+
+    tasks.add(task)
+
+    def _done(t: asyncio.Task[Any]) -> None:
+        try:
+            tasks.discard(t)
+        except Exception:
+            pass
+
+    task.add_done_callback(_done)
+
+
+@app.on_event("startup")
+async def _startup_install_loop_handler() -> None:
+    _install_windows_asyncio_connection_reset_suppression()
+    if getattr(app.state, "job_tasks", None) is None:
+        setattr(app.state, "job_tasks", set())
+
+
+@app.on_event("shutdown")
+async def _shutdown_cancel_jobs() -> None:
+    tasks = getattr(app.state, "job_tasks", None)
+    if not tasks:
+        return
+
+    # Cancel outstanding jobs quickly so Ctrl+C stops reliably in dev.
+    snapshot = [t for t in list(tasks) if not t.done()]
+    for t in snapshot:
+        t.cancel()
+
+    # Best effort: don't let cancellation errors block shutdown.
+    # On Windows, cancellation of in-flight network IO can sometimes take longer than expected.
+    # Keep shutdown bounded so dev iteration is reliable.
+    timeout_s = float(os.getenv("AI_MUSIC_SHUTDOWN_CANCEL_TIMEOUT_S", "0.5"))
+    try:
+        await asyncio.wait_for(asyncio.gather(*snapshot, return_exceptions=True), timeout=timeout_s)
+    except asyncio.TimeoutError:
+        return
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -167,6 +218,108 @@ def _require_admin(token: str | None) -> None:
 
 class AdminConfigRequest(BaseModel):
     config: dict[str, Any]
+
+
+# ========================================
+# Random Sample Generation (ACE-Step inspired)
+# ========================================
+RANDOM_PROMPTS = [
+    "A dreamy electronic ambient track with soft synth pads and gentle arpeggios",
+    "Upbeat pop song with catchy melody and energetic drums",
+    "Melancholic piano ballad with emotional strings",
+    "Funky dance track with groovy bass line and brass section",
+    "Acoustic folk song with warm guitar strumming and heartfelt vocals",
+    "Epic cinematic orchestral piece with dramatic crescendo",
+    "Chill lo-fi hip hop beat with jazzy samples and vinyl crackle",
+    "Energetic rock anthem with powerful electric guitars and driving rhythm",
+    "Smooth R&B track with sultry vocals and lush harmonies",
+    "Traditional Chinese-inspired piece with guzheng and erhu melodies",
+    "Modern trap beat with heavy 808 bass and crisp hi-hats",
+    "Reggae-inspired track with laid-back groove and offbeat guitar skanks",
+    "Electronic dance music with buildups and drops",
+    "Jazz standard with swing rhythm and improvisational solos",
+    "New age meditation music with Tibetan singing bowls and nature sounds",
+]
+
+RANDOM_LYRICS_TEMPLATES = [
+    """[Verse 1]
+漫步在这城市的街头
+霓虹灯映照着过往的梦
+微风轻拂脸庞的感觉
+让我想起了你的温柔
+
+[Chorus]
+时光如水静静流淌
+记忆中的画面依然清晰
+那些年我们一起追的梦
+如今都变成了心底的歌""",
+    """[Verse 1]
+Standing on the edge of tomorrow
+Looking back at yesterday
+All the joy and all the sorrow
+Led me to this moment today
+
+[Chorus]
+We're chasing dreams across the sky
+No matter how far, we'll learn to fly
+Together we'll make it through the night
+Into the morning light""",
+    """[Verse 1]
+月光洒落在窗台
+思绪随着夜风飘来
+那些未曾说出口的话
+在心中悄悄绽放
+
+[Bridge]
+时间是最温柔的答案
+等待是最深情的告白
+
+[Chorus]
+让风带走所有遗憾
+让梦点亮每个夜晚""",
+    """[Verse 1]
+踏遍千山万水
+追寻心中的风景
+一路上有风有雨
+也有你温暖的笑容
+
+[Chorus]
+人生就像一场旅行
+珍惜沿途的每一道风景
+不管终点在哪里
+重要的是与你同行""",
+    """[Verse 1]
+咖啡杯里倒映着午后阳光
+书页翻动间时光悄然流淌
+窗外的城市依旧繁忙
+而我沉浸在这片刻的安详
+
+[Chorus]
+Simple moments, peaceful days
+In this quiet space, my heart stays
+Finding beauty in the ordinary
+Living life extraordinary""",
+]
+
+
+@app.get("/api/random_sample")
+def get_random_sample() -> dict[str, Any]:
+    """Generate a random prompt and lyrics sample for quick inspiration."""
+    prompt = random.choice(RANDOM_PROMPTS)
+    lyrics = random.choice(RANDOM_LYRICS_TEMPLATES)
+    bpm = random.choice([60, 70, 80, 90, 100, 110, 120, 128, 140])
+    keys = ["C major", "G major", "D major", "A minor", "E minor", "F major"]
+    key_scale = random.choice(keys)
+    durations = [30, 45, 60, 90, 120, 180]
+    duration = random.choice(durations)
+
+    return {
+        "prompt": prompt,
+        "lyrics": lyrics,
+        "bpm": bpm,
+        "key_scale": key_scale,
+        "duration": duration,
+    }
 
 
 @app.get("/api/admin/config")
@@ -309,81 +462,25 @@ async def admin_test(x_admin_token: str | None = Header(default=None, alias="x-a
 
             attempts: list[dict[str, Any]] = []
             try:
-                if pid == "elevenlabs":
+                if pid == "minimax":
+                    # MiniMax API test - simple health check
                     attempts.append(
                         await _attempt_get(
                             client,
-                            name="user",
-                            url=f"{STATE.settings.elevenlabs_base_url}/v1/user",
-                            headers={"xi-api-key": STATE.settings.elevenlabs_api_key},
+                            name="health",
+                            url=f"{STATE.settings.minimax_base_url}/v1/music_generation",
+                            headers={"Authorization": f"Bearer {STATE.settings.minimax_api_key}"},
+                            ok_if_status=lambda s: s in (401, 403, 405, 400),  # These indicate the endpoint exists
                         )
                     )
-                    if not attempts[-1]["ok"]:
-                        attempts.append(
-                            await _attempt_get(
-                                client,
-                                name="models",
-                                url=f"{STATE.settings.elevenlabs_base_url}/v1/models",
-                                headers={"xi-api-key": STATE.settings.elevenlabs_api_key},
-                            )
-                        )
-                elif pid == "replicate":
+                elif pid == "acestep":
+                    # ACE-Step API test
                     attempts.append(
                         await _attempt_get(
                             client,
-                            name="account_bearer",
-                            url=f"{STATE.settings.replicate_base_url}/v1/account",
-                            headers={"Authorization": f"Bearer {STATE.settings.replicate_api_token}"},
-                        )
-                    )
-                    if not attempts[-1]["ok"] and attempts[-1].get("http_status") in (401, 403):
-                        attempts.append(
-                            await _attempt_get(
-                                client,
-                                name="account_token",
-                                url=f"{STATE.settings.replicate_base_url}/v1/account",
-                                headers={"Authorization": f"Token {STATE.settings.replicate_api_token}"},
-                            )
-                        )
-                elif pid == "stability":
-                    attempts.append(
-                        await _attempt_get(
-                            client,
-                            name="user_account",
-                            url=f"{STATE.settings.stability_base_url}/v1/user/account",
-                            headers={"Authorization": f"Bearer {STATE.settings.stability_api_key}"},
-                        )
-                    )
-                    if not attempts[-1]["ok"]:
-                        attempts.append(
-                            await _attempt_get(
-                                client,
-                                name="user_balance",
-                                url=f"{STATE.settings.stability_base_url}/v1/user/balance",
-                                headers={"Authorization": f"Bearer {STATE.settings.stability_api_key}"},
-                            )
-                        )
-                elif pid == "fal":
-                    attempts.append(
-                        await _attempt_get(
-                            client,
-                            name="platform_models",
-                            url=f"{STATE.settings.fal_platform_base_url}/v1/models?limit=1",
-                            headers={"Authorization": f"Key {STATE.settings.fal_key}"},
-                        )
-                    )
-                    model_id = (
-                        (STATE.settings.provider_ui_defaults or {}).get("fal", {}).get("model_id")
-                        or "fal-ai/stable-audio-25/text-to-audio"
-                    )
-                    dummy_request_id = "00000000-0000-0000-0000-000000000000"
-                    attempts.append(
-                        await _attempt_get(
-                            client,
-                            name="queue_dummy_status",
-                            url=f"{STATE.settings.fal_queue_base_url}/{model_id}/requests/{dummy_request_id}/status",
-                            headers={"Authorization": f"Key {STATE.settings.fal_key}"},
-                            ok_if_status=lambda s: (400 <= s < 500 and not _is_auth_error(s)) or (200 <= s < 300),
+                            name="health",
+                            url=f"{STATE.settings.acestep_base_url}/v1/models",
+                            headers={"Authorization": f"Bearer {STATE.settings.acestep_api_key}"},
                         )
                     )
                 else:
@@ -417,89 +514,65 @@ async def admin_test(x_admin_token: str | None = Header(default=None, alias="x-a
 @app.post("/api/generate")
 async def generate(req: GenerateRequest) -> dict[str, Any]:
     provider_name = _resolve_provider(req.provider)
-    if provider_name not in ("elevenlabs", "fal", "replicate", "stability", "suno", "minimax", "mureka", "lyria"):
+    if provider_name not in ("minimax", "acestep"):
         raise HTTPException(status_code=400, detail=f"unknown provider: {provider_name}")
 
     provider_params = req.provider_params or {}
-    composition_plan = _parse_composition_plan(provider_params)
     base_prompt = (req.prompt or "").strip()
-    if not base_prompt and not (provider_name == "elevenlabs" and composition_plan):
-        raise HTTPException(status_code=400, detail="prompt is required (or provide composition_plan_json for ElevenLabs)")
-    vocals = req.vocals
-    # MiniMax music models (via Replicate) and MiniMax official API support vocals
-    is_minimax_replicate = (
-        provider_name == "replicate"
-        and _is_minimax_music_model(str(provider_params.get("version") or ""))
-    )
-    if provider_name not in ("elevenlabs", "minimax", "mureka", "lyria") and not is_minimax_replicate:
-        vocals = False
+    if not base_prompt:
+        raise HTTPException(status_code=400, detail="prompt is required")
+
     params: dict[str, Any] = {
         "base_prompt": req.prompt,
         "duration_sec": req.duration_sec,
-        "vocals": vocals,
+        "vocals": req.vocals,
         "seed": req.seed,
         "model_id": req.model_id,
         "output_format": _resolve_output_format(provider_params),
         "provider": provider_name,
         "provider_params": provider_params,
-        "lyrics": req.lyrics,  # Pass lyrics to _run_job for MiniMax music
+        "lyrics": req.lyrics,
     }
-
-    # Providers that accept a separate `lyrics` field should not also get lyrics injected into `prompt`.
-    lyrics_for_prompt = req.lyrics
-    if provider_name in ("minimax", "mureka", "lyria") or is_minimax_replicate:
-        lyrics_for_prompt = None
 
     prompt = _apply_provider_prompt_options(
         base_prompt=base_prompt,
-        lyrics=lyrics_for_prompt,
-        vocals=vocals,
+        lyrics=req.lyrics,
+        vocals=req.vocals,
         provider_params=provider_params,
     )
     job_id = STATE.store.create_job(provider=provider_name, prompt=prompt, params=params, kind="generate")
 
-    asyncio.create_task(_run_job(job_id=job_id, prompt=prompt, params=params))
+    _spawn_job_task(_run_job(job_id=job_id, prompt=prompt, params=params))
     return {"job_id": job_id}
 
 
 @app.post("/api/generate_many")
 async def generate_many(req: GenerateManyRequest) -> dict[str, Any]:
     provider_name = _resolve_provider(req.provider)
-    if provider_name not in ("elevenlabs", "fal", "replicate", "stability", "suno", "minimax", "mureka", "lyria"):
+    if provider_name not in ("minimax", "acestep"):
         raise HTTPException(status_code=400, detail=f"unknown provider: {provider_name}")
+
     provider_params = req.provider_params or {}
-    composition_plan = _parse_composition_plan(provider_params)
     base_prompt = (req.prompt or "").strip()
-    if not base_prompt and not (provider_name == "elevenlabs" and composition_plan):
-        raise HTTPException(status_code=400, detail="prompt is required (or provide composition_plan_json for ElevenLabs)")
-    vocals = req.vocals
-    # MiniMax music models (via Replicate) and MiniMax official API support vocals
-    is_minimax_replicate = (
-        provider_name == "replicate"
-        and _is_minimax_music_model(str(provider_params.get("version") or ""))
-    )
-    if provider_name not in ("elevenlabs", "minimax", "mureka", "lyria") and not is_minimax_replicate:
-        vocals = False
+    if not base_prompt:
+        raise HTTPException(status_code=400, detail="prompt is required")
+
     params: dict[str, Any] = {
         "base_prompt": req.prompt,
         "duration_sec": req.duration_sec,
-        "vocals": vocals,
+        "vocals": req.vocals,
         "seed": req.seed,
         "model_id": req.model_id,
         "output_format": _resolve_output_format(provider_params),
         "provider": provider_name,
         "provider_params": provider_params,
-        "lyrics": req.lyrics,  # Pass lyrics to _run_job for MiniMax music
+        "lyrics": req.lyrics,
     }
 
-    # Providers that accept a separate `lyrics` field should not also get lyrics injected into `prompt`.
-    lyrics_for_prompt = req.lyrics
-    if provider_name in ("minimax", "mureka", "lyria") or is_minimax_replicate:
-        lyrics_for_prompt = None
     prompt = _apply_provider_prompt_options(
         base_prompt=base_prompt,
-        lyrics=lyrics_for_prompt,
-        vocals=vocals,
+        lyrics=req.lyrics,
+        vocals=req.vocals,
         provider_params=provider_params,
     )
 
@@ -507,7 +580,7 @@ async def generate_many(req: GenerateManyRequest) -> dict[str, Any]:
     for _ in range(req.count):
         job_id = STATE.store.create_job(provider=provider_name, prompt=prompt, params=params, kind="variation")
         job_ids.append(job_id)
-        asyncio.create_task(_run_job(job_id=job_id, prompt=prompt, params=params))
+        _spawn_job_task(_run_job(job_id=job_id, prompt=prompt, params=params))
 
     return {"job_ids": job_ids}
 
@@ -527,14 +600,14 @@ async def extend(req: ExtendRequest) -> dict[str, Any]:
 
     duration_sec = int(parent_params.get("duration_sec") or 0)
     new_duration = duration_sec + int(req.extra_sec)
-    if new_duration > 300:
-        raise HTTPException(status_code=400, detail="total duration exceeds 300 seconds")
+    if new_duration > 600:  # ACE-Step supports up to 600s
+        raise HTTPException(status_code=400, detail="total duration exceeds 600 seconds")
 
     new_params = dict(parent_params)
     new_params["duration_sec"] = new_duration
     if req.provider:
         new_provider = _resolve_provider(req.provider)
-        if new_provider not in ("elevenlabs", "fal", "replicate", "stability"):
+        if new_provider not in ("minimax", "acestep"):
             raise HTTPException(status_code=400, detail=f"unknown provider: {new_provider}")
         new_params["provider"] = new_provider
     if req.provider_params:
@@ -549,7 +622,7 @@ async def extend(req: ExtendRequest) -> dict[str, Any]:
         parent_job_id=parent.job_id,
     )
 
-    asyncio.create_task(_run_job(job_id=job_id, prompt=parent.prompt, params=new_params))
+    _spawn_job_task(_run_job(job_id=job_id, prompt=parent.prompt, params=new_params))
     return {"job_id": job_id, "parent_job_id": parent.job_id}
 
 
@@ -686,155 +759,12 @@ def get_audio_mp3_compat(job_id: str):
     return get_audio(job_id)
 
 
-@app.get("/api/stems/{job_id}")
-async def get_stems(job_id: str) -> dict[str, Any]:
-    """Get stems (vocals and instrumental) for a completed ElevenLabs job."""
-    rec = STATE.store.get(job_id)
-    if not rec:
-        raise HTTPException(status_code=404, detail="job not found")
-    if rec.status != "succeeded":
-        raise HTTPException(status_code=409, detail="job not succeeded")
-    if rec.provider != "elevenlabs":
-        raise HTTPException(status_code=400, detail="stems only available for elevenlabs provider")
-    if not rec.song_id:
-        raise HTTPException(status_code=404, detail="song_id not available for this job")
-
-    provider = ElevenLabsMusicProvider(
-        api_key=STATE.settings.elevenlabs_api_key,
-        base_url=STATE.settings.elevenlabs_base_url,
-        timeout_s=STATE.settings.request_timeout_s,
-    )
-
-    try:
-        stems = await provider.get_stems(song_id=rec.song_id)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"stems separation failed: {e}")
-
-    # Save stems to disk
-    STATE.audio_dir.mkdir(parents=True, exist_ok=True)
-    vocals_url = None
-    instrumental_url = None
-
-    if stems.vocals_bytes:
-        vocals_path = STATE.audio_dir / f"{job_id}_vocals.mp3"
-        vocals_path.write_bytes(stems.vocals_bytes)
-        vocals_url = f"/api/audio/{job_id}_vocals"
-
-    if stems.instrumental_bytes:
-        instrumental_path = STATE.audio_dir / f"{job_id}_instrumental.mp3"
-        instrumental_path.write_bytes(stems.instrumental_bytes)
-        instrumental_url = f"/api/audio/{job_id}_instrumental"
-
-    return {
-        "job_id": job_id,
-        "vocals_url": vocals_url,
-        "instrumental_url": instrumental_url,
-    }
-
-
-@app.get("/api/audio/{job_id}_vocals")
-def get_audio_vocals(job_id: str):
-    """Get vocals stem for a job."""
-    path = STATE.audio_dir / f"{job_id}_vocals.mp3"
-    if not path.exists():
-        raise HTTPException(status_code=404, detail="vocals stem not found")
-    return FileResponse(str(path), media_type="audio/mpeg", filename=f"{job_id}_vocals.mp3")
-
-
-@app.get("/api/audio/{job_id}_instrumental")
-def get_audio_instrumental(job_id: str):
-    """Get instrumental stem for a job."""
-    path = STATE.audio_dir / f"{job_id}_instrumental.mp3"
-    if not path.exists():
-        raise HTTPException(status_code=404, detail="instrumental stem not found")
-    return FileResponse(str(path), media_type="audio/mpeg", filename=f"{job_id}_instrumental.mp3")
-
-
-@app.post("/api/generate_store")
-async def generate_store(req: GenerateStoreRequest) -> dict[str, Any]:
-    """Generate music and store for inpainting (Enterprise-only).
-
-    This uses the compose_detailed endpoint with store_for_inpainting=True.
-    The song_id will be saved for later inpainting operations.
-    """
-    provider_name = _resolve_provider(req.provider)
-    if provider_name != "elevenlabs":
-        raise HTTPException(status_code=400, detail="store_for_inpainting only available for elevenlabs provider")
-
-    provider_params = req.provider_params or {}
-    composition_plan = _parse_composition_plan(provider_params)
-    base_prompt = (req.prompt or "").strip()
-    if not base_prompt and not composition_plan:
-        raise HTTPException(status_code=400, detail="prompt is required (or provide composition_plan_json for ElevenLabs)")
-    params: dict[str, Any] = {
-        "base_prompt": req.prompt,
-        "lyrics": req.lyrics,
-        "duration_sec": req.duration_sec,
-        "vocals": req.vocals,
-        "seed": req.seed,
-        "model_id": req.model_id,
-        "output_format": _resolve_output_format(provider_params),
-        "provider": provider_name,
-        "provider_params": provider_params,
-        "store_for_inpainting": req.store_for_inpainting,
-    }
-
-    prompt = _apply_provider_prompt_options(
-        base_prompt=base_prompt,
-        lyrics=req.lyrics,
-        vocals=req.vocals,
-        provider_params=provider_params,
-    )
-    job_id = STATE.store.create_job(provider=provider_name, prompt=prompt, params=params, kind="generate_store")
-
-    asyncio.create_task(_run_job_store(job_id=job_id, prompt=prompt, params=params))
-    return {"job_id": job_id}
-
-
-@app.post("/api/inpaint")
-async def inpaint(req: InpaintRequest) -> dict[str, Any]:
-    """Inpaint/edit an existing song (Enterprise-only).
-
-    Uses composition_plan with source_from to reference existing song sections.
-    Sections with source_from will be kept from the original.
-    Sections without source_from will be regenerated.
-    Use negative_ranges to regenerate portions inside kept sections.
-    """
-    source_job = STATE.store.get(req.source_job_id)
-    if not source_job:
-        raise HTTPException(status_code=404, detail="source job not found")
-    if source_job.status != "succeeded":
-        raise HTTPException(status_code=409, detail="source job not succeeded")
-    if source_job.provider != "elevenlabs":
-        raise HTTPException(status_code=400, detail="inpainting only available for elevenlabs provider")
-    if not source_job.song_id:
-        raise HTTPException(status_code=404, detail="source job has no song_id (not stored for inpainting)")
-
-    output_format = req.output_format or STATE.settings.output_format
-
-    params: dict[str, Any] = {
-        "source_job_id": req.source_job_id,
-        "source_song_id": source_job.song_id,
-        "composition_plan": req.composition_plan,
-        "output_format": output_format,
-        "provider": "elevenlabs",
-    }
-
-    # Build prompt from composition plan for logging
-    prompt = f"Inpaint: {source_job.prompt[:100]}..."
-
-    job_id = STATE.store.create_job(provider="elevenlabs", prompt=prompt, params=params, kind="inpaint", parent_job_id=req.source_job_id)
-
-    asyncio.create_task(_run_inpaint(job_id=job_id, composition_plan=req.composition_plan, output_format=output_format))
-    return {"job_id": job_id, "source_job_id": req.source_job_id, "source_song_id": source_job.song_id}
-
-
 async def _run_job(*, job_id: str, prompt: str, params: dict[str, Any]) -> None:
     try:
         STATE.store.set_status(job_id, status="running")
         STATE.audio_dir.mkdir(parents=True, exist_ok=True)
 
-        provider_name = str(params.get("provider") or "elevenlabs")
+        provider_name = str(params.get("provider") or "minimax")
         duration_ms = int(params["duration_sec"]) * 1000
         vocals = bool(params["vocals"])
         provider_params = params.get("provider_params") or {}
@@ -843,181 +773,7 @@ async def _run_job(*, job_id: str, prompt: str, params: dict[str, Any]) -> None:
         out_ext = "mp3"
         song_id: str | None = None
 
-        if provider_name == "elevenlabs":
-            provider = ElevenLabsMusicProvider(
-                api_key=STATE.settings.elevenlabs_api_key,
-                base_url=STATE.settings.elevenlabs_base_url,
-                timeout_s=STATE.settings.request_timeout_s,
-            )
-            composition_plan = _parse_composition_plan(provider_params)
-            result = await provider.compose(
-                prompt=(None if composition_plan is not None else prompt),
-                composition_plan=composition_plan,
-                music_length_ms=duration_ms,
-                force_instrumental=(not vocals),
-                seed=params.get("seed"),
-                model_id=params.get("model_id"),
-                output_format=str(params.get("output_format") or STATE.settings.output_format),
-            )
-            out_bytes = result.audio_bytes
-            out_ext = "mp3"
-            song_id = result.song_id  # Save for stems separation
-        elif provider_name == "fal":
-            client = FalQueueClient(
-                key=STATE.settings.fal_key,
-                queue_base_url=STATE.settings.fal_queue_base_url,
-                timeout_s=STATE.settings.request_timeout_s,
-            )
-            model_id = str(provider_params.get("model_id") or "fal-ai/stable-audio-25/text-to-audio")
-            seconds_total = provider_params.get("seconds_total")
-            if seconds_total is None:
-                seconds_total = int(params["duration_sec"])
-            fal_input: dict[str, Any] = {"prompt": prompt, "seconds_total": int(seconds_total)}
-            if provider_params.get("num_inference_steps") is not None:
-                fal_input["num_inference_steps"] = int(provider_params["num_inference_steps"])
-            if provider_params.get("guidance_scale") is not None:
-                fal_input["guidance_scale"] = float(provider_params["guidance_scale"])
-            seed = provider_params.get("seed", params.get("seed"))
-            if seed is not None:
-                fal_input["seed"] = int(seed)
-            request_id = await client.submit(model_id=model_id, input_json=fal_input)
-            result_json = await client.poll_until_done(
-                model_id=model_id,
-                request_id=request_id,
-                poll_interval_s=float(provider_params.get("poll_interval_s") or 1.0),
-                max_wait_s=300.0,
-            )
-            audio_url = client.extract_audio_url(result_json)
-            async with httpx.AsyncClient(timeout=STATE.settings.request_timeout_s) as dl:
-                r = await dl.get(audio_url)
-                r.raise_for_status()
-                out_bytes = r.content
-            out_ext = "wav"
-        elif provider_name == "replicate":
-            client = ReplicateClient(
-                api_token=STATE.settings.replicate_api_token,
-                base_url=STATE.settings.replicate_base_url,
-                timeout_s=STATE.settings.request_timeout_s,
-            )
-            version = str(provider_params.get("version") or "stability-ai/stable-audio-2.5")
-
-            # MiniMax music models have different input parameters
-            is_minimax_music = _is_minimax_music_model(version)
-            if is_minimax_music:
-                # MiniMax music: prompt, lyrics, style_strength (no duration)
-                inp: dict[str, Any] = {"prompt": prompt}
-                # Add lyrics if provided
-                lyrics = params.get("lyrics") or provider_params.get("lyrics")
-                if lyrics and str(lyrics).strip():
-                    inp["lyrics"] = str(lyrics).strip()
-                # Add style_strength if provided (0.0-1.0)
-                if provider_params.get("style_strength") is not None:
-                    inp["style_strength"] = float(provider_params["style_strength"])
-                seed = provider_params.get("seed", params.get("seed"))
-                if seed is not None:
-                    inp["seed"] = int(seed)
-                out_ext = "mp3"  # MiniMax outputs mp3
-            else:
-                # Standard Replicate models (Stable Audio, etc.)
-                duration = provider_params.get("duration")
-                if duration is None:
-                    duration = int(params["duration_sec"])
-                inp = {"prompt": prompt, "duration": int(duration)}
-                seed = provider_params.get("seed", params.get("seed"))
-                if seed is not None:
-                    inp["seed"] = int(seed)
-                if provider_params.get("steps") is not None:
-                    inp["steps"] = int(provider_params["steps"])
-                if provider_params.get("cfg_scale") is not None:
-                    inp["cfg_scale"] = float(provider_params["cfg_scale"])
-                out_ext = "wav"
-
-            pid = await client.create_prediction(version=version, input_json=inp)
-            pred = await client.poll_until_done(
-                prediction_id=pid,
-                poll_interval_s=float(provider_params.get("poll_interval_s") or 1.0),
-                max_wait_s=300.0,
-            )
-            audio_url = client.extract_audio_url(pred)
-            async with httpx.AsyncClient(timeout=STATE.settings.request_timeout_s) as dl:
-                r = await dl.get(audio_url)
-                r.raise_for_status()
-                out_bytes = r.content
-        elif provider_name == "stability":
-            client = StabilityAudioClient(
-                api_key=STATE.settings.stability_api_key,
-                base_url=STATE.settings.stability_base_url,
-                timeout_s=STATE.settings.request_timeout_s,
-            )
-            endpoint_path = str(provider_params.get("endpoint_path") or "/v2beta/audio/stable-audio-2/text-to-audio")
-            seconds_total = provider_params.get("seconds_total")
-            if seconds_total is None:
-                seconds_total = int(params["duration_sec"])
-            seed = provider_params.get("seed", params.get("seed"))
-            steps = provider_params.get("steps")
-            cfg_scale = provider_params.get("cfg_scale")
-            output_format = provider_params.get("output_format")
-            res = await client.text_to_audio(
-                endpoint_path=endpoint_path,
-                prompt=prompt,
-                seconds_total=int(seconds_total) if seconds_total is not None else None,
-                seed=int(seed) if seed is not None else None,
-                steps=int(steps) if steps is not None else None,
-                cfg_scale=float(cfg_scale) if cfg_scale is not None else None,
-                output_format=str(output_format) if output_format else None,
-            )
-            out_bytes = res.audio_bytes
-            out_ext = "wav"
-        elif provider_name == "suno":
-            client = SunoClient(
-                api_key=STATE.settings.suno_api_key,
-                base_url=STATE.settings.suno_base_url,
-                timeout_s=STATE.settings.request_timeout_s,
-            )
-            model = str(provider_params.get("model") or "v4.5")
-            instrumental = bool(provider_params.get("instrumental", False))
-            duration = provider_params.get("duration")
-            if duration is None:
-                duration = int(params["duration_sec"])
-            poll_interval = float(provider_params.get("poll_interval_s", 2.0))
-            generate_path = str(provider_params.get("generate_path") or "/suno/generate")
-            task_path_template = str(provider_params.get("task_path_template") or "/suno/task/{task_id}")
-            max_wait_s = float(provider_params.get("max_wait_s") or 300.0)
-
-            extra: dict[str, Any] = dict(provider_params)
-            for k in (
-                "model",
-                "instrumental",
-                "duration",
-                "poll_interval_s",
-                "generate_path",
-                "task_path_template",
-                "max_wait_s",
-            ):
-                extra.pop(k, None)
-
-            task_id = await client.create_generation(
-                prompt=prompt,
-                duration_sec=int(duration),
-                model=model,
-                instrumental=instrumental,
-                generate_path=generate_path,
-                **extra,
-            )
-            result = await client.poll_until_done(
-                task_id=task_id,
-                poll_interval_s=poll_interval,
-                max_wait_s=max_wait_s,
-                task_path_template=task_path_template,
-            )
-            audio_url = SunoClient.extract_audio_url(result)
-
-            async with httpx.AsyncClient(timeout=STATE.settings.request_timeout_s) as dl:
-                r = await dl.get(audio_url)
-                r.raise_for_status()
-                out_bytes = r.content
-            out_ext = "mp3"
-        elif provider_name == "minimax":
+        if provider_name == "minimax":
             # MiniMax official API (music-2.6)
             client = MiniMaxMusicClient(
                 api_key=STATE.settings.minimax_api_key,
@@ -1068,124 +824,93 @@ async def _run_job(*, job_id: str, prompt: str, params: dict[str, Any]) -> None:
                     raise RuntimeError("MiniMax response missing audio_url")
                 out_bytes = await client.download_audio(result.audio_url)
             out_ext = audio_format
-        elif provider_name == "mureka":
-            # Mureka AI (昆仑万维) Music API
-            client = MurekaClient(
-                api_key=STATE.settings.mureka_api_key,
-                base_url=STATE.settings.mureka_base_url,
+        elif provider_name == "acestep":
+            # ACE-Step 1.5 via acemusic.ai (OpenAI-compatible API)
+            client = ACEStepClient(
+                api_key=STATE.settings.acestep_api_key,
+                base_url=STATE.settings.acestep_base_url,
                 timeout_s=STATE.settings.request_timeout_s,
             )
-            model = str(provider_params.get("model") or "auto")
-            mureka_prompt = provider_params.get("prompt")  # Optional style description
+            model = str(provider_params.get("model") or "acemusic/acestep-v1.5-turbo")
             lyrics = params.get("lyrics") or provider_params.get("lyrics")
-            poll_interval = float(provider_params.get("poll_interval_s", 2.0))
-            max_wait = float(provider_params.get("max_wait_s", 300.0))
-
-            result = await client.generate_song(
-                lyrics=lyrics or "",
-                prompt=mureka_prompt,
-                model=model,
-                poll_interval_s=poll_interval,
-                max_wait_s=max_wait,
-            )
-            out_bytes = await client.download_audio(result.audio_url)
-            out_ext = "mp3"
-        elif provider_name == "lyria":
-            # Google Lyria 3 via Gemini API
-            client = LyriaClient(
-                api_key=STATE.settings.google_api_key,
-                base_url=STATE.settings.google_base_url,
-                timeout_s=STATE.settings.request_timeout_s,
-            )
-            model = str(provider_params.get("model") or "lyria-3-clip-preview")
-            lyrics = params.get("lyrics") or provider_params.get("lyrics")
-            seed = provider_params.get("seed", params.get("seed"))
+            audio_duration = provider_params.get("audio_duration")
+            if audio_duration is None:
+                audio_duration = float(params["duration_sec"])
+            audio_format = str(provider_params.get("audio_format") or "mp3")
 
             result = await client.generate(
                 prompt=prompt,
+                lyrics=str(lyrics).strip() if lyrics else None,
                 model=model,
-                lyrics=lyrics,
-                seed=int(seed) if seed is not None else None,
+                audio_duration=audio_duration,
+                audio_format=audio_format,
             )
 
-            if result.audio_bytes:
-                out_bytes = result.audio_bytes
-            elif result.audio_url:
-                out_bytes = await client.download_audio(result.audio_url)
-            else:
-                raise RuntimeError("Lyria result missing audio data")
-            out_ext = "mp3"
+            out_bytes = result.audio_bytes
+            out_ext = audio_format
         else:
             raise RuntimeError(f"unknown provider: {provider_name}")
 
         out_path = STATE.audio_dir / f"{job_id}.{out_ext}"
         out_path.write_bytes(out_bytes)
         STATE.store.set_status(job_id, status="succeeded", output_path=str(out_path), song_id=song_id)
+    except asyncio.CancelledError:
+        # Shutdown/dev stop: treat as a controlled failure to avoid leaving jobs "running".
+        STATE.store.set_status(job_id, status="failed", error="cancelled")
+        raise
     except Exception as e:
         STATE.store.set_status(job_id, status="failed", error=str(e))
 
 
-async def _run_job_store(*, job_id: str, prompt: str, params: dict[str, Any]) -> None:
-    """Run a generate job with store_for_inpainting=True."""
-    try:
-        STATE.store.set_status(job_id, status="running")
-        STATE.audio_dir.mkdir(parents=True, exist_ok=True)
-
-        duration_ms = int(params["duration_sec"]) * 1000
-        vocals = bool(params["vocals"])
-        provider_params = params.get("provider_params") or {}
-        store_for_inpainting = bool(params.get("store_for_inpainting", False))
-
-        provider = ElevenLabsMusicProvider(
-            api_key=STATE.settings.elevenlabs_api_key,
-            base_url=STATE.settings.elevenlabs_base_url,
-            timeout_s=STATE.settings.request_timeout_s,
-        )
-        composition_plan = _parse_composition_plan(provider_params)
-        result = await provider.compose_detailed(
-            prompt=(None if composition_plan is not None else prompt),
-            composition_plan=composition_plan,
-            music_length_ms=duration_ms,
-            force_instrumental=(not vocals),
-            seed=params.get("seed"),
-            model_id=params.get("model_id"),
-            output_format=str(params.get("output_format") or STATE.settings.output_format),
-            store_for_inpainting=store_for_inpainting,
-        )
-
-        out_path = STATE.audio_dir / f"{job_id}.mp3"
-        out_path.write_bytes(result.audio_bytes)
-        STATE.store.set_status(job_id, status="succeeded", output_path=str(out_path), song_id=result.song_id)
-    except Exception as e:
-        STATE.store.set_status(job_id, status="failed", error=str(e))
-
-
-async def _run_inpaint(*, job_id: str, composition_plan: dict[str, Any], output_format: str) -> None:
-    """Run an inpaint job."""
-    try:
-        STATE.store.set_status(job_id, status="running")
-        STATE.audio_dir.mkdir(parents=True, exist_ok=True)
-
-        provider = ElevenLabsMusicProvider(
-            api_key=STATE.settings.elevenlabs_api_key,
-            base_url=STATE.settings.elevenlabs_base_url,
-            timeout_s=STATE.settings.request_timeout_s,
-        )
-        result = await provider.inpaint(
-            composition_plan=composition_plan,
-            output_format=output_format,
-        )
-
-        out_path = STATE.audio_dir / f"{job_id}.mp3"
-        out_path.write_bytes(result.audio_bytes)
-        STATE.store.set_status(job_id, status="succeeded", output_path=str(out_path), song_id=result.song_id)
-    except Exception as e:
-        STATE.store.set_status(job_id, status="failed", error=str(e))
+class _SuppressUvicornShutdownTimeoutFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:  # noqa: A003
+        try:
+            msg = record.getMessage()
+        except Exception:
+            return True
+        return "timeout graceful shutdown exceeded" not in (msg or "").lower()
 
 
 if __name__ == "__main__":
     import uvicorn
+    import uvicorn.config
 
     host = os.getenv("AI_MUSIC_HOST", "127.0.0.1")
     port = int(os.getenv("AI_MUSIC_PORT", "8000"))
-    uvicorn.run("main:app", host=host, port=port, reload=False)
+
+    # On Windows + VSCode terminal, Ctrl+C can sometimes feel "stuck" when there are
+    # long-running background tasks or half-open client connections. Keep graceful
+    # shutdown short so dev iteration is reliable.
+    # This is a maximum wait time. In normal cases the server exits much faster,
+    # but on Windows the shutdown sequence can sometimes take a few seconds even
+    # with no active requests. Use a slightly larger default to avoid noisy
+    # "timeout graceful shutdown exceeded" logs.
+    timeout_grace_s = float(os.getenv("AI_MUSIC_TIMEOUT_GRACEFUL_SHUTDOWN_S", "3.0"))
+    timeout_keep_alive_s = int(os.getenv("AI_MUSIC_UVICORN_TIMEOUT_KEEP_ALIVE_S", "1"))
+
+    log_config = uvicorn.config.LOGGING_CONFIG
+    if os.getenv("AI_MUSIC_SUPPRESS_UVICORN_SHUTDOWN_TIMEOUT_LOG", "1").strip().lower() in ("1", "true", "yes", "on"):
+        # Use uvicorn's built-in dictConfig hook so our filter survives uvicorn's logging setup.
+        log_config = dict(log_config)
+        log_config["filters"] = dict(log_config.get("filters") or {})
+        log_config["filters"]["suppress_shutdown_timeout"] = {
+            "()": "main._SuppressUvicornShutdownTimeoutFilter",
+        }
+        log_config["handlers"] = dict(log_config.get("handlers") or {})
+        if "default" in log_config["handlers"] and isinstance(log_config["handlers"]["default"], dict):
+            handler_cfg = dict(log_config["handlers"]["default"])
+            handler_filters = list(handler_cfg.get("filters") or [])
+            if "suppress_shutdown_timeout" not in handler_filters:
+                handler_filters.append("suppress_shutdown_timeout")
+            handler_cfg["filters"] = handler_filters
+            log_config["handlers"]["default"] = handler_cfg
+
+    uvicorn.run(
+        "main:app",
+        host=host,
+        port=port,
+        reload=False,
+        timeout_graceful_shutdown=timeout_grace_s,
+        timeout_keep_alive=timeout_keep_alive_s,
+        log_config=log_config,
+    )

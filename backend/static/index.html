@@ -1003,7 +1003,10 @@
         <!-- Prompt Input -->
         <div class="form-group">
           <label for="prompt">描述你想创作的音乐</label>
-          <textarea id="prompt" placeholder="例如：一首温柔的中文流行歌，女声演唱，副歌很抓耳，主题是夜晚的城市灯火，带一点合成器。"></textarea>
+          <div style="display: flex; gap: var(--space-sm); align-items: stretch;">
+            <textarea id="prompt" style="flex: 1;" placeholder="例如：一首温柔的中文流行歌，女声演唱，副歌很抓耳，主题是夜晚的城市灯火，带一点合成器。"></textarea>
+            <button id="randomPromptBtn" class="btn btn-secondary btn-sm" style="white-space: nowrap; display: none;">🎲 随机</button>
+          </div>
         </div>
 
         <!-- Quick Genre Tags -->
@@ -1157,7 +1160,10 @@
         <div id="lyricsRow" class="form-row" style="margin-top: var(--space-md);">
           <div class="form-group">
             <label for="lyrics">歌词（可选）</label>
-            <textarea id="lyrics" style="min-height: 60px;" placeholder="可粘贴歌词。建议分段：主歌/副歌/桥段。"></textarea>
+            <div style="display: flex; gap: var(--space-sm); align-items: stretch;">
+              <textarea id="lyrics" style="flex: 1; min-height: 120px; resize: vertical;" placeholder="可粘贴歌词。建议分段：主歌/副歌/桥段。&#10;&#10;提示：MiniMax 支持自动生成歌词，在下方 Provider 参数中开启「自动生成歌词」选项即可。"></textarea>
+              <button id="randomLyricsBtn" class="btn btn-secondary btn-sm" style="white-space: nowrap; display: none;">🎲 随机</button>
+            </div>
             <div id="lyricsHint" class="muted" style="margin-top: var(--space-xs); display: none;"></div>
           </div>
         </div>
@@ -1176,16 +1182,10 @@
           </div>
         </div>
 
-        <div class="form-row">
-          <div class="form-group">
-            <label for="modelId">model_id（可选）</label>
-            <input type="text" id="modelId" placeholder="例如 music_v1">
-          </div>
-        </div>
-
         <!-- Actions -->
         <div class="form-actions">
           <button id="generateBtn" class="btn btn-primary btn-lg">✨ 开始创作</button>
+          <button id="randomFillAllBtn" class="btn btn-secondary">🎲 随机填充</button>
           <button id="generateManyBtn" class="btn btn-secondary">生成多候选</button>
           <select id="count" style="width: 80px;">
             <option value="2" selected>2 首</option>
@@ -1507,7 +1507,6 @@
           { id: "vocals", kind: "required" },
           { id: "lyrics", kind: "optional" },
           { id: "seed", kind: "optional" },
-          { id: "modelId", kind: "optional" },
         ];
         for (const m of mapping) {
           const label = document.querySelector(`label[for="${m.id}"]`);
@@ -1627,12 +1626,6 @@
           }
         }
 
-        const modelIdEl = document.getElementById("modelId");
-        if (modelIdEl) {
-          const s = String(modelIdEl.value || "");
-          if (s.length > 128) fail(modelIdEl, "model_id 太长（最多 128 字符）。");
-        }
-
         // Provider-specific required fields (based on backend metadata)
         if (meta && Array.isArray(meta.fields)) {
           for (const field of meta.fields) {
@@ -1698,12 +1691,9 @@
         if (!lyricsRowEl) return;
 
         const providerId = getSelectedProviderId();
-        const inpaintSectionEl = document.getElementById("inpaintSection");
-        const inpaintVisible = Boolean(inpaintSectionEl && inpaintSectionEl.style.display !== "none");
 
         const showByProvider = shouldShowLyricsInput();
-        const showByInpaint = inpaintVisible; // inpainting/store uses ElevenLabs prompt/lyrics
-        const show = showByProvider || showByInpaint;
+        const show = showByProvider;
 
         lyricsRowEl.style.display = show ? "" : "none";
 
@@ -1714,28 +1704,14 @@
           return;
         }
 
-        if (showByInpaint && !showByProvider) {
-          lyricsHintEl.style.display = "block";
-          lyricsHintEl.textContent = "用于 Inpainting/Store（ElevenLabs）：歌词会参与 Prompt 组装（除非开启「原始 Prompt 模式」）。";
-          return;
-        }
-
         if (providerId === "minimax") {
           lyricsHintEl.style.display = "block";
-          lyricsHintEl.textContent = "MiniMax 官方 API：歌词会作为独立参数发送（不会拼接到 Prompt）。";
+          lyricsHintEl.textContent = "MiniMax：歌词会作为独立参数发送。如需自动生成歌词，请在下方开启「自动生成歌词」选项。";
           return;
         }
-        if (providerId === "replicate") {
-          const p = collectProviderParams();
-          if (_isMiniMaxMusicVersion(p.version)) {
-            lyricsHintEl.style.display = "block";
-            lyricsHintEl.textContent = "Replicate + MiniMax music：歌词会作为独立参数发送（不会拼接到 Prompt）。";
-            return;
-          }
-        }
-        if (providerId === "elevenlabs") {
+        if (providerId === "acestep") {
           lyricsHintEl.style.display = "block";
-          lyricsHintEl.textContent = "ElevenLabs：歌词会参与 Prompt 组装（除非开启「原始 Prompt 模式」）。";
+          lyricsHintEl.textContent = "ACE-Step：支持 50+ 语言歌词，歌词会作为独立参数发送。";
           return;
         }
 
@@ -2269,6 +2245,8 @@
         html += `<div style="font-size: 12px; color: var(--color-text-muted); margin-top: var(--space-xs);">Capabilities: <span class="mono">${JSON.stringify(meta.capabilities || {})}</span></div>`;
 
         const fields = (meta.fields || []).filter(f => advancedMode || !f.advanced);
+
+        // Render fields (basic + advanced if in advanced mode)
         for (const field of fields) {
           if (!shouldShowField(field, values)) continue;
           html += `<label>${field.label}<span class="field-badge ${field.required ? "required" : "optional"}">${field.required ? "必填" : "可选"}</span></label>`;
@@ -2292,7 +2270,7 @@
           } else {
             html += `<input type="text" data-key="${field.key}" value="${values[field.key] ?? ""}">`;
           }
-          if (field.help) html += `<div style="font-size: 12px; color: var(--color-text-muted); margin-top: var(--space-xs);">${field.help}</div>`;
+          if (field.help && field.kind !== "boolean") html += `<div style="font-size: 12px; color: var(--color-text-muted); margin-top: var(--space-xs);">${field.help}</div>`;
         }
 
         providerFieldsEl.innerHTML = html;
@@ -2316,6 +2294,7 @@
         });
 
         updateLyricsUi();
+        updateRandomButtonsVisibility();
         _updatePromptBadge();
       }
 
@@ -2417,7 +2396,6 @@
         const durationSec = _coerceInt(params.duration_sec, 45);
         const vocals = _normalizeVocalsFlag(params.vocals);
         const seed = (typeof params.seed === "number") ? params.seed : null;
-        const modelId = (typeof params.model_id === "string") ? params.model_id : "";
 
         const lines = [
           "将用该生成记录的参数覆盖当前表单设置：",
@@ -2425,7 +2403,6 @@
           `- duration_sec: ${durationSec}`,
           `- vocals: ${vocals ? "on" : "off"}`,
           `- seed: ${seed === null ? "(null)" : seed}`,
-          `- model_id: ${modelId || "(null)"}`,
           `- prompt: ${_shortText(basePrompt, 80) || "(empty)"}`,
           `- lyrics: ${lyrics ? "有" : "无"}`,
           "",
@@ -2456,9 +2433,6 @@
 
         const seedEl = document.getElementById("seed");
         if (seedEl) seedEl.value = (seed === null || seed === undefined) ? "" : String(seed);
-
-        const modelIdEl = document.getElementById("modelId");
-        if (modelIdEl) modelIdEl.value = modelId || "";
 
         if (promptEl) promptEl.value = basePrompt || "";
         if (lyricsEl) lyricsEl.value = lyrics || "";
@@ -2589,9 +2563,7 @@
         const duration = parseInt(document.getElementById("duration").value, 10);
         const vocals = document.getElementById("vocals").value === "on";
         const seedRaw = document.getElementById("seed").value.trim();
-        const modelId = document.getElementById("modelId").value.trim();
         const providerId = getSelectedProviderId();
-        const advancedMode = advancedEl.value === "advanced";
 
         const payload = {
           prompt,
@@ -2599,22 +2571,9 @@
           duration_sec: duration,
           vocals,
           seed: seedRaw ? parseInt(seedRaw, 10) : null,
-          model_id: modelId || null,
           provider: providerId || null,
           provider_params: collectProviderParams()
         };
-
-        if (providerId === "elevenlabs" && advancedMode) {
-          const plan = buildCompositionPlan();
-          if (plan) {
-            payload.provider_params = payload.provider_params || {};
-            payload.provider_params.use_composition_plan = true;
-            payload.provider_params.composition_plan_json = plan;
-            if (!prompt) {
-              payload.prompt = "";
-            }
-          }
-        }
 
         if (!_validateGenerateCommon(payload)) return;
 
@@ -2738,10 +2697,8 @@
         const duration = parseInt(document.getElementById("duration").value, 10);
         const vocals = document.getElementById("vocals").value === "on";
         const seedRaw = document.getElementById("seed").value.trim();
-        const modelId = document.getElementById("modelId").value.trim();
         const count = parseInt(document.getElementById("count").value, 10);
         const providerId = getSelectedProviderId();
-        const advancedMode = advancedEl.value === "advanced";
 
         const payload = {
           prompt,
@@ -2749,20 +2706,10 @@
           duration_sec: duration,
           vocals,
           seed: seedRaw ? parseInt(seedRaw, 10) : null,
-          model_id: modelId || null,
           count,
           provider: providerId || null,
           provider_params: collectProviderParams()
         };
-
-        if (providerId === "elevenlabs" && advancedMode) {
-          const plan = buildCompositionPlan();
-          if (plan) {
-            payload.provider_params = payload.provider_params || {};
-            payload.provider_params.use_composition_plan = true;
-            payload.provider_params.composition_plan_json = plan;
-          }
-        }
 
         if (!_validateGenerateCommon(payload)) return;
         if (!Number.isFinite(count) || count < 1 || count > 4) {
@@ -3031,6 +2978,77 @@
       }
 
       // ========================================
+      // Random Fill Functions
+      // ========================================
+
+      async function fetchRandomSample() {
+        try {
+          const data = await fetchJson("/api/random_sample");
+          return data;
+        } catch (e) {
+          console.error("Failed to fetch random sample:", e);
+          return null;
+        }
+      }
+
+      async function fillRandomPrompt() {
+        const sample = await fetchRandomSample();
+        if (sample && sample.prompt) {
+          promptEl.value = sample.prompt;
+          setStatus("已随机填充描述", "ok");
+        }
+      }
+
+      async function fillRandomLyrics() {
+        const sample = await fetchRandomSample();
+        if (sample && sample.lyrics) {
+          lyricsEl.value = sample.lyrics;
+          setStatus("已随机填充歌词", "ok");
+        }
+      }
+
+      async function fillRandomAll() {
+        const sample = await fetchRandomSample();
+        if (!sample) {
+          setError("获取随机样本失败");
+          return;
+        }
+
+        // Fill prompt
+        if (sample.prompt) {
+          promptEl.value = sample.prompt;
+        }
+
+        // Fill lyrics
+        if (sample.lyrics) {
+          lyricsEl.value = sample.lyrics;
+        }
+
+        // Update duration
+        if (sample.duration && durationSlider) {
+          const clamped = Math.max(3, Math.min(300, sample.duration));
+          durationSlider.value = String(clamped);
+          durationValue.textContent = String(clamped) + " 秒";
+        }
+
+        setStatus("已随机填充所有字段", "ok");
+      }
+
+      function updateRandomButtonsVisibility() {
+        const providerId = getSelectedProviderId();
+        const randomPromptBtn = document.getElementById("randomPromptBtn");
+        const randomLyricsBtn = document.getElementById("randomLyricsBtn");
+        const randomFillAllBtn = document.getElementById("randomFillAllBtn");
+
+        // Show random buttons for ACE-Step provider
+        const showRandomButtons = providerId === "acestep";
+
+        if (randomPromptBtn) randomPromptBtn.style.display = showRandomButtons ? "inline-flex" : "none";
+        if (randomLyricsBtn) randomLyricsBtn.style.display = showRandomButtons ? "inline-flex" : "none";
+        if (randomFillAllBtn) randomFillAllBtn.style.display = showRandomButtons ? "inline-flex" : "none";
+      }
+
+      // ========================================
       // Event Listeners
       // ========================================
       document.getElementById("generateBtn").addEventListener("click", () => {
@@ -3039,6 +3057,26 @@
           setStatus("");
         });
       });
+
+      // Random fill button event listeners
+      const randomPromptBtnEl = document.getElementById("randomPromptBtn");
+      const randomLyricsBtnEl = document.getElementById("randomLyricsBtn");
+      const randomFillAllBtnEl = document.getElementById("randomFillAllBtn");
+      if (randomPromptBtnEl) {
+        randomPromptBtnEl.addEventListener("click", () => {
+          fillRandomPrompt().catch(e => console.error("fillRandomPrompt error:", e));
+        });
+      }
+      if (randomLyricsBtnEl) {
+        randomLyricsBtnEl.addEventListener("click", () => {
+          fillRandomLyrics().catch(e => console.error("fillRandomLyrics error:", e));
+        });
+      }
+      if (randomFillAllBtnEl) {
+        randomFillAllBtnEl.addEventListener("click", () => {
+          fillRandomAll().catch(e => console.error("fillRandomAll error:", e));
+        });
+      }
 
       providerEl.addEventListener("change", () => renderProviderFields());
       advancedEl.addEventListener("change", () => renderProviderFields());

@@ -11,15 +11,9 @@ from pathlib import Path
 from typing import Any
 
 from config import load_settings
-from providers.elevenlabs_stdlib import ElevenLabsMusicProviderStdlib, ElevenLabsStdlibInpaintResult
-from providers.fal_stdlib import FalQueueClientStdlib
 from providers.registry import providers_payload
-from providers.replicate_stdlib import ReplicateClientStdlib
-from providers.stability_stdlib import StabilityAudioClientStdlib
-from providers.suno_stdlib import SunoClientStdlib
 from providers.minimax_stdlib import MiniMaxMusicClientStdlib
-from providers.mureka import MurekaClientStdlib
-from providers.lyria import LyriaClientStdlib
+from providers.acestep_stdlib import ACEStepClientStdlib
 from storage import JobStore
 from admin_config import load_local_config, redacted_config, save_local_config
 
@@ -39,11 +33,6 @@ def _json_response(handler: BaseHTTPRequestHandler, status: int, payload: dict[s
 
 def _error(handler: BaseHTTPRequestHandler, status: int, msg: str) -> None:
     _json_response(handler, status, {"error": msg})
-
-
-def _is_minimax_music_model(version: str) -> bool:
-    """Check if the Replicate model version is a MiniMax music model."""
-    return version.lower().startswith("minimax/music")
 
 
 def _build_prompt(*, base_prompt: str, lyrics: str | None, vocals: bool) -> str:
@@ -69,8 +58,8 @@ def _validate_generate(payload: dict[str, Any]) -> tuple[str, dict[str, Any]]:
             raise ValueError("lyrics too long")
 
     duration_sec = int(payload.get("duration_sec") or 0)
-    if duration_sec < 3 or duration_sec > 300:
-        raise ValueError("duration_sec must be 3..300")
+    if duration_sec < 3 or duration_sec > 600:  # ACE-Step supports up to 600s
+        raise ValueError("duration_sec must be 3..600")
 
     vocals = bool(payload.get("vocals", True))
 
@@ -112,51 +101,21 @@ def _validate_generate(payload: dict[str, Any]) -> tuple[str, dict[str, Any]]:
         "model_id": model_id,
         "provider": provider,
         "provider_params": provider_params,
-        "lyrics": lyrics,  # Pass lyrics to run_job for MiniMax music
+        "lyrics": lyrics,
     }
 
-    # Providers that accept a separate `lyrics` field should not also get lyrics injected into `prompt`.
     state = globals().get("STATE", None)
     default_provider = getattr(getattr(state, "settings", None), "default_provider", None)
-    effective_provider = str(provider or default_provider or "elevenlabs").strip()
-    is_minimax_replicate = (
-        effective_provider == "replicate"
-        and _is_minimax_music_model(str(provider_params.get("version") or ""))
+    effective_provider = str(provider or default_provider or "minimax").strip()
+
+    if not prompt:
+        raise ValueError("prompt is required")
+
+    full_prompt = _build_prompt(
+        base_prompt=prompt,
+        lyrics=lyrics,
+        vocals=vocals,
     )
-    include_lyrics_in_prompt = not (effective_provider == "minimax" or is_minimax_replicate)
-
-    allow_empty_prompt = False
-    if effective_provider == "elevenlabs" and provider_params.get("use_composition_plan") is True:
-        raw_plan = provider_params.get("composition_plan_json")
-        if raw_plan is not None and raw_plan != "":
-            if isinstance(raw_plan, dict):
-                allow_empty_prompt = True
-            elif isinstance(raw_plan, str) and raw_plan.strip():
-                try:
-                    parsed = json.loads(raw_plan)
-                except Exception as e:
-                    raise ValueError(f"composition_plan_json invalid JSON: {e}")
-                if not isinstance(parsed, dict):
-                    raise ValueError("composition_plan_json must be a JSON object")
-                allow_empty_prompt = True
-            else:
-                raise ValueError("composition_plan_json must be JSON object or string")
-
-    if not prompt and not allow_empty_prompt:
-        raise ValueError("prompt is required (or provide composition_plan_json for elevenlabs)")
-
-    raw_prompt = bool(provider_params.get("raw_prompt", False))
-    if raw_prompt:
-        parts = [prompt.strip()]
-        if include_lyrics_in_prompt and lyrics and str(lyrics).strip():
-            parts.append(str(lyrics).strip())
-        full_prompt = "\n\n".join(parts).strip()
-    else:
-        full_prompt = _build_prompt(
-            base_prompt=prompt,
-            lyrics=(lyrics if include_lyrics_in_prompt else None),
-            vocals=vocals,
-        )
     return full_prompt, params
 
 
@@ -171,13 +130,13 @@ def _validate_count(payload: dict[str, Any], *, default: int = 1, max_count: int
     return count
 
 
-def _validate_extend(payload: dict[str, Any], *, max_total_sec: int = 300) -> tuple[str, int]:
+def _validate_extend(payload: dict[str, Any], *, max_total_sec: int = 600) -> tuple[str, int]:
     parent_job_id = str(payload.get("job_id") or "").strip()
     if not parent_job_id:
         raise ValueError("job_id is required")
     extra_sec = int(payload.get("extra_sec") or 0)
-    if extra_sec < 3 or extra_sec > 180:
-        raise ValueError("extra_sec must be 3..180")
+    if extra_sec < 3 or extra_sec > 600:
+        raise ValueError("extra_sec must be 3..600")
     return parent_job_id, extra_sec
 
 
@@ -243,193 +202,15 @@ class AppState:
             self.store.set_status(job_id, status="running")
             self.audio_dir.mkdir(parents=True, exist_ok=True)
 
-            provider_name = str(params.get("provider") or self.settings.default_provider or "elevenlabs").strip()
-            duration_ms = int(params["duration_sec"]) * 1000
+            provider_name = str(params.get("provider") or self.settings.default_provider or "minimax").strip()
             vocals = bool(params["vocals"])
             provider_params = params.get("provider_params") or {}
-            composition_plan = None
-            if provider_params.get("use_composition_plan") is True:
-                raw = provider_params.get("composition_plan_json")
-                if isinstance(raw, dict):
-                    composition_plan = raw
-                elif isinstance(raw, str) and raw.strip():
-                    composition_plan = json.loads(raw)
 
             out_bytes: bytes
             out_ext = "mp3"
             song_id: str | None = None
 
-            if provider_name == "elevenlabs":
-                provider = ElevenLabsMusicProviderStdlib(
-                    api_key=self.settings.elevenlabs_api_key,
-                    base_url=self.settings.elevenlabs_base_url,
-                    timeout_s=self.settings.request_timeout_s,
-                )
-                result = provider.compose(
-                    prompt=(None if composition_plan is not None else prompt),
-                    composition_plan=composition_plan,
-                    music_length_ms=duration_ms,
-                    force_instrumental=(not vocals),
-                    seed=params.get("seed"),
-                    model_id=params.get("model_id"),
-                    output_format=str(params.get("output_format") or self.settings.output_format),
-                )
-                out_bytes = result.audio_bytes
-                out_ext = "mp3"
-                song_id = result.song_id
-            elif provider_name == "fal":
-                client = FalQueueClientStdlib(
-                    key=self.settings.fal_key,
-                    queue_base_url=self.settings.fal_queue_base_url,
-                    timeout_s=self.settings.request_timeout_s,
-                )
-                model_id = str(provider_params.get("model_id") or "fal-ai/stable-audio-25/text-to-audio")
-                seconds_total = provider_params.get("seconds_total")
-                if seconds_total is None:
-                    seconds_total = int(params["duration_sec"])
-                fal_input: dict[str, Any] = {"prompt": prompt, "seconds_total": int(seconds_total)}
-                if provider_params.get("num_inference_steps") is not None:
-                    fal_input["num_inference_steps"] = int(provider_params["num_inference_steps"])
-                if provider_params.get("guidance_scale") is not None:
-                    fal_input["guidance_scale"] = float(provider_params["guidance_scale"])
-                seed = provider_params.get("seed", params.get("seed"))
-                if seed is not None:
-                    fal_input["seed"] = int(seed)
-                request_id = client.submit(model_id=model_id, input_json=fal_input)
-                result_json = client.poll_until_done(
-                    model_id=model_id,
-                    request_id=request_id,
-                    poll_interval_s=float(provider_params.get("poll_interval_s") or 1.0),
-                    max_wait_s=300.0,
-                )
-                audio_url = client.extract_audio_url(result_json)
-                import urllib.request
-
-                with urllib.request.urlopen(audio_url, timeout=self.settings.request_timeout_s) as dl:
-                    out_bytes = dl.read()
-                out_ext = "wav"
-            elif provider_name == "replicate":
-                client = ReplicateClientStdlib(
-                    api_token=self.settings.replicate_api_token,
-                    base_url=self.settings.replicate_base_url,
-                    timeout_s=self.settings.request_timeout_s,
-                )
-                version = str(provider_params.get("version") or "stability-ai/stable-audio-2.5")
-
-                # MiniMax music models have different input parameters
-                is_minimax_music = _is_minimax_music_model(version)
-                if is_minimax_music:
-                    # MiniMax music: prompt, lyrics, style_strength (no duration)
-                    inp: dict[str, Any] = {"prompt": prompt}
-                    # Add lyrics if provided
-                    lyrics = params.get("lyrics") or provider_params.get("lyrics")
-                    if lyrics and str(lyrics).strip():
-                        inp["lyrics"] = str(lyrics).strip()
-                    # Add style_strength if provided (0.0-1.0)
-                    if provider_params.get("style_strength") is not None:
-                        inp["style_strength"] = float(provider_params["style_strength"])
-                    seed = provider_params.get("seed", params.get("seed"))
-                    if seed is not None:
-                        inp["seed"] = int(seed)
-                    out_ext = "mp3"  # MiniMax outputs mp3
-                else:
-                    # Standard Replicate models (Stable Audio, etc.)
-                    duration = provider_params.get("duration")
-                    if duration is None:
-                        duration = int(params["duration_sec"])
-                    inp = {"prompt": prompt, "duration": int(duration)}
-                    seed = provider_params.get("seed", params.get("seed"))
-                    if seed is not None:
-                        inp["seed"] = int(seed)
-                    if provider_params.get("steps") is not None:
-                        inp["steps"] = int(provider_params["steps"])
-                    if provider_params.get("cfg_scale") is not None:
-                        inp["cfg_scale"] = float(provider_params["cfg_scale"])
-                    out_ext = "wav"
-
-                pid = client.create_prediction(version=version, input_json=inp)
-                pred = client.poll_until_done(
-                    prediction_id=pid,
-                    poll_interval_s=float(provider_params.get("poll_interval_s") or 1.0),
-                    max_wait_s=300.0,
-                )
-                audio_url = client.extract_audio_url(pred)
-                import urllib.request
-
-                with urllib.request.urlopen(audio_url, timeout=self.settings.request_timeout_s) as dl:
-                    out_bytes = dl.read()
-            elif provider_name == "stability":
-                client = StabilityAudioClientStdlib(
-                    api_key=self.settings.stability_api_key,
-                    base_url=self.settings.stability_base_url,
-                    timeout_s=self.settings.request_timeout_s,
-                )
-                endpoint_path = str(provider_params.get("endpoint_path") or "/v2beta/audio/stable-audio-2/text-to-audio")
-                seconds_total = provider_params.get("seconds_total")
-                if seconds_total is None:
-                    seconds_total = int(params["duration_sec"])
-                seed = provider_params.get("seed", params.get("seed"))
-                steps = provider_params.get("steps")
-                cfg_scale = provider_params.get("cfg_scale")
-                output_format = provider_params.get("output_format")
-                res = client.text_to_audio(
-                    endpoint_path=endpoint_path,
-                    prompt=prompt,
-                    seconds_total=int(seconds_total) if seconds_total is not None else None,
-                    seed=int(seed) if seed is not None else None,
-                    steps=int(steps) if steps is not None else None,
-                    cfg_scale=float(cfg_scale) if cfg_scale is not None else None,
-                    output_format=str(output_format) if output_format else None,
-                )
-                out_bytes = res.audio_bytes
-                out_ext = "wav" if "wav" in (res.content_type or "") else "bin"
-            elif provider_name == "suno":
-                client = SunoClientStdlib(
-                    api_key=self.settings.suno_api_key,
-                    base_url=self.settings.suno_base_url,
-                    timeout_s=self.settings.request_timeout_s,
-                )
-                model = str(provider_params.get("model") or "v4.5")
-                instrumental = bool(provider_params.get("instrumental", False))
-                duration = provider_params.get("duration")
-                if duration is None:
-                    duration = int(params["duration_sec"])
-                generate_path = str(provider_params.get("generate_path") or "/suno/generate")
-                task_path_template = str(provider_params.get("task_path_template") or "/suno/task/{task_id}")
-                max_wait_s = float(provider_params.get("max_wait_s") or 300.0)
-
-                extra: dict[str, Any] = dict(provider_params)
-                for k in (
-                    "model",
-                    "instrumental",
-                    "duration",
-                    "poll_interval_s",
-                    "generate_path",
-                    "task_path_template",
-                    "max_wait_s",
-                ):
-                    extra.pop(k, None)
-                task_id = client.create_generation(
-                    prompt=prompt,
-                    duration_sec=int(duration),
-                    model=model,
-                    instrumental=instrumental,
-                    generate_path=generate_path,
-                    **extra,
-                )
-                result_json = client.poll_until_done(
-                    task_id=task_id,
-                    poll_interval_s=float(provider_params.get("poll_interval_s") or 2.0),
-                    max_wait_s=max_wait_s,
-                    task_path_template=task_path_template,
-                )
-                audio_url = client.extract_audio_url(result_json)
-                import urllib.request
-
-                with urllib.request.urlopen(audio_url, timeout=self.settings.request_timeout_s) as dl:
-                    out_bytes = dl.read()
-                out_ext = "mp3"
-            elif provider_name == "minimax":
+            if provider_name == "minimax":
                 # MiniMax official API (music-2.6)
                 client = MiniMaxMusicClientStdlib(
                     api_key=self.settings.minimax_api_key,
@@ -477,53 +258,30 @@ class AppState:
                         raise RuntimeError("MiniMax response missing audio_url")
                     out_bytes = client.download_audio(result.audio_url)
                 out_ext = audio_format
-            elif provider_name == "mureka":
-                # Mureka AI (昆仑万维) Music API
-                client = MurekaClientStdlib(
-                    api_key=self.settings.mureka_api_key,
-                    base_url=self.settings.mureka_base_url,
+            elif provider_name == "acestep":
+                # ACE-Step 1.5 via acemusic.ai (OpenAI-compatible API)
+                client = ACEStepClientStdlib(
+                    api_key=self.settings.acestep_api_key,
+                    base_url=self.settings.acestep_base_url,
                     timeout_s=self.settings.request_timeout_s,
                 )
-                model = str(provider_params.get("model") or "auto")
-                mureka_prompt = provider_params.get("prompt")  # Optional style description
+                model = str(provider_params.get("model") or "acemusic/acestep-v1.5-turbo")
                 lyrics = params.get("lyrics") or provider_params.get("lyrics")
-                poll_interval = float(provider_params.get("poll_interval_s", 2.0))
-                max_wait = float(provider_params.get("max_wait_s", 300.0))
-
-                result = client.generate_song(
-                    lyrics=lyrics or "",
-                    prompt=mureka_prompt,
-                    model=model,
-                    poll_interval_s=poll_interval,
-                    max_wait_s=max_wait,
-                )
-                out_bytes = client.download_audio(result.audio_url)
-                out_ext = "mp3"
-            elif provider_name == "lyria":
-                # Google Lyria 3 via Gemini API
-                client = LyriaClientStdlib(
-                    api_key=self.settings.google_api_key,
-                    base_url=self.settings.google_base_url,
-                    timeout_s=self.settings.request_timeout_s,
-                )
-                model = str(provider_params.get("model") or "lyria-3-clip-preview")
-                lyrics = params.get("lyrics") or provider_params.get("lyrics")
-                seed = provider_params.get("seed", params.get("seed"))
+                audio_duration = provider_params.get("audio_duration")
+                if audio_duration is None:
+                    audio_duration = float(params["duration_sec"])
+                audio_format = str(provider_params.get("audio_format") or "mp3")
 
                 result = client.generate(
                     prompt=prompt,
+                    lyrics=str(lyrics).strip() if lyrics else None,
                     model=model,
-                    lyrics=lyrics,
-                    seed=int(seed) if seed is not None else None,
+                    audio_duration=audio_duration,
+                    audio_format=audio_format,
                 )
 
-                if result.audio_bytes:
-                    out_bytes = result.audio_bytes
-                elif result.audio_url:
-                    out_bytes = client.download_audio(result.audio_url)
-                else:
-                    raise RuntimeError("Lyria result missing audio data")
-                out_ext = "mp3"
+                out_bytes = result.audio_bytes
+                out_ext = audio_format
             else:
                 raise RuntimeError(f"unknown provider: {provider_name}")
 
@@ -531,69 +289,6 @@ class AppState:
             out_path.write_bytes(out_bytes)
 
             self.store.set_status(job_id, status="succeeded", output_path=str(out_path), song_id=song_id)
-        except Exception as e:
-            self.store.set_status(job_id, status="failed", error=str(e))
-
-    def run_job_store(self, *, job_id: str, prompt: str, params: dict[str, Any]) -> None:
-        """Run a generate job with store_for_inpainting=True."""
-        try:
-            self.store.set_status(job_id, status="running")
-            self.audio_dir.mkdir(parents=True, exist_ok=True)
-
-            duration_ms = int(params["duration_sec"]) * 1000
-            vocals = bool(params["vocals"])
-            provider_params = params.get("provider_params") or {}
-            store_for_inpainting = bool(params.get("store_for_inpainting", False))
-
-            composition_plan = None
-            if provider_params.get("use_composition_plan") is True:
-                raw = provider_params.get("composition_plan_json")
-                if isinstance(raw, dict):
-                    composition_plan = raw
-                elif isinstance(raw, str) and raw.strip():
-                    composition_plan = json.loads(raw)
-
-            provider = ElevenLabsMusicProviderStdlib(
-                api_key=self.settings.elevenlabs_api_key,
-                base_url=self.settings.elevenlabs_base_url,
-                timeout_s=self.settings.request_timeout_s,
-            )
-            result = provider.compose_detailed(
-                prompt=(None if composition_plan is not None else prompt),
-                composition_plan=composition_plan,
-                music_length_ms=duration_ms,
-                force_instrumental=(not vocals),
-                seed=params.get("seed"),
-                model_id=params.get("model_id"),
-                output_format=str(params.get("output_format") or self.settings.output_format),
-                store_for_inpainting=store_for_inpainting,
-            )
-
-            out_path = self.audio_dir / f"{job_id}.mp3"
-            out_path.write_bytes(result.audio_bytes)
-            self.store.set_status(job_id, status="succeeded", output_path=str(out_path), song_id=result.song_id)
-        except Exception as e:
-            self.store.set_status(job_id, status="failed", error=str(e))
-
-    def run_inpaint(self, *, job_id: str, composition_plan: dict[str, Any], output_format: str) -> None:
-        """Run an inpaint job."""
-        try:
-            self.store.set_status(job_id, status="running")
-            self.audio_dir.mkdir(parents=True, exist_ok=True)
-
-            provider = ElevenLabsMusicProviderStdlib(
-                api_key=self.settings.elevenlabs_api_key,
-                base_url=self.settings.elevenlabs_base_url,
-                timeout_s=self.settings.request_timeout_s,
-            )
-            result = provider.inpaint(
-                composition_plan=composition_plan,
-                output_format=output_format,
-            )
-
-            out_path = self.audio_dir / f"{job_id}.mp3"
-            out_path.write_bytes(result.audio_bytes)
-            self.store.set_status(job_id, status="succeeded", output_path=str(out_path), song_id=result.song_id)
         except Exception as e:
             self.store.set_status(job_id, status="failed", error=str(e))
 
@@ -812,72 +507,12 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("content-type", ctype)
             self.send_header("content-length", str(len(data)))
             self.end_headers()
-            self.wfile.write(data)
-            return
-
-        # Stems endpoint
-        if self.path.startswith("/api/stems/"):
-            job_id = self.path.split("/api/stems/", 1)[1].strip().split("?", 1)[0]
-            rec = STATE.store.get(job_id)
-            if not rec:
-                _error(self, 404, "job not found")
-                return
-            if rec.status != "succeeded":
-                _error(self, 409, "job not succeeded")
-                return
-            if rec.provider != "elevenlabs":
-                _error(self, 400, "stems only available for elevenlabs provider")
-                return
-            if not rec.song_id:
-                _error(self, 404, "song_id not available for this job")
-                return
-
             try:
-                provider = ElevenLabsMusicProviderStdlib(
-                    api_key=STATE.settings.elevenlabs_api_key,
-                    base_url=STATE.settings.elevenlabs_base_url,
-                    timeout_s=STATE.settings.request_timeout_s,
-                )
-                stems = provider.get_stems(song_id=rec.song_id)
-            except Exception as e:
-                _error(self, 500, f"stems separation failed: {e}")
+                self.wfile.write(data)
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+                # Client closed the connection (e.g. user navigated away / refresh / download cancelled).
+                # Don't crash the request thread with noisy tracebacks.
                 return
-
-            vocals_url = None
-            instrumental_url = None
-
-            if stems.vocals_bytes:
-                vocals_path = STATE.audio_dir / f"{job_id}_vocals.mp3"
-                vocals_path.write_bytes(stems.vocals_bytes)
-                vocals_url = f"/api/audio/{job_id}_vocals"
-
-            if stems.instrumental_bytes:
-                instrumental_path = STATE.audio_dir / f"{job_id}_instrumental.mp3"
-                instrumental_path.write_bytes(stems.instrumental_bytes)
-                instrumental_url = f"/api/audio/{job_id}_instrumental"
-
-            _json_response(self, 200, {
-                "job_id": job_id,
-                "vocals_url": vocals_url,
-                "instrumental_url": instrumental_url,
-            })
-            return
-
-        # Stems audio files
-        if self.path.startswith("/api/audio/") and ("_vocals" in self.path or "_instrumental" in self.path):
-            job_id = self.path.split("/api/audio/", 1)[1].strip().split("?", 1)[0]
-            if job_id.endswith(".mp3"):
-                job_id = job_id.rsplit(".", 1)[0]
-            path = STATE.audio_dir / f"{job_id}.mp3"
-            if not path.exists():
-                self.send_error(404)
-                return
-            data = path.read_bytes()
-            self.send_response(HTTPStatus.OK)
-            self.send_header("content-type", "audio/mpeg")
-            self.send_header("content-length", str(len(data)))
-            self.end_headers()
-            self.wfile.write(data)
             return
 
         self.send_error(404)
@@ -900,19 +535,12 @@ class Handler(BaseHTTPRequestHandler):
             provider_name = STATE.settings.default_provider
             if isinstance(payload, dict) and payload.get("provider") and str(payload.get("provider")).strip():
                 provider_name = str(payload.get("provider")).strip()
-            if provider_name not in ("elevenlabs", "fal", "replicate", "stability", "suno", "minimax", "mureka", "lyria"):
+            if provider_name not in ("minimax", "acestep"):
                 _error(self, 400, f"unknown provider: {provider_name}")
                 return
 
             provider_params = params.get("provider_params") or {}
             output_format = str(provider_params.get("output_format") or STATE.settings.output_format)
-            # force vocals off for non-elevenlabs/suno/minimax/mureka/lyria providers, unless MiniMax music via Replicate
-            is_minimax_replicate = (
-                provider_name == "replicate"
-                and _is_minimax_music_model(str(provider_params.get("version") or ""))
-            )
-            if provider_name not in ("elevenlabs", "suno", "minimax", "mureka", "lyria") and not is_minimax_replicate:
-                params["vocals"] = False
             params = {**params, "output_format": output_format, "provider": provider_name}
 
             job_ids: list[str] = []
@@ -946,19 +574,12 @@ class Handler(BaseHTTPRequestHandler):
             provider_name = STATE.settings.default_provider
             if isinstance(payload, dict) and payload.get("provider") and str(payload.get("provider")).strip():
                 provider_name = str(payload.get("provider")).strip()
-            if provider_name not in ("elevenlabs", "fal", "replicate", "stability", "suno", "minimax", "mureka", "lyria"):
+            if provider_name not in ("minimax", "acestep"):
                 _error(self, 400, f"unknown provider: {provider_name}")
                 return
 
             provider_params = params.get("provider_params") or {}
             output_format = str(provider_params.get("output_format") or STATE.settings.output_format)
-            # force vocals off for non-elevenlabs/suno/minimax/mureka/lyria providers, unless MiniMax music via Replicate
-            is_minimax_replicate = (
-                provider_name == "replicate"
-                and _is_minimax_music_model(str(provider_params.get("version") or ""))
-            )
-            if provider_name not in ("elevenlabs", "suno", "minimax", "mureka", "lyria") and not is_minimax_replicate:
-                params["vocals"] = False
             params = {**params, "output_format": output_format, "provider": provider_name}
             job_id = STATE.store.create_job(provider=provider_name, prompt=prompt, params=params, kind="generate")
 
@@ -1000,18 +621,14 @@ class Handler(BaseHTTPRequestHandler):
 
             duration_sec = int(parent_params.get("duration_sec") or 0)
             new_duration = duration_sec + extra_sec
-            if new_duration > 300:
-                _error(self, 400, "total duration exceeds 300 seconds")
+            if new_duration > 600:
+                _error(self, 400, "total duration exceeds 600 seconds")
                 return
 
-            # NOTE: ElevenLabs Music API doesn't expose a true "extend" continuation endpoint
-            # in our current integration. We implement extend by re-composing a longer version
-            # with the same prompt/params (best-effort continuity).
             provider_name = parent.provider
             new_params = dict(parent_params)
             new_params["duration_sec"] = new_duration
 
-            # Optional override
             if isinstance(payload, dict) and payload.get("provider") and str(payload.get("provider")).strip():
                 new_params["provider"] = str(payload.get("provider")).strip()
             if isinstance(payload, dict) and isinstance(payload.get("provider_params"), dict):
@@ -1021,7 +638,7 @@ class Handler(BaseHTTPRequestHandler):
                     or new_params.get("output_format")
                     or STATE.settings.output_format
                 )
-            if str(new_params.get("provider") or provider_name) not in ("elevenlabs", "fal", "replicate", "stability", "suno"):
+            if str(new_params.get("provider") or provider_name) not in ("minimax", "acestep"):
                 _error(self, 400, f"unknown provider: {new_params.get('provider')}")
                 return
 
@@ -1041,96 +658,6 @@ class Handler(BaseHTTPRequestHandler):
             t.start()
 
             _json_response(self, 200, {"job_id": job_id, "parent_job_id": parent_job_id})
-            return
-
-        if self.path == "/api/generate_store":
-            try:
-                length = int(self.headers.get("content-length") or "0")
-                raw = self.rfile.read(length)
-                payload = json.loads(raw.decode("utf-8"))
-                prompt, params = _validate_generate(payload)
-            except ValueError as e:
-                _error(self, 400, str(e))
-                return
-            except Exception:
-                _error(self, 400, "invalid JSON")
-                return
-
-            store_for_inpainting = bool(payload.get("store_for_inpainting", False))
-            provider_name = "elevenlabs"  # Only elevenlabs supports this
-            if payload.get("provider") and str(payload.get("provider")).strip() != "elevenlabs":
-                _error(self, 400, "store_for_inpainting only available for elevenlabs provider")
-                return
-
-            provider_params = params.get("provider_params") or {}
-            output_format = str(provider_params.get("output_format") or STATE.settings.output_format)
-            params = {**params, "output_format": output_format, "provider": provider_name, "store_for_inpainting": store_for_inpainting}
-            job_id = STATE.store.create_job(provider=provider_name, prompt=prompt, params=params, kind="generate_store")
-
-            t = threading.Thread(
-                target=STATE.run_job_store,
-                kwargs={"job_id": job_id, "prompt": prompt, "params": params},
-                daemon=True,
-            )
-            t.start()
-
-            _json_response(self, 200, {"job_id": job_id})
-            return
-
-        if self.path == "/api/inpaint":
-            try:
-                length = int(self.headers.get("content-length") or "0")
-                raw = self.rfile.read(length)
-                payload = json.loads(raw.decode("utf-8"))
-
-                source_job_id = str(payload.get("source_job_id") or "").strip()
-                if not source_job_id:
-                    raise ValueError("source_job_id is required")
-
-                composition_plan = payload.get("composition_plan")
-                if not isinstance(composition_plan, dict):
-                    raise ValueError("composition_plan must be an object")
-
-                output_format = str(payload.get("output_format") or STATE.settings.output_format)
-            except ValueError as e:
-                _error(self, 400, str(e))
-                return
-            except Exception:
-                _error(self, 400, "invalid JSON")
-                return
-
-            source_job = STATE.store.get(source_job_id)
-            if not source_job:
-                _error(self, 404, "source job not found")
-                return
-            if source_job.status != "succeeded":
-                _error(self, 409, "source job not succeeded")
-                return
-            if source_job.provider != "elevenlabs":
-                _error(self, 400, "inpainting only available for elevenlabs provider")
-                return
-            if not source_job.song_id:
-                _error(self, 404, "source job has no song_id (not stored for inpainting)")
-                return
-
-            params: dict[str, Any] = {
-                "source_job_id": source_job_id,
-                "source_song_id": source_job.song_id,
-                "composition_plan": composition_plan,
-                "output_format": output_format,
-                "provider": "elevenlabs",
-            }
-            prompt = f"Inpaint: {source_job.prompt[:100]}..."
-            job_id = STATE.store.create_job(provider="elevenlabs", prompt=prompt, params=params, kind="inpaint", parent_job_id=source_job_id)
-
-            t = threading.Thread(
-                target=STATE.run_inpaint,
-                kwargs={"job_id": job_id, "composition_plan": composition_plan, "output_format": output_format},
-                daemon=True,
-            )
-            t.start()
-
-            _json_response(self, 200, {"job_id": job_id, "source_job_id": source_job_id, "source_song_id": source_job.song_id})
             return
 
         if self.path == "/api/admin/config":
@@ -1163,7 +690,6 @@ class Handler(BaseHTTPRequestHandler):
                     cfg["admin_token"] = current.get("admin_token", "")
 
                 save_local_config(cfg)
-                # Reload settings in-place
                 STATE.reload()
                 _json_response(self, 200, {"ok": True})
             except Exception as e:
@@ -1209,7 +735,6 @@ class Handler(BaseHTTPRequestHandler):
         _error(self, 404, "not found")
 
     def log_message(self, format: str, *args) -> None:
-        # Keep console noise low for local usage.
         return
 
 
@@ -1234,7 +759,6 @@ def _run_admin_tests() -> list[dict[str, Any]]:
 
     import urllib.request
     import urllib.error
-    import time
 
     def _is_auth_error(status: int) -> bool:
         return status in (401, 403)
@@ -1248,7 +772,16 @@ def _run_admin_tests() -> list[dict[str, Any]]:
         timeout_s: float = 10.0,
     ) -> dict[str, Any]:
         started = time.monotonic()
-        req = urllib.request.Request(url, headers=headers, method="GET")
+        merged_headers = {
+            "Accept": "application/json",
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/124.0.0.0 Safari/537.36"
+            ),
+        }
+        merged_headers.update(headers)
+        req = urllib.request.Request(url, headers=merged_headers, method="GET")
         try:
             with urllib.request.urlopen(req, timeout=timeout_s) as resp:
                 status = int(getattr(resp, "status", 200))
@@ -1311,81 +844,21 @@ def _run_admin_tests() -> list[dict[str, Any]]:
             continue
         attempts: list[dict[str, Any]] = []
         try:
-            if pid == "elevenlabs":
+            if pid == "minimax":
                 attempts.append(
                     attempt_get(
-                        name="user",
-                        url=f"{STATE.settings.elevenlabs_base_url}/v1/user",
-                        headers={"xi-api-key": STATE.settings.elevenlabs_api_key},
+                        name="health",
+                        url=f"{STATE.settings.minimax_base_url}/v1/music_generation",
+                        headers={"Authorization": f"Bearer {STATE.settings.minimax_api_key}"},
+                        ok_if_status=lambda s: s in (401, 403, 405, 400),
                     )
                 )
-                if not attempts[-1]["ok"]:
-                    attempts.append(
-                        attempt_get(
-                            name="models",
-                            url=f"{STATE.settings.elevenlabs_base_url}/v1/models",
-                            headers={"xi-api-key": STATE.settings.elevenlabs_api_key},
-                        )
-                    )
-            elif pid == "replicate":
+            elif pid == "acestep":
                 attempts.append(
                     attempt_get(
-                        name="account_bearer",
-                        url=f"{STATE.settings.replicate_base_url}/v1/account",
-                        headers={"Authorization": f"Bearer {STATE.settings.replicate_api_token}"},
-                    )
-                )
-                if not attempts[-1]["ok"] and attempts[-1].get("http_status") in (401, 403):
-                    attempts.append(
-                        attempt_get(
-                            name="account_token",
-                            url=f"{STATE.settings.replicate_base_url}/v1/account",
-                            headers={"Authorization": f"Token {STATE.settings.replicate_api_token}"},
-                        )
-                    )
-            elif pid == "stability":
-                attempts.append(
-                    attempt_get(
-                        name="user_account",
-                        url=f"{STATE.settings.stability_base_url}/v1/user/account",
-                        headers={"Authorization": f"Bearer {STATE.settings.stability_api_key}"},
-                    )
-                )
-                if not attempts[-1]["ok"]:
-                    attempts.append(
-                        attempt_get(
-                            name="user_balance",
-                            url=f"{STATE.settings.stability_base_url}/v1/user/balance",
-                            headers={"Authorization": f"Bearer {STATE.settings.stability_api_key}"},
-                        )
-                    )
-            elif pid == "fal":
-                attempts.append(
-                    attempt_get(
-                        name="platform_models",
-                        url=f"{STATE.settings.fal_platform_base_url}/v1/models?limit=1",
-                        headers={"Authorization": f"Key {STATE.settings.fal_key}"},
-                    )
-                )
-                model_id = (
-                    (STATE.settings.provider_ui_defaults or {}).get("fal", {}).get("model_id")
-                    or "fal-ai/stable-audio-25/text-to-audio"
-                )
-                dummy_request_id = "00000000-0000-0000-0000-000000000000"
-                attempts.append(
-                    attempt_get(
-                        name="queue_dummy_status",
-                        url=f"{STATE.settings.fal_queue_base_url}/{model_id}/requests/{dummy_request_id}/status",
-                        headers={"Authorization": f"Key {STATE.settings.fal_key}"},
-                        ok_if_status=lambda s: (400 <= s < 500 and not _is_auth_error(s)) or (200 <= s < 300),
-                    )
-                )
-            elif pid == "suno":
-                attempts.append(
-                    attempt_get(
-                        name="suno_health",
-                        url=f"{STATE.settings.suno_base_url}/health",
-                        headers={"Authorization": f"Bearer {STATE.settings.suno_api_key}"},
+                        name="health",
+                        url=f"{STATE.settings.acestep_base_url}/v1/models",
+                        headers={"Authorization": f"Bearer {STATE.settings.acestep_api_key}"},
                     )
                 )
             else:

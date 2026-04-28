@@ -10,24 +10,11 @@ from urllib.parse import urlsplit
 
 @dataclass(frozen=True)
 class Settings:
-    elevenlabs_api_key: str
-    elevenlabs_base_url: str
     default_provider: str
-    fal_key: str
-    fal_queue_base_url: str
-    fal_platform_base_url: str
-    replicate_api_token: str
-    replicate_base_url: str
-    stability_api_key: str
-    stability_base_url: str
-    suno_api_key: str
-    suno_base_url: str
     minimax_api_key: str
     minimax_base_url: str
-    mureka_api_key: str
-    mureka_base_url: str
-    google_api_key: str
-    google_base_url: str
+    acestep_api_key: str
+    acestep_base_url: str
     enabled_providers: list[str] | None
     provider_ui_defaults: dict[str, dict[str, Any]]
     admin_token: str
@@ -40,6 +27,7 @@ class Settings:
 
 
 MINIMAX_BASE_URL_DEFAULT = "https://api.minimaxi.com"
+ACESTEP_BASE_URL_DEFAULT = "https://api.acemusic.ai"
 
 
 def _read_json_if_exists(path: Path) -> dict[str, Any] | None:
@@ -57,23 +45,10 @@ def load_settings() -> Settings:
     # Prefer local (gitignored) config, fall back to none.
     cfg = _read_json_if_exists(config_dir / "providers.local.json") or _read_json_if_exists(config_dir / "providers.json") or {}
 
-    api_key = os.getenv("ELEVENLABS_API_KEY", "").strip()
-    base_url = os.getenv("ELEVENLABS_BASE_URL", "https://api.elevenlabs.io").strip().rstrip("/")
-    fal_key = os.getenv("FAL_KEY", "").strip()
-    fal_queue_base_url = os.getenv("FAL_QUEUE_BASE_URL", "https://queue.fal.run").strip().rstrip("/")
-    fal_platform_base_url = os.getenv("FAL_PLATFORM_BASE_URL", "https://api.fal.ai").strip().rstrip("/")
-    replicate_api_token = os.getenv("REPLICATE_API_TOKEN", "").strip()
-    replicate_base_url = os.getenv("REPLICATE_BASE_URL", "https://api.replicate.com").strip().rstrip("/")
-    stability_api_key = os.getenv("STABILITY_API_KEY", "").strip()
-    stability_base_url = os.getenv("STABILITY_BASE_URL", "https://api.stability.ai").strip().rstrip("/")
-    suno_api_key = os.getenv("SUNO_API_KEY", "").strip()
-    suno_base_url = os.getenv("SUNO_BASE_URL", "https://api.musicapi.ai").strip().rstrip("/")
     minimax_api_key = os.getenv("MINIMAX_API_KEY", "").strip()
     minimax_base_url = os.getenv("MINIMAX_BASE_URL", MINIMAX_BASE_URL_DEFAULT).strip().rstrip("/")
-    mureka_api_key = os.getenv("MUREKA_API_KEY", "").strip()
-    mureka_base_url = os.getenv("MUREKA_BASE_URL", "https://api.mureka.ai").strip().rstrip("/")
-    google_api_key = os.getenv("GOOGLE_API_KEY", "").strip()
-    google_base_url = os.getenv("GOOGLE_BASE_URL", "https://generativelanguage.googleapis.com").strip().rstrip("/")
+    acestep_api_key = os.getenv("ACESTEP_API_KEY", "").strip()
+    acestep_base_url = os.getenv("ACESTEP_BASE_URL", ACESTEP_BASE_URL_DEFAULT).strip().rstrip("/")
     admin_token = os.getenv("AI_MUSIC_ADMIN_TOKEN", "").strip()
 
     data_dir_raw = os.getenv(
@@ -82,10 +57,8 @@ def load_settings() -> Settings:
     )
     data_dir = Path(data_dir_raw).expanduser().resolve()
 
-    # ElevenLabs Music API expects format strings like "mp3_44100_192".
-    # Keep a sane default so the out-of-box ElevenLabs flow works.
     output_format = os.getenv("AI_MUSIC_OUTPUT_FORMAT", "mp3_44100_192").strip()
-    default_provider = os.getenv("AI_MUSIC_PROVIDER_DEFAULT", "elevenlabs").strip() or "elevenlabs"
+    default_provider = os.getenv("AI_MUSIC_PROVIDER_DEFAULT", "minimax").strip() or "minimax"
     timeout_s = float(os.getenv("AI_MUSIC_REQUEST_TIMEOUT_S", "120"))
 
     # Apply JSON config values as defaults (env vars override)
@@ -93,52 +66,20 @@ def load_settings() -> Settings:
         secrets = cfg.get("secrets") if isinstance(cfg.get("secrets"), dict) else {}
         endpoints = cfg.get("endpoints") if isinstance(cfg.get("endpoints"), dict) else {}
         proxy = cfg.get("proxy") if isinstance(cfg.get("proxy"), dict) else {}
-        if not api_key:
-            api_key = str(secrets.get("elevenlabs_api_key") or "").strip()
-        if base_url == "https://api.elevenlabs.io":
-            base_url = str(endpoints.get("elevenlabs_base_url") or base_url).strip().rstrip("/")
-
-        if not fal_key:
-            fal_key = str(secrets.get("fal_key") or "").strip()
-        if fal_queue_base_url == "https://queue.fal.run":
-            fal_queue_base_url = str(endpoints.get("fal_queue_base_url") or fal_queue_base_url).strip().rstrip("/")
-        if fal_platform_base_url == "https://api.fal.ai":
-            fal_platform_base_url = str(endpoints.get("fal_platform_base_url") or fal_platform_base_url).strip().rstrip("/")
-
-        if not replicate_api_token:
-            replicate_api_token = str(secrets.get("replicate_api_token") or "").strip()
-        if replicate_base_url == "https://api.replicate.com":
-            replicate_base_url = str(endpoints.get("replicate_base_url") or replicate_base_url).strip().rstrip("/")
-
-        if not stability_api_key:
-            stability_api_key = str(secrets.get("stability_api_key") or "").strip()
-        if stability_base_url == "https://api.stability.ai":
-            stability_base_url = str(endpoints.get("stability_base_url") or stability_base_url).strip().rstrip("/")
-
-        if not suno_api_key:
-            suno_api_key = str(secrets.get("suno_api_key") or "").strip()
-        if suno_base_url == "https://api.musicapi.ai":
-            suno_base_url = str(endpoints.get("suno_base_url") or suno_base_url).strip().rstrip("/")
 
         if not minimax_api_key:
             minimax_api_key = str(secrets.get("minimax_api_key") or "").strip()
         if minimax_base_url == MINIMAX_BASE_URL_DEFAULT:
             minimax_base_url = str(endpoints.get("minimax_base_url") or minimax_base_url).strip().rstrip("/")
 
-        if not mureka_api_key:
-            mureka_api_key = str(secrets.get("mureka_api_key") or "").strip()
-        if mureka_base_url == "https://api.mureka.ai":
-            mureka_base_url = str(endpoints.get("mureka_base_url") or mureka_base_url).strip().rstrip("/")
+        if not acestep_api_key:
+            acestep_api_key = str(secrets.get("acestep_api_key") or "").strip()
+        if acestep_base_url == ACESTEP_BASE_URL_DEFAULT:
+            acestep_base_url = str(endpoints.get("acestep_base_url") or acestep_base_url).strip().rstrip("/")
 
-        if not google_api_key:
-            google_api_key = str(secrets.get("google_api_key") or "").strip()
-        if google_base_url == "https://generativelanguage.googleapis.com":
-            google_base_url = str(endpoints.get("google_base_url") or google_base_url).strip().rstrip("/")
-
-        if default_provider == "elevenlabs":
-            dp = cfg.get("default_provider")
-            if isinstance(dp, str) and dp.strip():
-                default_provider = dp.strip()
+        dp = cfg.get("default_provider")
+        if isinstance(dp, str) and dp.strip():
+            default_provider = dp.strip()
         if not admin_token:
             at = cfg.get("admin_token")
             if isinstance(at, str) and at.strip():
@@ -175,7 +116,6 @@ def load_settings() -> Settings:
     proxy_no = (os.getenv("NO_PROXY") or os.getenv("no_proxy") or "").strip()
 
     # MiniMax base_url should be a domain root; the client will append `/v1/music_generation`.
-    # A common mistake is to set MINIMAX_BASE_URL=".../v1", which results in "/v1/v1/music_generation".
     try:
         minimax_path = urlsplit(minimax_base_url).path or ""
     except Exception:
@@ -187,25 +127,38 @@ def load_settings() -> Settings:
             "Use 'https://api.minimaxi.com' (CN) or 'https://api.minimax.io' (INTL)."
         )
 
+    # ACE-Step base_url should point to the API origin, not the marketing website.
+    # The API is OpenAI-compatible and lives under https://api.acemusic.ai/v1/...
+    try:
+        acestep_split = urlsplit(acestep_base_url)
+        acestep_host = (acestep_split.netloc or "").lower()
+        acestep_path = acestep_split.path or ""
+    except Exception:
+        acestep_host = ""
+        acestep_path = ""
+
+    if acestep_host in ("acemusic.ai", "www.acemusic.ai"):
+        if (acestep_path or "").strip("/"):
+            raise RuntimeError(
+                f"Invalid ACESTEP_BASE_URL={acestep_base_url!r}: expected the API origin only. "
+                "Use 'https://api.acemusic.ai'."
+            )
+        acestep_base_url = "https://api.acemusic.ai"
+        acestep_path = ""
+
+    acestep_path_parts = [p for p in (acestep_path or "").split("/") if p]
+    if any(p.lower() == "v1" for p in acestep_path_parts):
+        raise RuntimeError(
+            f"Invalid ACESTEP_BASE_URL={acestep_base_url!r}: base_url must not include '/v1'. "
+            "Use 'https://api.acemusic.ai'."
+        )
+
     return Settings(
-        elevenlabs_api_key=api_key,
-        elevenlabs_base_url=base_url,
         default_provider=default_provider,
-        fal_key=fal_key,
-        fal_queue_base_url=fal_queue_base_url,
-        fal_platform_base_url=fal_platform_base_url,
-        replicate_api_token=replicate_api_token,
-        replicate_base_url=replicate_base_url,
-        stability_api_key=stability_api_key,
-        stability_base_url=stability_base_url,
-        suno_api_key=suno_api_key,
-        suno_base_url=suno_base_url,
         minimax_api_key=minimax_api_key,
         minimax_base_url=minimax_base_url,
-        mureka_api_key=mureka_api_key,
-        mureka_base_url=mureka_base_url,
-        google_api_key=google_api_key,
-        google_base_url=google_base_url,
+        acestep_api_key=acestep_api_key,
+        acestep_base_url=acestep_base_url,
         enabled_providers=enabled_providers,
         provider_ui_defaults=provider_ui_defaults,
         admin_token=admin_token,
