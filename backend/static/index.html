@@ -3040,8 +3040,8 @@
         const randomLyricsBtn = document.getElementById("randomLyricsBtn");
         const randomFillAllBtn = document.getElementById("randomFillAllBtn");
 
-        // Show random buttons for ACE-Step provider
-        const showRandomButtons = providerId === "acestep";
+        // Show random buttons for all providers
+        const showRandomButtons = true;
 
         if (randomPromptBtn) randomPromptBtn.style.display = showRandomButtons ? "inline-flex" : "none";
         if (randomLyricsBtn) randomLyricsBtn.style.display = showRandomButtons ? "inline-flex" : "none";
