@@ -2481,71 +2481,118 @@
         setStatus("已恢复参数（来自生成记录）", "ok");
       }
 
-      function renderList(jobs) {
-        listEl.innerHTML = "";
-        if (!jobs || jobs.length === 0) return;
+      function renderList(jobs, opts) {
+        const incremental = opts && opts.incremental;
+        if (!jobs || jobs.length === 0) {
+          if (!incremental) listEl.innerHTML = "";
+          return;
+        }
 
+        // Incremental update: only add new rows and update existing ones in-place
+        if (incremental) {
+          const existingIds = new Set();
+          for (const child of listEl.children) {
+            if (child.dataset && child.dataset.jobId) existingIds.add(child.dataset.jobId);
+          }
+          // Add new rows that don't exist yet
+          for (const base of jobs) {
+            const j = (base && base.job_id && liveJobsById.has(base.job_id)) ? liveJobsById.get(base.job_id) : base;
+            if (!j || !j.job_id || existingIds.has(j.job_id)) {
+              // Update status in-place for existing rows
+              if (j && j.job_id) {
+                const existingRow = listEl.querySelector(`[data-job-id="${j.job_id}"]`);
+                if (existingRow) {
+                  const statusEl = existingRow.querySelector(".job-status");
+                  if (statusEl) statusEl.textContent = j.status;
+                  if (statusEl) statusEl.className = `job-status ${j.status}`;
+                  // Add audio player if job just succeeded and has audio_url
+                  if (j.audio_url && !existingRow.querySelector("audio")) {
+                    const a = document.createElement("audio");
+                    a.controls = true;
+                    a.src = j.audio_url;
+                    existingRow.appendChild(a);
+                  }
+                }
+              }
+              continue;
+            }
+            // Build new row and append
+            const row = _buildJobRow(j);
+            if (row) listEl.insertBefore(row, listEl.firstChild);
+          }
+          return;
+        }
+
+        // Full rebuild
+        listEl.innerHTML = "";
         for (const base of jobs) {
           const j = (base && base.job_id && liveJobsById.has(base.job_id)) ? liveJobsById.get(base.job_id) : base;
-          const row = document.createElement("div");
-          row.className = "job-item";
-
-          const header = document.createElement("div");
-          header.className = "job-header";
-          const left = document.createElement("div");
-          left.style.display = "flex";
-          left.style.gap = "8px";
-          left.style.alignItems = "center";
-          left.innerHTML = `<span class="mono" style="font-size: 12px;">${j.job_id}</span><span class="muted" style="font-size: 12px;">${String(j.provider || "").trim()}</span>`;
-
-          const right = document.createElement("div");
-          right.style.display = "flex";
-          right.style.gap = "8px";
-          right.style.alignItems = "center";
-
-          const restoreBtn = document.createElement("button");
-          restoreBtn.className = "btn btn-outline btn-sm";
-          restoreBtn.textContent = "恢复参数";
-          restoreBtn.addEventListener("click", (e) => {
-            e.stopPropagation();
-            restoreJobParams(j);
-          });
-
-          const status = document.createElement("span");
-          status.className = `job-status ${j.status}`;
-          status.textContent = j.status;
-
-          right.appendChild(restoreBtn);
-          right.appendChild(status);
-
-          header.appendChild(left);
-          header.appendChild(right);
-          row.appendChild(header);
-
-          if (j.audio_url) {
-            const a = document.createElement("audio");
-            a.controls = true;
-            a.src = j.audio_url;
-            row.appendChild(a);
-          }
-
-          row.addEventListener("click", () => {
-            currentJobId = j.job_id;
-            jobIdEl.textContent = currentJobId;
-            setError("");
-            if (j.audio_url) {
-              player.src = j.audio_url;
-              downloadLink.href = j.audio_url;
-              downloadLink.style.display = "inline";
-              extendBtn.style.display = "inline-flex";
-            } else {
-              downloadLink.style.display = "none";
-              extendBtn.style.display = "none";
-            }
-          });
-
-          listEl.appendChild(row);
+          const row = _buildJobRow(j);
+          if (row) listEl.appendChild(row);
         }
+      }
+
+      function _buildJobRow(j) {
+        if (!j || !j.job_id) return null;
+        const row = document.createElement("div");
+        row.className = "job-item";
+        row.dataset.jobId = j.job_id;
+
+        const header = document.createElement("div");
+        header.className = "job-header";
+        const left = document.createElement("div");
+        left.style.display = "flex";
+        left.style.gap = "8px";
+        left.style.alignItems = "center";
+        left.innerHTML = `<span class="mono" style="font-size: 12px;">${j.job_id}</span><span class="muted" style="font-size: 12px;">${String(j.provider || "").trim()}</span>`;
+
+        const right = document.createElement("div");
+        right.style.display = "flex";
+        right.style.gap = "8px";
+        right.style.alignItems = "center";
+
+        const restoreBtn = document.createElement("button");
+        restoreBtn.className = "btn btn-outline btn-sm";
+        restoreBtn.textContent = "恢复参数";
+        restoreBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          restoreJobParams(j);
+        });
+
+        const status = document.createElement("span");
+        status.className = `job-status ${j.status}`;
+        status.textContent = j.status;
+
+        right.appendChild(restoreBtn);
+        right.appendChild(status);
+
+        header.appendChild(left);
+        header.appendChild(right);
+        row.appendChild(header);
+
+        if (j.audio_url) {
+          const a = document.createElement("audio");
+          a.controls = true;
+          a.src = j.audio_url;
+          row.appendChild(a);
+        }
+
+        row.addEventListener("click", () => {
+          currentJobId = j.job_id;
+          jobIdEl.textContent = currentJobId;
+          setError("");
+          if (j.audio_url) {
+            player.src = j.audio_url;
+            downloadLink.href = j.audio_url;
+            downloadLink.style.display = "inline";
+            extendBtn.style.display = "inline-flex";
+          } else {
+            downloadLink.style.display = "none";
+            extendBtn.style.display = "none";
+          }
+        });
+
+        return row;
       }
 
       // ========================================
@@ -2619,7 +2666,7 @@
           for (const j of jobs) {
             if (j && j.job_id) liveJobsById.set(j.job_id, j);
           }
-          renderList((historyJobs && historyJobs.length > 0) ? historyJobs : jobs);
+          renderList((historyJobs && historyJobs.length > 0) ? historyJobs : jobs, { incremental: true });
 
           const current = jobs.find(j => j.job_id === currentJobId) || jobs[0];
           if (current) {
