@@ -293,7 +293,6 @@ class AppState:
                 vocal_language = provider_params.get("vocal_language") or None
                 thinking = bool(provider_params.get("thinking", False))
                 use_format = bool(provider_params.get("use_format", False))
-                batch_size = int(provider_params.get("batch_size", 1) or 1)
 
                 result = client.generate(
                     prompt=prompt,
@@ -307,17 +306,10 @@ class AppState:
                     vocal_language=vocal_language,
                     thinking=thinking,
                     use_format=use_format,
-                    batch_size=batch_size,
                 )
 
                 out_bytes = result.audio_bytes
                 out_ext = audio_format
-
-                # Save batch results as additional files
-                if result.extra_audios:
-                    for i, extra in enumerate(result.extra_audios, start=2):
-                        extra_path = self.audio_dir / f"{job_id}_v{i}.{out_ext}"
-                        extra_path.write_bytes(extra)
             else:
                 raise RuntimeError(f"unknown provider: {provider_name}")
 

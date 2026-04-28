@@ -180,15 +180,6 @@ def get_providers(settings: Settings, *, include_disabled: bool = False) -> list
             help="让 LM 优化描述和歌词结构。",
         ),
         ProviderField(
-            key="batch_size",
-            label="批量数",
-            kind="integer",
-            required=False,
-            advanced=True,
-            default=_def("acestep", "batch_size", 1),
-            help="同时生成多个候选 (1–4)。",
-        ),
-        ProviderField(
             key="request_timeout_s",
             label="请求超时 (秒)",
             kind="integer",
