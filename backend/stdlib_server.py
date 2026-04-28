@@ -273,16 +273,40 @@ class AppState:
                     audio_duration = float(params["duration_sec"])
                 audio_format = str(provider_params.get("audio_format") or "mp3")
 
+                # New music attribute params
+                bpm = provider_params.get("bpm")
+                if bpm is not None:
+                    bpm = int(bpm)
+                key_scale = provider_params.get("key_scale") or None
+                time_signature = provider_params.get("time_signature") or None
+                vocal_language = provider_params.get("vocal_language") or None
+                thinking = bool(provider_params.get("thinking", False))
+                use_format = bool(provider_params.get("use_format", False))
+                batch_size = int(provider_params.get("batch_size", 1) or 1)
+
                 result = client.generate(
                     prompt=prompt,
                     lyrics=str(lyrics).strip() if lyrics else None,
                     model=model,
                     audio_duration=audio_duration,
                     audio_format=audio_format,
+                    bpm=bpm,
+                    key_scale=key_scale,
+                    time_signature=time_signature,
+                    vocal_language=vocal_language,
+                    thinking=thinking,
+                    use_format=use_format,
+                    batch_size=batch_size,
                 )
 
                 out_bytes = result.audio_bytes
                 out_ext = audio_format
+
+                # Save batch results as additional files
+                if result.extra_audios:
+                    for i, extra in enumerate(result.extra_audios, start=2):
+                        extra_path = self.audio_dir / f"{job_id}_v{i}.{out_ext}"
+                        extra_path.write_bytes(extra)
             else:
                 raise RuntimeError(f"unknown provider: {provider_name}")
 

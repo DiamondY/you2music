@@ -30,6 +30,7 @@ class ACEStepResult:
     task_id: str
     audio_url: str | None = None
     metadata: dict[str, Any] | None = None
+    extra_audios: list[bytes] | None = None
 
 
 class ACEStepClient:
@@ -62,6 +63,13 @@ class ACEStepClient:
         model: str = "acemusic/acestep-v1.5-turbo",
         audio_duration: float | None = None,
         audio_format: str = "mp3",
+        bpm: int | None = None,
+        key_scale: str | None = None,
+        time_signature: str | None = None,
+        vocal_language: str | None = None,
+        thinking: bool = False,
+        use_format: bool = False,
+        batch_size: int = 1,
         **kwargs: Any,
     ) -> ACEStepResult:
         """Generate music using ACE-Step 1.5 model (OpenAI-compatible API).
@@ -72,6 +80,13 @@ class ACEStepClient:
             model: 模型名称
             audio_duration: 时长(秒)
             audio_format: 输出格式 (mp3, wav, flac)
+            bpm: 节拍速度 (30-300, None=auto)
+            key_scale: 调性 (e.g. "C Major", "Am")
+            time_signature: 拍号 (e.g. "4/4")
+            vocal_language: 歌词语言 (en, zh, ja, ko, auto)
+            thinking: 使用 5Hz LM 增强质量
+            use_format: 让 LM 优化描述和歌词
+            batch_size: 同时生成多个候选 (1-4)
 
         Returns:
             ACEStepResult with audio_bytes
@@ -105,9 +120,27 @@ class ACEStepClient:
         if audio_format:
             body["audio_format"] = audio_format
 
+        # Music attributes
+        if bpm is not None:
+            body["bpm"] = int(bpm)
+        if key_scale:
+            body["key_scale"] = key_scale
+        if time_signature:
+            body["time_signature"] = time_signature
+        if vocal_language and vocal_language != "auto":
+            body["vocal_language"] = vocal_language
+
+        # Generation control
+        if thinking:
+            body["thinking"] = True
+        if use_format:
+            body["use_format"] = True
+        if batch_size and batch_size > 1:
+            body["batch_size"] = int(batch_size)
+
         # Add any additional parameters
         for k, v in kwargs.items():
-            if v is not None and k not in ("poll_interval_s", "max_wait_s", "inference_steps", "thinking", "batch_size", "seed"):
+            if v is not None and k not in ("poll_interval_s", "max_wait_s", "inference_steps", "seed"):
                 body[k] = v
 
         async with httpx.AsyncClient(timeout=self._timeout, follow_redirects=True) as client:
@@ -126,25 +159,25 @@ class ACEStepClient:
         if not audio_list:
             raise RuntimeError(f"ACE-Step API returned no audio: {data}")
 
-        # Get the base64 audio data
-        audio_url = audio_list[0].get("audio_url", {}).get("url", "")
-        if not audio_url:
-            raise RuntimeError(f"ACE-Step API returned no audio URL: {audio_list[0]}")
-
-        # Parse data URL: data:audio/mpeg;base64,<data>
-        if not audio_url.startswith("data:"):
-            raise RuntimeError(f"ACE-Step returned non-data URL: {audio_url[:50]}...")
-
-        # Extract base64 content
-        try:
-            # Format: data:audio/mpeg;base64,<base64_data>
-            _, data_part = audio_url.split(",", 1)
-            audio_bytes = base64.b64decode(data_part)
-        except Exception as e:
-            raise RuntimeError(f"Failed to decode base64 audio: {e}")
-
         # Generate a pseudo task_id from response
         task_id = data.get("id", "acestep-sync")
+
+        def _decode_audio_item(item: dict) -> bytes:
+            audio_url = item.get("audio_url", {}).get("url", "")
+            if not audio_url:
+                raise RuntimeError(f"ACE-Step API returned no audio URL: {item}")
+            if not audio_url.startswith("data:"):
+                raise RuntimeError(f"ACE-Step returned non-data URL: {audio_url[:50]}...")
+            _, data_part = audio_url.split(",", 1)
+            return base64.b64decode(data_part)
+
+        # Primary audio
+        audio_bytes = _decode_audio_item(audio_list[0])
+
+        # Batch: extract additional audios
+        extra_audios: list[bytes] | None = None
+        if len(audio_list) > 1:
+            extra_audios = [_decode_audio_item(item) for item in audio_list[1:]]
 
         return ACEStepResult(
             audio_bytes=audio_bytes,
@@ -156,6 +189,7 @@ class ACEStepClient:
                 "duration": audio_duration,
                 "format": audio_format,
             },
+            extra_audios=extra_audios,
         )
 
     async def generate_and_wait(
@@ -166,18 +200,29 @@ class ACEStepClient:
         model: str = "acemusic/acestep-v1.5-turbo",
         audio_duration: float | None = None,
         audio_format: str = "mp3",
+        bpm: int | None = None,
+        key_scale: str | None = None,
+        time_signature: str | None = None,
+        vocal_language: str | None = None,
+        thinking: bool = False,
+        use_format: bool = False,
+        batch_size: int = 1,
         **kwargs: Any,
     ) -> ACEStepResult:
-        """Generate music and return result (synchronous API).
-
-        For compatibility with the async interface, this just calls generate().
-        """
+        """Generate music and return result (synchronous API)."""
         return await self.generate(
             prompt=prompt,
             lyrics=lyrics,
             model=model,
             audio_duration=audio_duration,
             audio_format=audio_format,
+            bpm=bpm,
+            key_scale=key_scale,
+            time_signature=time_signature,
+            vocal_language=vocal_language,
+            thinking=thinking,
+            use_format=use_format,
+            batch_size=batch_size,
             **kwargs,
         )
 
