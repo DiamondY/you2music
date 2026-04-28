@@ -245,6 +245,12 @@ class ACEStepClient:
                 "Check that ACESTEP_BASE_URL is set to 'https://api.acemusic.ai' (API domain), "
                 "not 'https://acemusic.ai' (website domain)."
             )
+        if resp.status_code == 504:
+            raise RuntimeError(
+                "ACE-Step API 超时 (HTTP 504 Gateway Timeout)。"
+                "服务器处理时间过长，通常是因为开启了「思考模式」或生成长音频。"
+                "建议：缩短时长、关闭思考模式、或稍后重试。"
+            )
         try:
             data = json.loads(text)
         except Exception:
