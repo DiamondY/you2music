@@ -2251,10 +2251,12 @@
           if (!shouldShowField(field, values)) continue;
           html += `<label>${field.label}<span class="field-badge ${field.required ? "required" : "optional"}">${field.required ? "必填" : "可选"}</span></label>`;
           if (field.kind === "enum" && Array.isArray(field.enum)) {
+            const _enumLabels = { "zh": "中文 (zh)", "en": "English (en)", "ja": "日本語 (ja)", "ko": "한국어 (ko)", "auto": "自动检测" };
             html += `<select data-key="${field.key}">`;
             for (const opt of field.enum) {
               const selected = (String(opt) === String(values[field.key])) ? "selected" : "";
-              html += `<option value="${opt}" ${selected}>${opt}</option>`;
+              const display = (opt === "") ? "自动推断" : (_enumLabels[opt] || opt);
+              html += `<option value="${opt}" ${selected}>${display}</option>`;
             }
             html += `</select>`;
           } else if (field.kind === "boolean") {
