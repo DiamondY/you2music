@@ -2509,6 +2509,7 @@
                   if (j.audio_url && !existingRow.querySelector("audio")) {
                     const a = document.createElement("audio");
                     a.controls = true;
+                    a.preload = "metadata";
                     a.src = j.audio_url;
                     existingRow.appendChild(a);
                   }
@@ -2573,6 +2574,7 @@
         if (j.audio_url) {
           const a = document.createElement("audio");
           a.controls = true;
+          a.preload = "metadata";
           a.src = j.audio_url;
           row.appendChild(a);
         }
@@ -2688,8 +2690,13 @@
 
           if (!anyRunning && pollTimer) { clearInterval(pollTimer); pollTimer = null; }
           if (!anyRunning && updateStatus) {
-            // Refresh history page once the current job(s) settle.
-            loadHistoryPage(historyOffset).catch(() => {});
+            // Delay history refresh slightly to ensure DB has latest status,
+            // then do a full rebuild followed by a final incremental pass.
+            setTimeout(async () => {
+              await loadHistoryPage(0);
+              // Final pass: merge any late-arriving live data into the rebuilt list.
+              renderList(historyJobs || [], { incremental: true });
+            }, 300);
           }
 
           if (current && current.audio_url) {
