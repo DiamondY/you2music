@@ -1301,6 +1301,7 @@
             <div style="display: flex; align-items: center; gap: var(--space-sm);">
               <button id="historyPrevBtn" class="btn btn-secondary btn-sm">上一页</button>
               <button id="historyNextBtn" class="btn btn-secondary btn-sm">下一页</button>
+              <button id="clearAllBtn" class="btn btn-sm" style="color: var(--color-error); border: 1px solid var(--color-error); background: transparent;">清空全部</button>
               <span id="historyInfo" class="status-text" style="margin: 0;"></span>
             </div>
           </div>
@@ -2565,6 +2566,32 @@
         status.textContent = j.status;
 
         right.appendChild(restoreBtn);
+
+        const deleteBtn = document.createElement("button");
+        deleteBtn.className = "btn btn-sm";
+        deleteBtn.style.cssText = "color: var(--color-error); border: 1px solid var(--color-error); background: transparent; padding: 2px 8px; font-size: 12px;";
+        deleteBtn.textContent = "删除";
+        deleteBtn.addEventListener("click", async (e) => {
+          e.stopPropagation();
+          if (!window.confirm(`确定删除记录 ${j.job_id}？`)) return;
+          try {
+            await fetchJson(`/api/jobs/${j.job_id}`, { method: "DELETE" });
+            const rowEl = listEl.querySelector(`[data-job-id="${j.job_id}"]`);
+            if (rowEl) rowEl.remove();
+            // If deleted job was playing, stop player
+            if (currentJobId === j.job_id) {
+              player.removeAttribute("src");
+              player.load();
+              downloadLink.style.display = "none";
+              extendBtn.style.display = "none";
+              currentJobId = null;
+            }
+          } catch (err) {
+            setError(`删除失败：${String(err)}`);
+          }
+        });
+        right.appendChild(deleteBtn);
+
         right.appendChild(status);
 
         header.appendChild(left);
@@ -3125,6 +3152,27 @@
         });
       }
       updateHistoryPagerUi();
+
+      const clearAllBtn = document.getElementById("clearAllBtn");
+      if (clearAllBtn) {
+        clearAllBtn.addEventListener("click", async () => {
+          if (!window.confirm("确定清空所有生成记录？此操作不可恢复。")) return;
+          try {
+            const data = await fetchJson("/api/jobs", { method: "DELETE" });
+            listEl.innerHTML = "";
+            player.removeAttribute("src");
+            player.load();
+            downloadLink.style.display = "none";
+            extendBtn.style.display = "none";
+            currentJobId = null;
+            currentJobs = [];
+            setStatus(`已清空 ${data.deleted || 0} 条记录`, "ok");
+            loadHistoryPage(0).catch(() => {});
+          } catch (err) {
+            setError(`清空失败：${String(err)}`);
+          }
+        });
+      }
 
       _decorateStaticBadges();
       _updatePromptBadge();

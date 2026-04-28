@@ -643,6 +643,28 @@ class Handler(BaseHTTPRequestHandler):
 
         self.send_error(404)
 
+    def do_DELETE(self) -> None:
+        # DELETE /api/jobs  — delete all jobs
+        if self.path == "/api/jobs" or self.path == "/api/jobs/":
+            count = STATE.store.delete_all()
+            _json_response(self, 200, {"deleted": count})
+            return
+
+        # DELETE /api/jobs/{job_id}  — delete single job
+        if self.path.startswith("/api/jobs/"):
+            job_id = self.path.split("/api/jobs/", 1)[1].strip().split("?", 1)[0]
+            if not job_id:
+                _error(self, 400, "missing job_id")
+                return
+            ok = STATE.store.delete(job_id)
+            if not ok:
+                _error(self, 404, "job not found")
+                return
+            _json_response(self, 200, {"deleted": 1})
+            return
+
+        self.send_error(404)
+
     def do_POST(self) -> None:
         if self.path == "/api/generate_many":
             try:

@@ -237,3 +237,22 @@ class JobStore:
             conn.execute("ALTER TABLE jobs ADD COLUMN kind TEXT NOT NULL DEFAULT 'generate'")
         if "song_id" not in cols:
             conn.execute("ALTER TABLE jobs ADD COLUMN song_id TEXT")
+
+    def delete(self, job_id: str) -> bool:
+        """Delete a single job record. Returns True if found and deleted."""
+        with self._lock:
+            with self._connect() as conn:
+                cursor = conn.execute("DELETE FROM jobs WHERE job_id = ?", (job_id,))
+                conn.commit()
+                return cursor.rowcount > 0
+
+    def delete_all(self) -> int:
+        """Delete all job records. Returns count of deleted rows."""
+        with self._lock:
+            with self._connect() as conn:
+                count = int(
+                    conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0] or 0
+                )
+                conn.execute("DELETE FROM jobs")
+                conn.commit()
+        return count
