@@ -637,6 +637,13 @@
         font-size: 13px;
       }
 
+      .provider-desc {
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+      }
+
       /* ========================================
          Required/Optional & Validation
          ======================================== */
@@ -1291,8 +1298,24 @@
         }
       }
 
+      /* ========================================
+         Mobile Touch & Layout Overrides
+         ======================================== */
+      @media (max-width: 640px) {
+        .app-header { padding: var(--space-md) 0; }
+        .theme-toggle { width: 36px; height: 36px; top: var(--space-sm); right: var(--space-sm); }
+        .tag { min-height: 36px; padding: 8px 10px; }
+        .history-toolbar select { min-height: 36px; }
+        .history-toolbar .btn-sm { min-height: 36px; min-width: 36px; }
+        .history-toolbar .btn-danger { min-height: 36px; }
+        .provider-fields .mono { display: none; }
+        .cp-section-move, .cp-section-remove { padding: 8px 12px; min-height: 36px; }
+        .cp-section-header { flex-wrap: wrap; gap: var(--space-sm); }
+        .cp-section-actions { width: 100%; justify-content: flex-end; }
+      }
+
       @media (max-width: 480px) {
-        body { padding: var(--space-sm); }
+        body { padding: 12px; }
         .tag-group {
           grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
           gap: 4px;
@@ -2632,7 +2655,7 @@
           }
         }
 
-        let html = `<div style="font-size: 13px; color: var(--color-text-secondary); margin-bottom: var(--space-sm);">${meta.description || ""}</div>`;
+        let html = `<div class="provider-desc" style="font-size: 13px; color: var(--color-text-secondary); margin-bottom: var(--space-sm);">${meta.description || ""}</div>`;
         if (meta.ready === false) {
           html += `<div class="err">未配置该 provider 的密钥：<span class="mono">${JSON.stringify(meta.missing_env || [])}</span></div>`;
         }
