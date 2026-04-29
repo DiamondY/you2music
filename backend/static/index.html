@@ -2576,8 +2576,6 @@
           if (!window.confirm(`确定删除记录 ${j.job_id}？`)) return;
           try {
             await fetchJson(`/api/jobs/${j.job_id}`, { method: "DELETE" });
-            const rowEl = listEl.querySelector(`[data-job-id="${j.job_id}"]`);
-            if (rowEl) rowEl.remove();
             // If deleted job was playing, stop player
             if (currentJobId === j.job_id) {
               player.removeAttribute("src");
@@ -2586,6 +2584,7 @@
               extendBtn.style.display = "none";
               currentJobId = null;
             }
+            await loadHistoryPage(historyOffset);
           } catch (err) {
             setError(`删除失败：${String(err)}`);
           }
