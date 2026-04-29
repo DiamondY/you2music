@@ -51,6 +51,59 @@
         /* Transitions */
         --transition-fast: 0.15s ease;
         --transition-normal: 0.2s ease;
+
+        /* Audio player */
+        --audio-filter: none;
+      }
+
+      /* ========================================
+         Dark Theme
+         ======================================== */
+      [data-theme="dark"] {
+        --color-bg-primary: #0F0F23;
+        --color-bg-card: #1A1A2E;
+        --color-bg-hover: #252540;
+        --color-primary: #818CF8;
+        --color-primary-dark: #6366F1;
+        --color-secondary: #A78BFA;
+        --color-success: #22C55E;
+        --color-warning: #FBBF24;
+        --color-error: #F87171;
+        --color-text-primary: #F8FAFC;
+        --color-text-secondary: #94A3B8;
+        --color-text-muted: #64748B;
+        --color-border: rgba(255,255,255,0.08);
+        --color-border-hover: rgba(255,255,255,0.15);
+        --shadow-card: 0 1px 3px rgba(0,0,0,0.3);
+        --shadow-card-hover: 0 4px 12px rgba(0,0,0,0.4);
+        --shadow-modal: 0 10px 25px rgba(0,0,0,0.5);
+
+        /* Invert native audio player for dark backgrounds */
+        --audio-filter: invert(0.85) hue-rotate(180deg);
+      }
+
+      /* Respect system preference when no explicit choice */
+      @media (prefers-color-scheme: dark) {
+        :root:not([data-theme]) {
+          --color-bg-primary: #0F0F23;
+          --color-bg-card: #1A1A2E;
+          --color-bg-hover: #252540;
+          --color-primary: #818CF8;
+          --color-primary-dark: #6366F1;
+          --color-secondary: #A78BFA;
+          --color-success: #22C55E;
+          --color-warning: #FBBF24;
+          --color-error: #F87171;
+          --color-text-primary: #F8FAFC;
+          --color-text-secondary: #94A3B8;
+          --color-text-muted: #64748B;
+          --color-border: rgba(255,255,255,0.08);
+          --color-border-hover: rgba(255,255,255,0.15);
+          --shadow-card: 0 1px 3px rgba(0,0,0,0.3);
+          --shadow-card-hover: 0 4px 12px rgba(0,0,0,0.4);
+          --shadow-modal: 0 10px 25px rgba(0,0,0,0.5);
+          --audio-filter: invert(0.85) hue-rotate(180deg);
+        }
       }
 
       /* ========================================
@@ -70,6 +123,14 @@
         background-color: var(--color-bg-primary);
         min-height: 100vh;
         padding: var(--space-lg);
+        transition: background-color 0.3s ease, color 0.3s ease;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after {
+          animation-duration: 0.01ms !important;
+          transition-duration: 0.01ms !important;
+        }
       }
 
       /* ========================================
@@ -119,7 +180,7 @@
         border-radius: var(--radius-lg);
         box-shadow: var(--shadow-card);
         padding: var(--space-lg);
-        transition: box-shadow var(--transition-normal);
+        transition: box-shadow var(--transition-normal), background-color 0.3s ease;
       }
 
       .card:hover {
@@ -935,6 +996,119 @@
 
       .job-item audio {
         margin: var(--space-sm) 0 0;
+        filter: var(--audio-filter);
+        border-radius: var(--radius-md);
+      }
+
+      /* Dark theme specific input/select adjustments */
+      [data-theme="dark"] input,
+      [data-theme="dark"] textarea,
+      [data-theme="dark"] select {
+        background: var(--color-bg-hover);
+        color: var(--color-text-primary);
+        border-color: var(--color-border);
+      }
+
+      [data-theme="dark"] input::placeholder,
+      [data-theme="dark"] textarea::placeholder {
+        color: var(--color-text-muted);
+      }
+
+      [data-theme="dark"] input:focus,
+      [data-theme="dark"] textarea:focus,
+      [data-theme="dark"] select:focus {
+        border-color: var(--color-primary);
+        box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.2);
+      }
+
+      [data-theme="dark"] .tag,
+      [data-theme="dark"] .cp-genre-btn {
+        background: var(--color-bg-hover);
+        color: var(--color-text-secondary);
+        border-color: var(--color-border);
+      }
+
+      [data-theme="dark"] .tag:hover,
+      [data-theme="dark"] .cp-genre-btn:hover {
+        border-color: var(--color-primary);
+        color: var(--color-primary);
+      }
+
+      [data-theme="dark"] .btn-outline {
+        border-color: var(--color-primary);
+        color: var(--color-primary);
+      }
+
+      [data-theme="dark"] .btn-outline:hover {
+        background: rgba(129, 140, 248, 0.15);
+      }
+
+      [data-theme="dark"] .btn-secondary {
+        background: var(--color-bg-hover);
+        color: var(--color-text-primary);
+        border-color: var(--color-border);
+      }
+
+      [data-theme="dark"] .btn-secondary:hover {
+        background: var(--color-border-hover);
+      }
+
+      [data-theme="dark"] .error-message {
+        background: rgba(248, 113, 113, 0.1);
+        border-color: rgba(248, 113, 113, 0.3);
+      }
+
+      [data-theme="dark"] .field-badge {
+        background: var(--color-bg-hover);
+        border-color: var(--color-border);
+      }
+
+      [data-theme="dark"] .field-badge.required {
+        background: rgba(248, 113, 113, 0.1);
+        border-color: rgba(248, 113, 113, 0.3);
+      }
+
+      [data-theme="dark"] .cp-genre-presets {
+        background: var(--color-bg-hover);
+      }
+
+      [data-theme="dark"] .cp-editor {
+        background: var(--color-bg-hover);
+        border-color: var(--color-border);
+      }
+
+      [data-theme="dark"] .provider-fields {
+        background: var(--color-bg-hover);
+      }
+
+      [data-theme="dark"] input[type="range"] {
+        background: var(--color-border);
+      }
+
+      /* Theme toggle button */
+      .theme-toggle {
+        position: absolute;
+        top: var(--space-md);
+        right: var(--space-md);
+        background: var(--color-bg-card);
+        border: 1px solid var(--color-border);
+        border-radius: 50%;
+        width: 36px;
+        height: 36px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        font-size: 18px;
+        transition: all var(--transition-fast);
+        box-shadow: var(--shadow-card);
+        line-height: 1;
+        padding: 0;
+      }
+
+      .theme-toggle:hover {
+        transform: scale(1.1);
+        box-shadow: var(--shadow-card-hover);
       }
 
       /* ========================================
@@ -983,6 +1157,9 @@
   </head>
   <body>
     <div class="app-container">
+      <!-- Theme toggle -->
+      <button class="theme-toggle" id="themeToggle" title="切换主题">&#9790;</button>
+
       <!-- ========================================
            Header
            ======================================== -->
@@ -1312,6 +1489,42 @@
     </div>
 
     <script>
+      // ========================================
+      // Theme Management (must run before paint)
+      // ========================================
+      (function() {
+        const saved = localStorage.getItem("you2music-theme");
+        if (saved) {
+          document.documentElement.dataset.theme = saved;
+        }
+      })();
+
+      function _getCurrentTheme() {
+        const saved = localStorage.getItem("you2music-theme");
+        if (saved) return saved;
+        return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+      }
+
+      function _toggleTheme() {
+        const current = _getCurrentTheme();
+        const next = current === "dark" ? "light" : "dark";
+        if (next === "light") {
+          delete document.documentElement.dataset.theme;
+        } else {
+          document.documentElement.dataset.theme = "dark";
+        }
+        localStorage.setItem("you2music-theme", next);
+        _updateThemeToggleIcon();
+      }
+
+      function _updateThemeToggleIcon() {
+        const btn = document.getElementById("themeToggle");
+        if (!btn) return;
+        const isDark = _getCurrentTheme() === "dark";
+        btn.innerHTML = isDark ? "&#9788;" : "&#9790;";
+        btn.title = isDark ? "切换浅色主题" : "切换暗色主题";
+      }
+
       // ========================================
       // DOM References
       // ========================================
@@ -3089,6 +3302,10 @@
       // ========================================
       // Event Listeners
       // ========================================
+      // Theme toggle
+      _updateThemeToggleIcon();
+      document.getElementById("themeToggle").addEventListener("click", _toggleTheme);
+
       function _updateGenerateBtnLabel() {
         const count = parseInt(document.getElementById("count").value, 10);
         const btn = document.getElementById("generateBtn");
