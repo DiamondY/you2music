@@ -887,8 +887,9 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
-    host = os.getenv("AI_MUSIC_HOST", "127.0.0.1")
-    port = int(os.getenv("AI_MUSIC_PORT", "8000"))
+    settings = STATE.settings
+    host = settings.host
+    port = settings.port
     httpd = ThreadingHTTPServer((host, port), Handler)
     print(f"you2music running on http://{host}:{port}")
     print("Press Ctrl+C to stop.")

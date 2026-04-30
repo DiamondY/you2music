@@ -875,8 +875,8 @@ if __name__ == "__main__":
     import uvicorn
     import uvicorn.config
 
-    host = os.getenv("AI_MUSIC_HOST", "127.0.0.1")
-    port = int(os.getenv("AI_MUSIC_PORT", "8000"))
+    host = STATE.settings.host
+    port = STATE.settings.port
 
     # On Windows + VSCode terminal, Ctrl+C can sometimes feel "stuck" when there are
     # long-running background tasks or half-open client connections. Keep graceful

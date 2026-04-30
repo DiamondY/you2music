@@ -1183,6 +1183,14 @@
         border-radius: var(--radius-md);
       }
 
+      .audio-time {
+        font-size: 12px;
+        color: var(--color-text-muted);
+        font-variant-numeric: tabular-nums;
+        margin-top: calc(var(--space-xs) * -1);
+        text-align: right;
+      }
+
       /* Theme toggle button */
       .theme-toggle {
         position: absolute;
@@ -1330,6 +1338,9 @@
       @keyframes fadeInUp {
         from { opacity: 0; transform: translateY(8px); }
         to { opacity: 1; transform: translateY(0); }
+      }
+      @keyframes spin {
+        to { transform: rotate(360deg); }
       }
 
       .card {
@@ -1580,6 +1591,7 @@
         </div>
 
         <audio id="player" controls></audio>
+        <div id="playerTime" class="audio-time" style="margin-top: calc(var(--space-xs) * -1);">0:00 / --:--</div>
 
         <div class="player-actions">
           <a id="downloadLink" href="#" style="display: none;">
@@ -1735,6 +1747,10 @@
       const errorEl = document.getElementById("error");
       const jobIdEl = document.getElementById("jobId");
       const player = document.getElementById("player");
+      const playerTimeEl = document.getElementById("playerTime");
+      const _fmtTime = (s) => { if (!s || !isFinite(s)) return "--:--"; const m = Math.floor(s / 60); return m + ":" + String(Math.floor(s % 60)).padStart(2, "0"); };
+      player.addEventListener("loadedmetadata", () => { playerTimeEl.textContent = `0:00 / ${_fmtTime(player.duration)}`; });
+      player.addEventListener("timeupdate", () => { playerTimeEl.textContent = `${_fmtTime(player.currentTime)} / ${_fmtTime(player.duration)}`; });
       const downloadLink = document.getElementById("downloadLink");
       const refreshBtn = document.getElementById("refreshBtn");
       const extendBtn = document.getElementById("extendBtn");
@@ -3011,6 +3027,13 @@
           a.preload = "metadata";
           a.src = j.audio_url;
           row.appendChild(a);
+
+          const timeEl = document.createElement("div");
+          timeEl.className = "audio-time";
+          timeEl.textContent = "0:00 / --:--";
+          a.addEventListener("loadedmetadata", () => { timeEl.textContent = `0:00 / ${_fmtTime(a.duration)}`; });
+          a.addEventListener("timeupdate", () => { timeEl.textContent = `${_fmtTime(a.currentTime)} / ${_fmtTime(a.duration)}`; });
+          row.appendChild(timeEl);
         }
 
         row.addEventListener("click", () => {
@@ -3035,6 +3058,8 @@
       // Generate Functions
       // ========================================
       async function startGenerate() {
+        const btn = document.getElementById("generateBtn");
+        if (btn.disabled) return;
         setError("");
         const count = parseInt(document.getElementById("count").value, 10);
         setStatus(count > 1 ? `提交 ${count} 首候选任务中…` : "提交任务中…");
@@ -3043,6 +3068,9 @@
         extendGroup.style.display = "none";
         player.removeAttribute("src");
         player.load();
+
+        btn.disabled = true;
+        btn.innerHTML = '<svg class="icon icon-sm" viewBox="0 0 24 24" style="animation: spin 1s linear infinite;"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg> 生成中…';
 
         const prompt = document.getElementById("prompt").value.trim();
         const lyrics = getLyricsPayloadValue();
@@ -3061,7 +3089,11 @@
           provider_params: collectProviderParams()
         };
 
-        if (!_validateGenerateCommon(payload)) return;
+        if (!_validateGenerateCommon(payload)) {
+          btn.disabled = false;
+          _updateGenerateBtnLabel();
+          return;
+        }
 
         if (count > 1) {
           payload.count = count;
@@ -3123,6 +3155,11 @@
           }
 
           if (!anyRunning && pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+          if (!anyRunning) {
+            const btn = document.getElementById("generateBtn");
+            btn.disabled = false;
+            _updateGenerateBtnLabel();
+          }
           if (!anyRunning && updateStatus) {
             // Delay history refresh slightly to ensure DB has latest status,
             // then do a full rebuild followed by a final incremental pass.
@@ -3513,6 +3550,9 @@
         startGenerate().catch(e => {
           setError(String(e));
           setStatus("");
+          const btn = document.getElementById("generateBtn");
+          btn.disabled = false;
+          _updateGenerateBtnLabel();
         });
       });
       document.getElementById("count").addEventListener("change", _updateGenerateBtnLabel);

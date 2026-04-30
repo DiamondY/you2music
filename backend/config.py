@@ -24,6 +24,8 @@ class Settings:
     data_dir: Path
     output_format: str
     request_timeout_s: float
+    host: str
+    port: int
 
 
 MINIMAX_BASE_URL_DEFAULT = "https://api.minimaxi.com"
@@ -153,6 +155,20 @@ def load_settings() -> Settings:
             "Use 'https://api.acemusic.ai'."
         )
 
+    # Host / Port: env overrides config file, config file overrides defaults.
+    cfg_host = ""
+    cfg_port: int | None = None
+    if isinstance(cfg, dict):
+        server = cfg.get("server") if isinstance(cfg.get("server"), dict) else {}
+        if isinstance(server.get("host"), str) and server["host"].strip():
+            cfg_host = server["host"].strip()
+        if isinstance(server.get("port"), int) and 1 <= server["port"] <= 65535:
+            cfg_port = server["port"]
+
+    host = os.getenv("AI_MUSIC_HOST", cfg_host or "127.0.0.1").strip()
+    raw_port = os.getenv("AI_MUSIC_PORT", str(cfg_port or 8000)).strip()
+    port = int(raw_port)
+
     return Settings(
         default_provider=default_provider,
         minimax_api_key=minimax_api_key,
@@ -168,4 +184,6 @@ def load_settings() -> Settings:
         data_dir=data_dir,
         output_format=output_format,
         request_timeout_s=timeout_s,
+        host=host,
+        port=port,
     )

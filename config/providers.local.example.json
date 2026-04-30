@@ -2,6 +2,10 @@
   "default_provider": "acestep",
   "enabled_providers": ["minimax", "acestep"],
   "admin_token": "CHANGE_ME_ADMIN_TOKEN",
+  "server": {
+    "host": "127.0.0.1",
+    "port": 8000
+  },
   "proxy": {
     "http": "",
     "https": "",
