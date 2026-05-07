@@ -147,14 +147,18 @@ def _public_user(user: UserRecord) -> dict[str, Any]:
 def _optional_current_user(authorization: str | None = Header(default=None)) -> UserRecord | None:
     if not authorization:
         return None
-    token = extract_bearer_token(authorization)
-    payload = verify_token(token=token, settings=STATE.settings)
-    user = STATE.user_store.get_by_id(payload.user_id)
-    if not user:
-        raise HTTPException(status_code=401, detail="user not found")
-    if user.disabled:
-        raise HTTPException(status_code=403, detail="user disabled")
-    return user
+    try:
+        token = extract_bearer_token(authorization)
+        payload = verify_token(token=token, settings=STATE.settings)
+        user = STATE.user_store.get_by_id(payload.user_id)
+        if not user:
+            return None
+        if user.disabled:
+            return None
+        return user
+    except HTTPException:
+        # Invalid/expired token — treat as unauthenticated for optional routes.
+        return None
 
 
 def get_current_user(authorization: str | None = Header(default=None)) -> UserRecord:
@@ -993,7 +997,15 @@ def list_community(
     limit: int = Query(default=50, ge=1, le=100),
 ) -> dict[str, Any]:
     records = STATE.store.list_published(offset=offset, limit=limit)
-    return {"jobs": [_serialize_job(rec) for rec in records], "offset": offset, "limit": limit}
+    # Use community-specific URLs so unauthenticated users can access audio.
+    def _serialize_community(rec: Any) -> dict[str, Any]:
+        d = _serialize_job(rec)
+        if d.get("audio_url"):
+            d["audio_url"] = f"/api/community/{rec.job_id}/audio"
+        if d.get("download_url"):
+            d["download_url"] = f"/api/community/{rec.job_id}/audio"
+        return d
+    return {"jobs": [_serialize_community(rec) for rec in records], "offset": offset, "limit": limit}
 
 
 def _media_type_for_path(path: Path) -> str:
