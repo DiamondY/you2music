@@ -11,6 +11,8 @@ from typing import Any, Literal
 
 
 JobStatus = Literal["queued", "running", "succeeded", "failed"]
+JobVisibility = Literal["private", "published"]
+SharePermission = Literal["listen_only", "downloadable"]
 
 
 @dataclass(frozen=True)
@@ -25,6 +27,9 @@ class JobRecord:
     output_path: str | None
     error: str | None
     song_id: str | None = None  # For ElevenLabs Music API, used for stems separation
+    user_id: int | None = None
+    visibility: JobVisibility = "private"
+    share_permission: SharePermission = "listen_only"
 
 
 class JobStore:
@@ -48,7 +53,11 @@ class JobStore:
                   prompt TEXT NOT NULL,
                   params_json TEXT NOT NULL,
                   output_path TEXT,
-                  error TEXT
+                  error TEXT,
+                  song_id TEXT,
+                  user_id INTEGER,
+                  visibility TEXT NOT NULL DEFAULT 'private',
+                  share_permission TEXT NOT NULL DEFAULT 'listen_only'
                 )
                 """
             )
@@ -63,6 +72,7 @@ class JobStore:
         params: dict[str, Any],
         kind: str = "generate",
         parent_job_id: str | None = None,
+        user_id: int | None = None,
     ) -> str:
         job_id = uuid.uuid4().hex
         now = int(time.time() * 1000)
@@ -71,8 +81,8 @@ class JobStore:
             with self._connect() as conn:
                 conn.execute(
                     """
-                    INSERT INTO jobs (job_id, parent_job_id, kind, status, created_at_ms, updated_at_ms, provider, prompt, params_json, output_path, error)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO jobs (job_id, parent_job_id, kind, status, created_at_ms, updated_at_ms, provider, prompt, params_json, output_path, error, user_id, visibility, share_permission)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'private', 'listen_only')
                     """,
                     (
                         job_id,
@@ -86,6 +96,7 @@ class JobStore:
                         params_json,
                         None,
                         None,
+                        user_id,
                     ),
                 )
                 conn.commit()
@@ -118,27 +129,16 @@ class JobStore:
             with self._connect() as conn:
                 row = conn.execute(
                     """
-                    SELECT job_id, status, created_at_ms, updated_at_ms, provider, prompt, params_json, output_path, error, song_id
+                    SELECT job_id, status, created_at_ms, updated_at_ms, provider, prompt, params_json, output_path, error, song_id, user_id, visibility, share_permission
                     FROM jobs WHERE job_id = ?
                     """,
                     (job_id,),
                 ).fetchone()
         if not row:
             return None
-        return JobRecord(
-            job_id=row[0],
-            status=row[1],
-            created_at_ms=int(row[2]),
-            updated_at_ms=int(row[3]),
-            provider=row[4],
-            prompt=row[5],
-            params_json=row[6],
-            output_path=row[7],
-            error=row[8],
-            song_id=row[9] if len(row) > 9 else None,
-        )
+        return _row_to_job(row)
 
-    def list_recent(self, *, limit: int = 20) -> list[JobRecord]:
+    def list_recent(self, *, limit: int = 20, user_id: int | None = None, include_all: bool = False) -> list[JobRecord]:
         limit_int = int(limit)
         if limit_int < 1:
             limit_int = 1
@@ -147,43 +147,42 @@ class JobStore:
 
         with self._lock:
             with self._connect() as conn:
-                rows = conn.execute(
-                    """
-                    SELECT job_id, status, created_at_ms, updated_at_ms, provider, prompt, params_json, output_path, error, song_id
-                    FROM jobs
-                    ORDER BY created_at_ms DESC
-                    LIMIT ?
-                    """,
-                    (limit_int,),
-                ).fetchall()
+                if include_all:
+                    rows = conn.execute(
+                        """
+                        SELECT job_id, status, created_at_ms, updated_at_ms, provider, prompt, params_json, output_path, error, song_id, user_id, visibility, share_permission
+                        FROM jobs
+                        ORDER BY created_at_ms DESC
+                        LIMIT ?
+                        """,
+                        (limit_int,),
+                    ).fetchall()
+                else:
+                    rows = conn.execute(
+                        """
+                        SELECT job_id, status, created_at_ms, updated_at_ms, provider, prompt, params_json, output_path, error, song_id, user_id, visibility, share_permission
+                        FROM jobs
+                        WHERE user_id = ?
+                        ORDER BY created_at_ms DESC
+                        LIMIT ?
+                        """,
+                        (user_id, limit_int),
+                    ).fetchall()
 
-        out: list[JobRecord] = []
-        for row in rows:
-            out.append(
-                JobRecord(
-                    job_id=row[0],
-                    status=row[1],
-                    created_at_ms=int(row[2]),
-                    updated_at_ms=int(row[3]),
-                    provider=row[4],
-                    prompt=row[5],
-                    params_json=row[6],
-                    output_path=row[7],
-                    error=row[8],
-                    song_id=row[9] if len(row) > 9 else None,
-                )
-            )
-        return out
+        return [_row_to_job(row) for row in rows]
 
-    def count_jobs(self) -> int:
+    def count_jobs(self, *, user_id: int | None = None, include_all: bool = False) -> int:
         with self._lock:
             with self._connect() as conn:
-                row = conn.execute("SELECT COUNT(*) FROM jobs").fetchone()
+                if include_all:
+                    row = conn.execute("SELECT COUNT(*) FROM jobs").fetchone()
+                else:
+                    row = conn.execute("SELECT COUNT(*) FROM jobs WHERE user_id = ?", (user_id,)).fetchone()
         if not row:
             return 0
         return int(row[0] or 0)
 
-    def list_page(self, *, offset: int = 0, limit: int = 20) -> list[JobRecord]:
+    def list_page(self, *, offset: int = 0, limit: int = 20, user_id: int | None = None, include_all: bool = False) -> list[JobRecord]:
         off = int(offset)
         lim = int(limit)
         if off < 0:
@@ -195,33 +194,64 @@ class JobStore:
 
         with self._lock:
             with self._connect() as conn:
+                if include_all:
+                    rows = conn.execute(
+                        """
+                        SELECT job_id, status, created_at_ms, updated_at_ms, provider, prompt, params_json, output_path, error, song_id, user_id, visibility, share_permission
+                        FROM jobs
+                        ORDER BY created_at_ms DESC
+                        LIMIT ? OFFSET ?
+                        """,
+                        (lim, off),
+                    ).fetchall()
+                else:
+                    rows = conn.execute(
+                        """
+                        SELECT job_id, status, created_at_ms, updated_at_ms, provider, prompt, params_json, output_path, error, song_id, user_id, visibility, share_permission
+                        FROM jobs
+                        WHERE user_id = ?
+                        ORDER BY created_at_ms DESC
+                        LIMIT ? OFFSET ?
+                        """,
+                        (user_id, lim, off),
+                    ).fetchall()
+
+        return [_row_to_job(row) for row in rows]
+
+    def list_published(self, *, offset: int = 0, limit: int = 50) -> list[JobRecord]:
+        off = max(0, int(offset))
+        lim = min(100, max(1, int(limit)))
+        with self._lock:
+            with self._connect() as conn:
                 rows = conn.execute(
                     """
-                    SELECT job_id, status, created_at_ms, updated_at_ms, provider, prompt, params_json, output_path, error, song_id
+                    SELECT job_id, status, created_at_ms, updated_at_ms, provider, prompt, params_json, output_path, error, song_id, user_id, visibility, share_permission
                     FROM jobs
-                    ORDER BY created_at_ms DESC
+                    WHERE visibility = 'published' AND status = 'succeeded'
+                    ORDER BY updated_at_ms DESC
                     LIMIT ? OFFSET ?
                     """,
                     (lim, off),
                 ).fetchall()
+        return [_row_to_job(row) for row in rows]
 
-        out: list[JobRecord] = []
-        for row in rows:
-            out.append(
-                JobRecord(
-                    job_id=row[0],
-                    status=row[1],
-                    created_at_ms=int(row[2]),
-                    updated_at_ms=int(row[3]),
-                    provider=row[4],
-                    prompt=row[5],
-                    params_json=row[6],
-                    output_path=row[7],
-                    error=row[8],
-                    song_id=row[9] if len(row) > 9 else None,
+    def set_sharing(self, job_id: str, *, visibility: JobVisibility, share_permission: SharePermission) -> bool:
+        if visibility not in ("private", "published"):
+            raise ValueError("visibility must be private or published")
+        if share_permission not in ("listen_only", "downloadable"):
+            raise ValueError("share_permission must be listen_only or downloadable")
+        with self._lock:
+            with self._connect() as conn:
+                cursor = conn.execute(
+                    """
+                    UPDATE jobs
+                    SET visibility = ?, share_permission = ?, updated_at_ms = ?
+                    WHERE job_id = ?
+                    """,
+                    (visibility, share_permission, int(time.time() * 1000), job_id),
                 )
-            )
-        return out
+                conn.commit()
+                return cursor.rowcount > 0
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(str(self._db_path))
@@ -237,6 +267,12 @@ class JobStore:
             conn.execute("ALTER TABLE jobs ADD COLUMN kind TEXT NOT NULL DEFAULT 'generate'")
         if "song_id" not in cols:
             conn.execute("ALTER TABLE jobs ADD COLUMN song_id TEXT")
+        if "user_id" not in cols:
+            conn.execute("ALTER TABLE jobs ADD COLUMN user_id INTEGER")
+        if "visibility" not in cols:
+            conn.execute("ALTER TABLE jobs ADD COLUMN visibility TEXT NOT NULL DEFAULT 'private'")
+        if "share_permission" not in cols:
+            conn.execute("ALTER TABLE jobs ADD COLUMN share_permission TEXT NOT NULL DEFAULT 'listen_only'")
 
     def delete(self, job_id: str) -> bool:
         """Delete a single job record. Returns True if found and deleted."""
@@ -256,3 +292,32 @@ class JobStore:
                 conn.execute("DELETE FROM jobs")
                 conn.commit()
         return count
+
+    def delete_for_user(self, *, user_id: int) -> int:
+        """Delete all job records for one user. Returns count of deleted rows."""
+        with self._lock:
+            with self._connect() as conn:
+                count = int(
+                    conn.execute("SELECT COUNT(*) FROM jobs WHERE user_id = ?", (int(user_id),)).fetchone()[0] or 0
+                )
+                conn.execute("DELETE FROM jobs WHERE user_id = ?", (int(user_id),))
+                conn.commit()
+        return count
+
+
+def _row_to_job(row: sqlite3.Row | tuple[object, ...]) -> JobRecord:
+    return JobRecord(
+        job_id=str(row[0]),
+        status=str(row[1]),  # type: ignore[arg-type]
+        created_at_ms=int(row[2]),
+        updated_at_ms=int(row[3]),
+        provider=str(row[4]),
+        prompt=str(row[5]),
+        params_json=str(row[6]),
+        output_path=str(row[7]) if row[7] is not None else None,
+        error=str(row[8]) if row[8] is not None else None,
+        song_id=str(row[9]) if len(row) > 9 and row[9] is not None else None,
+        user_id=int(row[10]) if len(row) > 10 and row[10] is not None else None,
+        visibility=str(row[11]) if len(row) > 11 and row[11] is not None else "private",  # type: ignore[arg-type]
+        share_permission=str(row[12]) if len(row) > 12 and row[12] is not None else "listen_only",  # type: ignore[arg-type]
+    )

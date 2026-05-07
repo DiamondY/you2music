@@ -2,3 +2,5 @@ fastapi==0.136.0
 uvicorn[standard]==0.43.0
 httpx==0.28.1
 pydantic==2.13.2
+PyJWT==2.10.1
+bcrypt==5.0.0

@@ -30,5 +30,11 @@
       "model": "acemusic/acestep-v1.5-turbo",
       "audio_format": "mp3"
     }
+  },
+  "auth": {
+    "jwt_secret": "replace-with-random-secret",
+    "admin_username": "admin",
+    "admin_password": "replace-with-initial-password",
+    "default_daily_quota": 20
   }
 }

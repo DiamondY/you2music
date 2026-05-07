@@ -5,8 +5,10 @@ import threading
 from dataclasses import dataclass
 from pathlib import Path
 
+from auth import hash_password
 from config import Settings, load_settings
 from storage import JobStore
+from user_store import UserStore
 
 
 @dataclass
@@ -24,7 +26,9 @@ class AppState:
     data_dir: Path
     audio_dir: Path
     db_path: Path
+    users_db_path: Path
     store: JobStore
+    user_store: UserStore
     _lock: threading.Lock
 
     @classmethod
@@ -33,14 +37,25 @@ class AppState:
         data_dir = settings.data_dir
         audio_dir = data_dir / "audio"
         db_path = data_dir / "app.db"
+        users_db_path = data_dir / "users.db"
         store = JobStore(db_path)
         store.init()
+        user_store = UserStore(users_db_path)
+        user_store.init()
+        if settings.admin_username and settings.admin_password:
+            user_store.ensure_admin(
+                username=settings.admin_username,
+                password_hash=hash_password(settings.admin_password),
+                daily_quota=settings.default_daily_quota,
+            )
         st = cls(
             settings=settings,
             data_dir=data_dir,
             audio_dir=audio_dir,
             db_path=db_path,
+            users_db_path=users_db_path,
             store=store,
+            user_store=user_store,
             _lock=threading.Lock(),
         )
         st.apply_proxy_env()
@@ -79,6 +94,7 @@ class AppState:
             new_data_dir = new_settings.data_dir
             new_audio_dir = new_data_dir / "audio"
             new_db_path = new_data_dir / "app.db"
+            new_users_db_path = new_data_dir / "users.db"
 
             self.settings = new_settings
             self.apply_proxy_env()
@@ -89,4 +105,13 @@ class AppState:
                 self.db_path = new_db_path
                 self.store = JobStore(self.db_path)
                 self.store.init()
-
+            if new_users_db_path != self.users_db_path:
+                self.users_db_path = new_users_db_path
+                self.user_store = UserStore(self.users_db_path)
+                self.user_store.init()
+            if new_settings.admin_username and new_settings.admin_password:
+                self.user_store.ensure_admin(
+                    username=new_settings.admin_username,
+                    password_hash=hash_password(new_settings.admin_password),
+                    daily_quota=new_settings.default_daily_quota,
+                )

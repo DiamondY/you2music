@@ -10,17 +10,19 @@ from pathlib import Path
 from typing import Any, Callable
 
 import httpx
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi import Header, Query
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from app_state import AppState
+from auth import create_token, extract_bearer_token, hash_password, verify_password, verify_token
 from providers.registry import providers_payload
 from providers.minimax import MiniMaxMusicClient
 from providers.acestep import ACEStepClient
 from admin_config import load_local_config, redacted_config, save_local_config
+from user_store import UserRecord, UserRole
 
 
 class GenerateRequest(BaseModel):
@@ -43,6 +45,36 @@ class ExtendRequest(BaseModel):
     extra_sec: int = Field(ge=3, le=600)
     provider: str | None = Field(default=None, max_length=64)
     provider_params: dict[str, Any] | None = Field(default=None)
+
+
+class RegisterRequest(BaseModel):
+    username: str = Field(min_length=3, max_length=64)
+    password: str = Field(min_length=8, max_length=72)
+    invite_code: str = Field(min_length=1, max_length=128)
+
+
+class LoginRequest(BaseModel):
+    username: str = Field(min_length=1, max_length=64)
+    password: str = Field(min_length=1, max_length=256)
+
+
+class ProfileUpdateRequest(BaseModel):
+    avatar_path: str | None = Field(default=None, max_length=500)
+
+
+class PasswordUpdateRequest(BaseModel):
+    old_password: str = Field(min_length=1, max_length=256)
+    new_password: str = Field(min_length=8, max_length=72)
+
+
+class AdminUserUpdateRequest(BaseModel):
+    role: UserRole | None = None
+    daily_quota: int | None = Field(default=None, ge=0, le=100000)
+    disabled: bool | None = None
+
+
+class PublishRequest(BaseModel):
+    share_permission: str = Field(default="listen_only", max_length=32)
 
 
 def _sanitize_filename(text: str) -> str:
@@ -97,6 +129,99 @@ app = FastAPI(title="you2music", version="0.1.0")
 
 static_dir = Path(__file__).resolve().parent / "static"
 app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+
+
+def _public_user(user: UserRecord) -> dict[str, Any]:
+    return {
+        "id": user.id,
+        "username": user.username,
+        "role": user.role,
+        "avatar_path": user.avatar_path,
+        "daily_quota": user.daily_quota,
+        "disabled": user.disabled,
+        "created_at_ms": user.created_at_ms,
+        "quota": STATE.user_store.quota_status(user_id=user.id, daily_quota=user.daily_quota),
+    }
+
+
+def _optional_current_user(authorization: str | None = Header(default=None)) -> UserRecord | None:
+    if not authorization:
+        return None
+    token = extract_bearer_token(authorization)
+    payload = verify_token(token=token, settings=STATE.settings)
+    user = STATE.user_store.get_by_id(payload.user_id)
+    if not user:
+        raise HTTPException(status_code=401, detail="user not found")
+    if user.disabled:
+        raise HTTPException(status_code=403, detail="user disabled")
+    return user
+
+
+def get_current_user(authorization: str | None = Header(default=None)) -> UserRecord:
+    token = extract_bearer_token(authorization)
+    payload = verify_token(token=token, settings=STATE.settings)
+    user = STATE.user_store.get_by_id(payload.user_id)
+    if not user:
+        raise HTTPException(status_code=401, detail="user not found")
+    if user.disabled:
+        raise HTTPException(status_code=403, detail="user disabled")
+    return user
+
+
+def require_admin(current_user: UserRecord = Depends(get_current_user)) -> UserRecord:
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="admin role required")
+    return current_user
+
+
+def _is_admin(user: UserRecord) -> bool:
+    return user.role == "admin"
+
+
+def _can_access_job(rec: Any, user: UserRecord | None) -> bool:
+    if rec.visibility == "published":
+        return True
+    if user is None:
+        return False
+    return _is_admin(user) or rec.user_id == user.id
+
+
+def _serialize_job(rec: Any, *, include_download: bool = True) -> dict[str, Any]:
+    audio_url = None
+    download_url = None
+    if rec.status == "succeeded" and rec.output_path:
+        audio_url = f"/api/audio/{rec.job_id}"
+        if include_download and rec.share_permission == "downloadable":
+            download_url = audio_url
+    return {
+        "job_id": rec.job_id,
+        "status": rec.status,
+        "created_at_ms": rec.created_at_ms,
+        "updated_at_ms": rec.updated_at_ms,
+        "provider": rec.provider,
+        "prompt": rec.prompt,
+        "params": json.loads(rec.params_json),
+        "audio_url": audio_url,
+        "download_url": download_url,
+        "error": rec.error,
+        "song_id": rec.song_id,
+        "user_id": rec.user_id,
+        "visibility": rec.visibility,
+        "share_permission": rec.share_permission,
+    }
+
+
+def _auth_error_detail(msg: str) -> str:
+    mapping = {
+        "username already exists": "用户名已存在",
+        "invalid invite code": "邀请码无效",
+        "invite code has already been used": "邀请码已被使用",
+        "username is required": "请填写用户名",
+        "password hash is required": "密码处理失败，请重试",
+        "invite code is required": "请填写邀请码",
+        "password must be at most 72 bytes for bcrypt": "密码过长，请控制在 72 字节以内",
+    }
+    return mapping.get(msg, msg)
 
 
 def _install_windows_asyncio_connection_reset_suppression() -> None:
@@ -203,17 +328,67 @@ def admin_page() -> HTMLResponse:
     return HTMLResponse((static_dir / "admin.html").read_text(encoding="utf-8"))
 
 
+@app.post("/api/auth/register")
+def auth_register(req: RegisterRequest) -> dict[str, Any]:
+    username = req.username.strip()
+    if not re.fullmatch(r"[A-Za-z0-9_.-]{3,64}", username):
+        raise HTTPException(status_code=400, detail="用户名只能包含字母、数字、点、短横线和下划线")
+    try:
+        user = STATE.user_store.create_user(
+            username=username,
+            password_hash=hash_password(req.password),
+            invite_code=req.invite_code,
+            daily_quota=STATE.settings.default_daily_quota,
+        )
+    except ValueError as e:
+        msg = str(e)
+        status = 409 if "exists" in msg or "used" in msg else 400
+        raise HTTPException(status_code=status, detail=_auth_error_detail(msg)) from e
+    return {"token": create_token(user=user, settings=STATE.settings), "user": _public_user(user)}
+
+
+@app.post("/api/auth/login")
+def auth_login(req: LoginRequest) -> dict[str, Any]:
+    user = STATE.user_store.get_by_username(req.username)
+    if not user or not verify_password(req.password, user.password_hash):
+        raise HTTPException(status_code=401, detail="用户名或密码错误")
+    if user.disabled:
+        raise HTTPException(status_code=403, detail="账户已被禁用")
+    return {"token": create_token(user=user, settings=STATE.settings), "user": _public_user(user)}
+
+
+@app.get("/api/auth/me")
+def auth_me(current_user: UserRecord = Depends(get_current_user)) -> dict[str, Any]:
+    return {"user": _public_user(current_user)}
+
+
+@app.put("/api/auth/me")
+def auth_update_me(req: ProfileUpdateRequest, current_user: UserRecord = Depends(get_current_user)) -> dict[str, Any]:
+    user = STATE.user_store.update_user(current_user.id, avatar_path=req.avatar_path)
+    if not user:
+        raise HTTPException(status_code=404, detail="user not found")
+    return {"user": _public_user(user)}
+
+
+@app.put("/api/auth/password")
+def auth_update_password(req: PasswordUpdateRequest, current_user: UserRecord = Depends(get_current_user)) -> dict[str, Any]:
+    if not verify_password(req.old_password, current_user.password_hash):
+        raise HTTPException(status_code=403, detail="invalid current password")
+    try:
+        password_hash = hash_password(req.new_password)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    STATE.user_store.update_password(current_user.id, password_hash=password_hash)
+    return {"ok": True}
+
+
 @app.get("/api/providers")
-def get_providers() -> dict[str, Any]:
+def get_providers(current_user: UserRecord = Depends(get_current_user)) -> dict[str, Any]:
     return providers_payload(STATE.settings)
 
 
 def _require_admin(token: str | None) -> None:
-    expected = (STATE.settings.admin_token or "").strip()
-    if not expected:
-        raise HTTPException(status_code=403, detail="admin token not configured (set AI_MUSIC_ADMIN_TOKEN or config admin_token)")
-    if not token or token.strip() != expected:
-        raise HTTPException(status_code=403, detail="invalid admin token")
+    raise HTTPException(status_code=410, detail="admin token authentication has been removed; use JWT admin role")
 
 
 class AdminConfigRequest(BaseModel):
@@ -303,7 +478,7 @@ Living life extraordinary""",
 
 
 @app.get("/api/random_sample")
-def get_random_sample() -> dict[str, Any]:
+def get_random_sample(current_user: UserRecord = Depends(get_current_user)) -> dict[str, Any]:
     """Generate a random prompt and lyrics sample for quick inspiration."""
     prompt = random.choice(RANDOM_PROMPTS)
     lyrics = random.choice(RANDOM_LYRICS_TEMPLATES)
@@ -323,22 +498,19 @@ def get_random_sample() -> dict[str, Any]:
 
 
 @app.get("/api/admin/config")
-def admin_get_config(x_admin_token: str | None = Header(default=None, alias="x-admin-token")) -> dict[str, Any]:
-    _require_admin(x_admin_token)
+def admin_get_config(current_user: UserRecord = Depends(require_admin)) -> dict[str, Any]:
     cfg = load_local_config()
     return {"config": redacted_config(cfg)}
 
 
 @app.get("/api/admin/providers")
-def admin_get_providers(x_admin_token: str | None = Header(default=None, alias="x-admin-token")) -> dict[str, Any]:
-    _require_admin(x_admin_token)
+def admin_get_providers(current_user: UserRecord = Depends(require_admin)) -> dict[str, Any]:
     # include_disabled=True so admin can enable/disable providers even when filtered
     return providers_payload(STATE.settings, include_disabled=True)
 
 
 @app.post("/api/admin/config")
-def admin_set_config(req: AdminConfigRequest, x_admin_token: str | None = Header(default=None, alias="x-admin-token")) -> dict[str, Any]:
-    _require_admin(x_admin_token)
+def admin_set_config(req: AdminConfigRequest, current_user: UserRecord = Depends(require_admin)) -> dict[str, Any]:
     current = load_local_config()
     new_cfg = req.config or {}
 
@@ -353,8 +525,22 @@ def admin_set_config(req: AdminConfigRequest, x_admin_token: str | None = Header
     if merged_secrets:
         new_cfg["secrets"] = merged_secrets
 
-    if new_cfg.get("admin_token") == "********":
-        new_cfg["admin_token"] = current.get("admin_token", "")
+    for key in ("jwt_secret", "admin_password"):
+        if new_cfg.get(key) == "********":
+            new_cfg[key] = current.get(key, "")
+    for section, keys in {
+        "auth": ("jwt_secret", "admin_password"),
+        "admin": ("password",),
+    }.items():
+        cur_obj = current.get(section) if isinstance(current.get(section), dict) else {}
+        new_obj = new_cfg.get(section) if isinstance(new_cfg.get(section), dict) else {}
+        if not isinstance(new_obj, dict):
+            continue
+        for key in keys:
+            if new_obj.get(key) == "********":
+                new_obj[key] = cur_obj.get(key, "")
+
+    new_cfg.pop("admin_token", None)
 
     save_local_config(new_cfg)
     STATE.reload()
@@ -362,15 +548,13 @@ def admin_set_config(req: AdminConfigRequest, x_admin_token: str | None = Header
 
 
 @app.post("/api/admin/reload")
-def admin_reload(x_admin_token: str | None = Header(default=None, alias="x-admin-token")) -> dict[str, Any]:
-    _require_admin(x_admin_token)
+def admin_reload(current_user: UserRecord = Depends(require_admin)) -> dict[str, Any]:
     STATE.reload()
     return {"ok": True}
 
 
 @app.post("/api/admin/test")
-async def admin_test(x_admin_token: str | None = Header(default=None, alias="x-admin-token")) -> dict[str, Any]:
-    _require_admin(x_admin_token)
+async def admin_test(current_user: UserRecord = Depends(require_admin)) -> dict[str, Any]:
     # Run lightweight connectivity/auth checks. Avoid real generations by default.
     #
     # Notes:
@@ -511,8 +695,57 @@ async def admin_test(x_admin_token: str | None = Header(default=None, alias="x-a
     return {"ok": True, "results": results, "proxy": proxy_info}
 
 
+@app.get("/api/admin/users")
+def admin_list_users(current_user: UserRecord = Depends(require_admin)) -> dict[str, Any]:
+    return {"users": [_public_user(user) for user in STATE.user_store.list_users()]}
+
+
+@app.put("/api/admin/users/{user_id}")
+def admin_update_user(
+    user_id: int,
+    req: AdminUserUpdateRequest,
+    current_user: UserRecord = Depends(require_admin),
+) -> dict[str, Any]:
+    try:
+        user = STATE.user_store.update_user(
+            user_id,
+            role=req.role,
+            daily_quota=req.daily_quota,
+            disabled=req.disabled,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    if not user:
+        raise HTTPException(status_code=404, detail="user not found")
+    return {"user": _public_user(user)}
+
+
+@app.delete("/api/admin/users/{user_id}")
+def admin_delete_user(user_id: int, current_user: UserRecord = Depends(require_admin)) -> dict[str, Any]:
+    if user_id == current_user.id:
+        raise HTTPException(status_code=400, detail="cannot delete current user")
+    try:
+        ok = STATE.user_store.delete_user(user_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    if not ok:
+        raise HTTPException(status_code=404, detail="user not found")
+    return {"ok": True}
+
+
+@app.post("/api/admin/invite-codes")
+def admin_create_invite_code(current_user: UserRecord = Depends(require_admin)) -> dict[str, Any]:
+    code = STATE.user_store.create_invite_code(created_by=current_user.id)
+    return {"invite_code": code.__dict__}
+
+
+@app.get("/api/admin/invite-codes")
+def admin_list_invite_codes(current_user: UserRecord = Depends(require_admin)) -> dict[str, Any]:
+    return {"invite_codes": [code.__dict__ for code in STATE.user_store.list_invite_codes()]}
+
+
 @app.post("/api/generate")
-async def generate(req: GenerateRequest) -> dict[str, Any]:
+async def generate(req: GenerateRequest, current_user: UserRecord = Depends(get_current_user)) -> dict[str, Any]:
     provider_name = _resolve_provider(req.provider)
     if provider_name not in ("minimax", "acestep"):
         raise HTTPException(status_code=400, detail=f"unknown provider: {provider_name}")
@@ -540,14 +773,25 @@ async def generate(req: GenerateRequest) -> dict[str, Any]:
         vocals=req.vocals,
         provider_params=provider_params,
     )
-    job_id = STATE.store.create_job(provider=provider_name, prompt=prompt, params=params, kind="generate")
+    try:
+        quota = STATE.user_store.consume_quota(user_id=current_user.id, amount=1, daily_quota=current_user.daily_quota)
+    except ValueError as e:
+        raise HTTPException(status_code=429, detail=str(e)) from e
+
+    job_id = STATE.store.create_job(
+        provider=provider_name,
+        prompt=prompt,
+        params=params,
+        kind="generate",
+        user_id=current_user.id,
+    )
 
     _spawn_job_task(_run_job(job_id=job_id, prompt=prompt, params=params))
-    return {"job_id": job_id}
+    return {"job_id": job_id, "quota": quota}
 
 
 @app.post("/api/generate_many")
-async def generate_many(req: GenerateManyRequest) -> dict[str, Any]:
+async def generate_many(req: GenerateManyRequest, current_user: UserRecord = Depends(get_current_user)) -> dict[str, Any]:
     provider_name = _resolve_provider(req.provider)
     if provider_name not in ("minimax", "acestep"):
         raise HTTPException(status_code=400, detail=f"unknown provider: {provider_name}")
@@ -576,20 +820,33 @@ async def generate_many(req: GenerateManyRequest) -> dict[str, Any]:
         provider_params=provider_params,
     )
 
+    try:
+        quota = STATE.user_store.consume_quota(user_id=current_user.id, amount=req.count, daily_quota=current_user.daily_quota)
+    except ValueError as e:
+        raise HTTPException(status_code=429, detail=str(e)) from e
+
     job_ids: list[str] = []
     for _ in range(req.count):
-        job_id = STATE.store.create_job(provider=provider_name, prompt=prompt, params=params, kind="variation")
+        job_id = STATE.store.create_job(
+            provider=provider_name,
+            prompt=prompt,
+            params=params,
+            kind="variation",
+            user_id=current_user.id,
+        )
         job_ids.append(job_id)
         _spawn_job_task(_run_job(job_id=job_id, prompt=prompt, params=params))
 
-    return {"job_ids": job_ids}
+    return {"job_ids": job_ids, "quota": quota}
 
 
 @app.post("/api/extend")
-async def extend(req: ExtendRequest) -> dict[str, Any]:
+async def extend(req: ExtendRequest, current_user: UserRecord = Depends(get_current_user)) -> dict[str, Any]:
     parent = STATE.store.get(req.job_id)
     if not parent:
         raise HTTPException(status_code=404, detail="job not found")
+    if not (_is_admin(current_user) or parent.user_id == current_user.id):
+        raise HTTPException(status_code=403, detail="job is private")
     if parent.status != "succeeded":
         raise HTTPException(status_code=409, detail="job not ready")
 
@@ -614,119 +871,129 @@ async def extend(req: ExtendRequest) -> dict[str, Any]:
         new_params["provider_params"] = req.provider_params
         new_params["output_format"] = _resolve_output_format(req.provider_params)
 
+    try:
+        quota = STATE.user_store.consume_quota(user_id=current_user.id, amount=1, daily_quota=current_user.daily_quota)
+    except ValueError as e:
+        raise HTTPException(status_code=429, detail=str(e)) from e
+
     job_id = STATE.store.create_job(
         provider=str(new_params.get("provider") or parent.provider),
         prompt=parent.prompt,
         params=new_params,
         kind="extend",
         parent_job_id=parent.job_id,
+        user_id=current_user.id,
     )
 
     _spawn_job_task(_run_job(job_id=job_id, prompt=parent.prompt, params=new_params))
-    return {"job_id": job_id, "parent_job_id": parent.job_id}
+    return {"job_id": job_id, "parent_job_id": parent.job_id, "quota": quota}
 
 
 @app.get("/api/jobs/recent")
-def get_recent_jobs(limit: int = Query(default=20, ge=1, le=50)) -> dict[str, Any]:
-    out: list[dict[str, Any]] = []
-    for rec in STATE.store.list_recent(limit=limit):
-        audio_url = None
-        if rec.status == "succeeded" and rec.output_path:
-            audio_url = f"/api/audio/{rec.job_id}"
-        out.append(
-            {
-                "job_id": rec.job_id,
-                "status": rec.status,
-                "created_at_ms": rec.created_at_ms,
-                "updated_at_ms": rec.updated_at_ms,
-                "provider": rec.provider,
-                "prompt": rec.prompt,
-                "params": json.loads(rec.params_json),
-                "audio_url": audio_url,
-                "error": rec.error,
-                "song_id": rec.song_id,
-            }
-        )
-    return {"jobs": out}
+def get_recent_jobs(
+    limit: int = Query(default=20, ge=1, le=50),
+    current_user: UserRecord = Depends(get_current_user),
+) -> dict[str, Any]:
+    records = STATE.store.list_recent(limit=limit, user_id=current_user.id, include_all=_is_admin(current_user))
+    return {"jobs": [_serialize_job(rec) for rec in records]}
 
 
 @app.get("/api/jobs/history")
 def get_jobs_history(
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=20, ge=1, le=200),
+    current_user: UserRecord = Depends(get_current_user),
 ) -> dict[str, Any]:
-    total = STATE.store.count_jobs()
-    out: list[dict[str, Any]] = []
-    for rec in STATE.store.list_page(offset=offset, limit=limit):
-        audio_url = None
-        if rec.status == "succeeded" and rec.output_path:
-            audio_url = f"/api/audio/{rec.job_id}"
-        out.append(
-            {
-                "job_id": rec.job_id,
-                "status": rec.status,
-                "created_at_ms": rec.created_at_ms,
-                "updated_at_ms": rec.updated_at_ms,
-                "provider": rec.provider,
-                "prompt": rec.prompt,
-                "params": json.loads(rec.params_json),
-                "audio_url": audio_url,
-                "error": rec.error,
-                "song_id": rec.song_id,
-            }
-        )
-    return {"jobs": out, "total": total, "offset": offset, "limit": limit}
+    include_all = _is_admin(current_user)
+    total = STATE.store.count_jobs(user_id=current_user.id, include_all=include_all)
+    records = STATE.store.list_page(offset=offset, limit=limit, user_id=current_user.id, include_all=include_all)
+    return {"jobs": [_serialize_job(rec) for rec in records], "total": total, "offset": offset, "limit": limit}
 
 
 @app.get("/api/jobs/{job_id}")
-def get_job(job_id: str) -> dict[str, Any]:
+def get_job(job_id: str, current_user: UserRecord = Depends(get_current_user)) -> dict[str, Any]:
     rec = STATE.store.get(job_id)
     if not rec:
         raise HTTPException(status_code=404, detail="job not found")
-
-    audio_url = None
-    if rec.status == "succeeded" and rec.output_path:
-        audio_url = f"/api/audio/{rec.job_id}"
-
-    return {
-        "job_id": rec.job_id,
-        "status": rec.status,
-        "created_at_ms": rec.created_at_ms,
-        "updated_at_ms": rec.updated_at_ms,
-        "provider": rec.provider,
-        "prompt": rec.prompt,
-        "params": json.loads(rec.params_json),
-        "audio_url": audio_url,
-        "error": rec.error,
-        "song_id": rec.song_id,
-    }
+    if not _can_access_job(rec, current_user):
+        raise HTTPException(status_code=403, detail="job is private")
+    return _serialize_job(rec)
 
 
 @app.get("/api/jobs")
-def get_jobs(ids: str = Query(default="")) -> dict[str, Any]:
+def get_jobs(ids: str = Query(default=""), current_user: UserRecord = Depends(get_current_user)) -> dict[str, Any]:
     job_ids = [x for x in ids.split(",") if x][:20]
     out: list[dict[str, Any]] = []
     for job_id in job_ids:
         rec = STATE.store.get(job_id)
         if not rec:
             continue
-        audio_url = None
-        if rec.status == "succeeded" and rec.output_path:
-            audio_url = f"/api/audio/{rec.job_id}"
-        out.append(
-            {
-                "job_id": rec.job_id,
-                "status": rec.status,
-                "created_at_ms": rec.created_at_ms,
-                "updated_at_ms": rec.updated_at_ms,
-                "provider": rec.provider,
-                "prompt": rec.prompt,
-                "params": json.loads(rec.params_json),
-                "audio_url": audio_url,
-                "error": rec.error,
-            }
-        )
+        if not _can_access_job(rec, current_user):
+            continue
+        out.append(_serialize_job(rec))
     return {"jobs": out}
+
+
+@app.delete("/api/jobs/{job_id}")
+def delete_job(job_id: str, current_user: UserRecord = Depends(get_current_user)) -> dict[str, Any]:
+    rec = STATE.store.get(job_id)
+    if not rec:
+        raise HTTPException(status_code=404, detail="job not found")
+    if not (_is_admin(current_user) or rec.user_id == current_user.id):
+        raise HTTPException(status_code=403, detail="job is private")
+    ok = STATE.store.delete(job_id)
+    return {"ok": ok}
+
+
+@app.delete("/api/jobs")
+def delete_jobs(current_user: UserRecord = Depends(get_current_user)) -> dict[str, Any]:
+    if _is_admin(current_user):
+        deleted = STATE.store.delete_all()
+    else:
+        deleted = STATE.store.delete_for_user(user_id=current_user.id)
+    return {"ok": True, "deleted": deleted}
+
+
+@app.post("/api/jobs/{job_id}/publish")
+def publish_job(job_id: str, req: PublishRequest, current_user: UserRecord = Depends(get_current_user)) -> dict[str, Any]:
+    rec = STATE.store.get(job_id)
+    if not rec:
+        raise HTTPException(status_code=404, detail="job not found")
+    if rec.status != "succeeded":
+        raise HTTPException(status_code=409, detail="job is not ready to publish")
+    if not (_is_admin(current_user) or rec.user_id == current_user.id):
+        raise HTTPException(status_code=403, detail="job is private")
+    permission = req.share_permission.strip()
+    if permission not in ("listen_only", "downloadable"):
+        raise HTTPException(status_code=400, detail="share_permission must be listen_only or downloadable")
+    STATE.store.set_sharing(job_id, visibility="published", share_permission=permission)  # type: ignore[arg-type]
+    updated = STATE.store.get(job_id)
+    if not updated:
+        raise HTTPException(status_code=404, detail="job not found")
+    return {"job": _serialize_job(updated)}
+
+
+@app.post("/api/jobs/{job_id}/unpublish")
+def unpublish_job(job_id: str, current_user: UserRecord = Depends(get_current_user)) -> dict[str, Any]:
+    rec = STATE.store.get(job_id)
+    if not rec:
+        raise HTTPException(status_code=404, detail="job not found")
+    if not (_is_admin(current_user) or rec.user_id == current_user.id):
+        raise HTTPException(status_code=403, detail="job is private")
+    STATE.store.set_sharing(job_id, visibility="private", share_permission="listen_only")
+    updated = STATE.store.get(job_id)
+    if not updated:
+        raise HTTPException(status_code=404, detail="job not found")
+    return {"job": _serialize_job(updated)}
+
+
+@app.get("/api/community")
+def list_community(
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=50, ge=1, le=100),
+) -> dict[str, Any]:
+    records = STATE.store.list_published(offset=offset, limit=limit)
+    return {"jobs": [_serialize_job(rec) for rec in records], "offset": offset, "limit": limit}
 
 
 def _media_type_for_path(path: Path) -> str:
@@ -739,10 +1006,12 @@ def _media_type_for_path(path: Path) -> str:
 
 
 @app.get("/api/audio/{job_id}")
-def get_audio(job_id: str):
+def get_audio(job_id: str, current_user: UserRecord | None = Depends(_optional_current_user)) -> FileResponse:
     rec = STATE.store.get(job_id)
     if not rec:
         raise HTTPException(status_code=404, detail="job not found")
+    if not _can_access_job(rec, current_user):
+        raise HTTPException(status_code=403, detail="job is private")
     if rec.status != "succeeded" or not rec.output_path:
         raise HTTPException(status_code=404, detail="audio not ready")
 
@@ -753,10 +1022,15 @@ def get_audio(job_id: str):
     return FileResponse(str(path), media_type=_media_type_for_path(path), filename=path.name)
 
 
+@app.get("/api/community/{job_id}/audio")
+def get_community_audio(job_id: str) -> FileResponse:
+    return get_audio(job_id, None)
+
+
 @app.get("/api/audio/{job_id}.mp3")
-def get_audio_mp3_compat(job_id: str):
+def get_audio_mp3_compat(job_id: str, current_user: UserRecord | None = Depends(_optional_current_user)) -> FileResponse:
     # Backwards-compatible alias (older UI/clients).
-    return get_audio(job_id)
+    return get_audio(job_id, current_user)
 
 
 async def _run_job(*, job_id: str, prompt: str, params: dict[str, Any]) -> None:

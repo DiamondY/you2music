@@ -17,7 +17,10 @@ class Settings:
     acestep_base_url: str
     enabled_providers: list[str] | None
     provider_ui_defaults: dict[str, dict[str, Any]]
-    admin_token: str
+    jwt_secret: str
+    admin_username: str
+    admin_password: str
+    default_daily_quota: int
     proxy_http: str
     proxy_https: str
     proxy_no: str
@@ -51,7 +54,11 @@ def load_settings() -> Settings:
     minimax_base_url = os.getenv("MINIMAX_BASE_URL", MINIMAX_BASE_URL_DEFAULT).strip().rstrip("/")
     acestep_api_key = os.getenv("ACESTEP_API_KEY", "").strip()
     acestep_base_url = os.getenv("ACESTEP_BASE_URL", ACESTEP_BASE_URL_DEFAULT).strip().rstrip("/")
-    admin_token = os.getenv("AI_MUSIC_ADMIN_TOKEN", "").strip()
+    jwt_secret = os.getenv("AI_MUSIC_JWT_SECRET", "").strip()
+    admin_username = os.getenv("AI_MUSIC_ADMIN_USERNAME", "").strip()
+    admin_password = os.getenv("AI_MUSIC_ADMIN_PASSWORD", "").strip()
+    daily_quota_env = os.getenv("AI_MUSIC_DEFAULT_DAILY_QUOTA")
+    default_daily_quota = int((daily_quota_env or "20").strip() or "20")
 
     data_dir_raw = os.getenv(
         "AI_MUSIC_DATA_DIR",
@@ -68,6 +75,8 @@ def load_settings() -> Settings:
         secrets = cfg.get("secrets") if isinstance(cfg.get("secrets"), dict) else {}
         endpoints = cfg.get("endpoints") if isinstance(cfg.get("endpoints"), dict) else {}
         proxy = cfg.get("proxy") if isinstance(cfg.get("proxy"), dict) else {}
+        auth_cfg = cfg.get("auth") if isinstance(cfg.get("auth"), dict) else {}
+        admin_cfg = cfg.get("admin") if isinstance(cfg.get("admin"), dict) else {}
 
         if not minimax_api_key:
             minimax_api_key = str(secrets.get("minimax_api_key") or "").strip()
@@ -82,11 +91,22 @@ def load_settings() -> Settings:
         dp = cfg.get("default_provider")
         if isinstance(dp, str) and dp.strip():
             default_provider = dp.strip()
-        if not admin_token:
-            at = cfg.get("admin_token")
-            if isinstance(at, str) and at.strip():
-                admin_token = at.strip()
-
+        if not jwt_secret:
+            jwt_secret = str(auth_cfg.get("jwt_secret") or cfg.get("jwt_secret") or "").strip()
+        if not admin_username:
+            admin_username = str(
+                admin_cfg.get("username") or auth_cfg.get("admin_username") or cfg.get("admin_username") or ""
+            ).strip()
+        if not admin_password:
+            admin_password = str(
+                admin_cfg.get("password") or auth_cfg.get("admin_password") or cfg.get("admin_password") or ""
+            ).strip()
+        if daily_quota_env is None:
+            quota_raw = admin_cfg.get("default_daily_quota", auth_cfg.get("default_daily_quota", cfg.get("default_daily_quota")))
+            if isinstance(quota_raw, int):
+                default_daily_quota = quota_raw
+            elif isinstance(quota_raw, str) and quota_raw.strip():
+                default_daily_quota = int(quota_raw.strip())
         # Proxy values (env overrides file)
         if not os.getenv("HTTP_PROXY") and not os.getenv("http_proxy"):
             p = proxy.get("http")
@@ -177,7 +197,10 @@ def load_settings() -> Settings:
         acestep_base_url=acestep_base_url,
         enabled_providers=enabled_providers,
         provider_ui_defaults=provider_ui_defaults,
-        admin_token=admin_token,
+        jwt_secret=jwt_secret,
+        admin_username=admin_username,
+        admin_password=admin_password,
+        default_daily_quota=default_daily_quota,
         proxy_http=proxy_http,
         proxy_https=proxy_https,
         proxy_no=proxy_no,

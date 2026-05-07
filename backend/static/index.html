@@ -1283,6 +1283,19 @@
           align-items: start;
         }
         .app-header { grid-column: 1 / -1; }
+        #authCard,
+        #accountBar,
+        .tab-bar,
+        #appContent,
+        #discoverContent {
+          grid-column: 1 / -1;
+        }
+        #appContent.app-content {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+          gap: var(--space-lg);
+          align-items: start;
+        }
         .card-create { grid-column: 1; }
         .right-column {
           grid-column: 2;
@@ -1350,6 +1363,116 @@
       .card:nth-child(2) { animation-delay: 0.05s; }
       .card:nth-child(3) { animation-delay: 0.1s; }
       .card:nth-child(4) { animation-delay: 0.15s; }
+
+      .app-content {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-lg);
+      }
+
+      .hidden {
+        display: none !important;
+      }
+
+      .auth-mode {
+        display: inline-flex;
+        padding: 3px;
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-md);
+        background: var(--color-bg-surface);
+        margin-bottom: var(--space-md);
+      }
+
+      .auth-mode-btn {
+        min-height: 34px;
+        padding: 6px 14px;
+        border: none;
+        border-radius: var(--radius-sm);
+        background: transparent;
+        color: var(--color-text-secondary);
+        cursor: pointer;
+        font: inherit;
+      }
+
+      .auth-mode-btn.active {
+        background: var(--color-primary);
+        color: white;
+      }
+
+      .account-bar,
+      .tab-bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--space-sm);
+        flex-wrap: wrap;
+      }
+
+      .tab-actions {
+        display: inline-flex;
+        padding: 3px;
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-md);
+        background: var(--color-bg-card);
+      }
+
+      .tab-btn {
+        min-height: 34px;
+        padding: 6px 12px;
+        border: none;
+        border-radius: var(--radius-sm);
+        background: transparent;
+        color: var(--color-text-secondary);
+        cursor: pointer;
+        font: inherit;
+      }
+
+      .tab-btn.active {
+        background: var(--color-primary);
+        color: white;
+      }
+
+      .quota-pill {
+        padding: 6px 10px;
+        border-radius: var(--radius-md);
+        background: var(--color-bg-subtle);
+        color: var(--color-text-secondary);
+        font-size: 13px;
+      }
+
+      .community-list {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-md);
+      }
+
+      .community-item {
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-md);
+        padding: var(--space-md);
+        background: var(--color-bg-card);
+      }
+
+      .share-control {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--space-xs);
+        flex-wrap: wrap;
+      }
+
+      .share-control select {
+        width: auto;
+        min-height: 32px;
+        padding: 4px 8px;
+      }
+
+      @media (max-width: 640px) {
+        .auth-mode { width: 100%; }
+        .auth-mode-btn { flex: 1; }
+        .account-bar { align-items: stretch; }
+        .tab-actions { width: 100%; }
+        .tab-btn { flex: 1; }
+      }
     </style>
   </head>
   <body>
@@ -1365,6 +1488,63 @@
         <p class="app-tagline">简洁优雅的 AI 音乐创作工具</p>
       </header>
 
+      <div class="card card-primary" id="authCard">
+        <div class="card-header">
+          <span class="card-icon"><svg class="icon icon-lg" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></span>
+          <h2 class="card-title">账户访问</h2>
+        </div>
+        <div class="auth-mode" role="tablist" aria-label="账户访问方式">
+          <button id="showLoginBtn" class="auth-mode-btn active" type="button">登录</button>
+          <button id="showRegisterBtn" class="auth-mode-btn" type="button">注册</button>
+        </div>
+        <div id="loginPanel">
+          <div class="form-group">
+            <label for="loginUsername">用户名</label>
+            <input id="loginUsername" type="text" autocomplete="username">
+          </div>
+          <div class="form-group">
+            <label for="loginPassword">密码</label>
+            <input id="loginPassword" type="password" autocomplete="current-password">
+          </div>
+          <button id="loginBtn" class="btn btn-primary">登录</button>
+        </div>
+        <div id="registerPanel" class="hidden">
+          <div class="form-group">
+            <label for="registerUsername">用户名</label>
+            <input id="registerUsername" type="text" autocomplete="username">
+          </div>
+          <div class="form-group">
+            <label for="registerPassword">密码</label>
+            <input id="registerPassword" type="password" autocomplete="new-password">
+          </div>
+          <div class="form-group">
+            <label for="registerInvite">邀请码</label>
+            <input id="registerInvite" type="text" autocomplete="off">
+          </div>
+          <button id="registerBtn" class="btn btn-secondary">注册并登录</button>
+        </div>
+        <div id="authError" class="error-message" style="display:none;"></div>
+      </div>
+
+      <div class="card hidden" id="accountBar">
+        <div class="account-bar">
+          <div>
+            <strong id="accountName">-</strong>
+            <span id="accountRole" class="quota-pill">user</span>
+          </div>
+          <div class="quota-pill" id="quotaInfo">今日配额：-</div>
+          <button id="logoutBtn" class="btn btn-secondary btn-sm">退出</button>
+        </div>
+      </div>
+
+      <div class="tab-bar">
+        <div class="tab-actions">
+          <button id="tabCreate" class="tab-btn active">创作</button>
+          <button id="tabDiscover" class="tab-btn">发现</button>
+        </div>
+      </div>
+
+      <div id="appContent" class="app-content hidden">
       <!-- ========================================
            Create Card
            ======================================== -->
@@ -1676,8 +1856,18 @@
           </div>
         </div>
 
-        <div id="list" class="job-list"></div>
+      <div id="list" class="job-list"></div>
       </div>
+      </div>
+      </div>
+
+      <div id="discoverContent" class="card hidden">
+        <div class="card-header">
+          <span class="card-icon"><svg class="icon icon-lg" viewBox="0 0 24 24"><path d="M12 2l3 7 7 1-5 5 1 7-6-3-6 3 1-7-5-5 7-1z"/></svg></span>
+          <h2 class="card-title">发现</h2>
+          <button id="refreshCommunityBtn" class="btn btn-secondary btn-sm" style="margin-left:auto;">刷新</button>
+        </div>
+        <div id="communityList" class="community-list"></div>
       </div>
     </div>
 
@@ -1775,6 +1965,21 @@
       const lyricsRowEl = document.getElementById("lyricsRow");
       const lyricsEl = document.getElementById("lyrics");
       const lyricsHintEl = document.getElementById("lyricsHint");
+      const authCard = document.getElementById("authCard");
+      const authErrorEl = document.getElementById("authError");
+      const loginPanel = document.getElementById("loginPanel");
+      const registerPanel = document.getElementById("registerPanel");
+      const showLoginBtn = document.getElementById("showLoginBtn");
+      const showRegisterBtn = document.getElementById("showRegisterBtn");
+      const accountBar = document.getElementById("accountBar");
+      const accountNameEl = document.getElementById("accountName");
+      const accountRoleEl = document.getElementById("accountRole");
+      const quotaInfoEl = document.getElementById("quotaInfo");
+      const appContent = document.getElementById("appContent");
+      const discoverContent = document.getElementById("discoverContent");
+      const communityListEl = document.getElementById("communityList");
+      const tabCreateBtn = document.getElementById("tabCreate");
+      const tabDiscoverBtn = document.getElementById("tabDiscover");
 
       // ========================================
       // State
@@ -1785,6 +1990,8 @@
       let currentJobs = [];
       let currentJobSongId = null;
       let currentJobProvider = null;
+      let currentUser = null;
+      let authToken = localStorage.getItem("you2music.jwt") || "";
       let pollTimer = null;
       let providersMeta = null;
 
@@ -1793,6 +2000,7 @@
       let historyTotal = 0;
       let historyJobs = [];
       const liveJobsById = new Map();
+      const audioBlobUrlsByUrl = new Map();
 
       // Composition Plan State
       let cpState = {
@@ -1827,16 +2035,272 @@
         errorEl.style.display = msg ? "block" : "none";
       }
 
+      function setAuthError(msg) {
+        authErrorEl.textContent = msg || "";
+        authErrorEl.style.display = msg ? "block" : "none";
+      }
+
+      function errorMessage(err) {
+        return err && err.message ? String(err.message) : String(err || "请求失败");
+      }
+
+      function formatApiError(data, fallback) {
+        if (!data) return fallback || "请求失败";
+        const detail = data.detail !== undefined ? data.detail : (data.error !== undefined ? data.error : data.raw);
+        if (Array.isArray(detail)) {
+          const lines = detail.map(item => {
+            if (!item || typeof item !== "object") return String(item);
+            const field = Array.isArray(item.loc) ? item.loc.filter(x => x !== "body").join(".") : "";
+            return formatValidationItem(field, item);
+          }).filter(Boolean);
+          return lines.length ? lines.join("\n") : (fallback || "输入不符合要求");
+        }
+        if (detail && typeof detail === "object") {
+          if (detail.msg || detail.message) return String(detail.msg || detail.message);
+          try { return JSON.stringify(detail); } catch { return fallback || "请求失败"; }
+        }
+        return String(detail || fallback || "请求失败");
+      }
+
+      function fieldLabel(field) {
+        const labels = {
+          username: "用户名",
+          password: "密码",
+          invite_code: "邀请码",
+          old_password: "当前密码",
+          new_password: "新密码"
+        };
+        return labels[field] || field || "输入";
+      }
+
+      function formatValidationItem(field, item) {
+        const label = fieldLabel(field);
+        const type = item.type || "";
+        const ctx = item.ctx || {};
+        if (type === "missing") return `请填写${label}`;
+        if (type === "string_too_short") return `${label}至少需要 ${ctx.min_length || 1} 个字符`;
+        if (type === "string_too_long") return `${label}不能超过 ${ctx.max_length || "限制"} 个字符`;
+        if (type === "string_pattern_mismatch") return `${label}格式不正确`;
+        if (type === "string_type") return `${label}必须是文本`;
+        return `${label}: ${item.msg || item.message || "输入不符合要求"}`;
+      }
+
+      function showAuthMode(mode) {
+        const isRegister = mode === "register";
+        loginPanel.classList.toggle("hidden", isRegister);
+        registerPanel.classList.toggle("hidden", !isRegister);
+        showLoginBtn.classList.toggle("active", !isRegister);
+        showRegisterBtn.classList.toggle("active", isRegister);
+        setAuthError("");
+      }
+
       async function fetchJson(url, opts) {
-        const res = await fetch(url, opts);
+        const nextOpts = Object.assign({}, opts || {});
+        const headers = Object.assign({}, nextOpts.headers || {});
+        if (authToken && !headers.authorization && !headers.Authorization) {
+          headers.Authorization = `Bearer ${authToken}`;
+        }
+        nextOpts.headers = headers;
+        const res = await fetch(url, nextOpts);
         const text = await res.text();
         let data;
         try { data = text ? JSON.parse(text) : {}; } catch { data = { raw: text }; }
         if (!res.ok) {
-          const detail = data && (data.detail || data.error || data.raw) ? (data.detail || data.error || data.raw) : text;
-          throw new Error(detail || `HTTP ${res.status}`);
+          throw new Error(formatApiError(data, text || `HTTP ${res.status}`));
         }
         return data;
+      }
+
+      async function getAuthenticatedAudioUrl(url) {
+        if (!url || !authToken) return url;
+        if (audioBlobUrlsByUrl.has(url)) return audioBlobUrlsByUrl.get(url);
+
+        const res = await fetch(url, { headers: { Authorization: `Bearer ${authToken}` } });
+        if (!res.ok) {
+          const text = await res.text();
+          let data = {};
+          try { data = text ? JSON.parse(text) : {}; } catch { data = { raw: text }; }
+          throw new Error(formatApiError(data, text || `HTTP ${res.status}`));
+        }
+        const blob = await res.blob();
+        const blobUrl = URL.createObjectURL(blob);
+        audioBlobUrlsByUrl.set(url, blobUrl);
+        return blobUrl;
+      }
+
+      function revokeAudioBlobUrls() {
+        for (const url of audioBlobUrlsByUrl.values()) {
+          URL.revokeObjectURL(url);
+        }
+        audioBlobUrlsByUrl.clear();
+      }
+
+      function attachAuthenticatedAudio(audioEl, url) {
+        audioEl.removeAttribute("src");
+        audioEl.load();
+        getAuthenticatedAudioUrl(url)
+          .then(src => {
+            audioEl.src = src;
+          })
+          .catch(e => {
+            setError(errorMessage(e));
+          });
+      }
+
+      function setMainPlayerAudio(job) {
+        if (!job || !job.audio_url) {
+          player.removeAttribute("src");
+          player.load();
+          downloadLink.style.display = "none";
+          extendGroup.style.display = "none";
+          return;
+        }
+        player.removeAttribute("src");
+        player.load();
+        getAuthenticatedAudioUrl(job.audio_url)
+          .then(src => {
+            player.src = src;
+            downloadLink.href = src;
+            downloadLink.setAttribute("download", `${job.job_id || "audio"}.mp3`);
+            downloadLink.style.display = "inline";
+            extendGroup.style.display = "inline-flex";
+          })
+          .catch(e => {
+            downloadLink.style.display = "none";
+            extendGroup.style.display = "none";
+            setError(errorMessage(e));
+          });
+      }
+
+      function updateQuotaDisplay(user) {
+        const quota = user && user.quota ? user.quota : null;
+        if (!quota) {
+          quotaInfoEl.textContent = "今日配额：-";
+          return;
+        }
+        quotaInfoEl.textContent = `今日配额：${quota.used}/${quota.limit}，剩余 ${quota.remaining}`;
+      }
+
+      function setSession(token, user) {
+        authToken = token || "";
+        currentUser = user || null;
+        if (authToken) localStorage.setItem("you2music.jwt", authToken);
+        else localStorage.removeItem("you2music.jwt");
+
+        const loggedIn = Boolean(currentUser && authToken);
+        authCard.classList.toggle("hidden", loggedIn);
+        accountBar.classList.toggle("hidden", !loggedIn);
+        tabCreateBtn.disabled = !loggedIn;
+        if (loggedIn) {
+          accountNameEl.textContent = currentUser.username || "-";
+          accountRoleEl.textContent = currentUser.role || "user";
+          updateQuotaDisplay(currentUser);
+          showTab("create");
+        } else {
+          accountNameEl.textContent = "-";
+          accountRoleEl.textContent = "user";
+          updateQuotaDisplay(null);
+          showTab("discover");
+        }
+      }
+
+      function showTab(name) {
+        const canCreate = Boolean(currentUser && authToken);
+        const createActive = name === "create" && canCreate;
+        appContent.classList.toggle("hidden", !createActive);
+        discoverContent.classList.toggle("hidden", name !== "discover" && createActive);
+        tabCreateBtn.classList.toggle("active", createActive);
+        tabDiscoverBtn.classList.toggle("active", name === "discover" || !createActive);
+        if (name === "discover" || !createActive) {
+          loadCommunity().catch(e => setError(String(e)));
+        }
+      }
+
+      async function refreshCurrentUser() {
+        if (!authToken) {
+          setSession("", null);
+          return;
+        }
+        try {
+          const data = await fetchJson("/api/auth/me");
+          setSession(authToken, data.user);
+          await initProviders();
+          await loadHistoryPage(0);
+        } catch (e) {
+          setSession("", null);
+          setAuthError("登录已过期，请重新登录。");
+        }
+      }
+
+      async function login() {
+        setAuthError("");
+        const username = document.getElementById("loginUsername").value.trim();
+        const password = document.getElementById("loginPassword").value;
+        const data = await fetchJson("/api/auth/login", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ username, password })
+        });
+        setSession(data.token, data.user);
+        await initProviders();
+        await loadHistoryPage(0);
+      }
+
+      async function registerAccount() {
+        setAuthError("");
+        const username = document.getElementById("registerUsername").value.trim();
+        const password = document.getElementById("registerPassword").value;
+        const invite_code = document.getElementById("registerInvite").value.trim();
+        const data = await fetchJson("/api/auth/register", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ username, password, invite_code })
+        });
+        setSession(data.token, data.user);
+        await initProviders();
+        await loadHistoryPage(0);
+      }
+
+      async function loadCommunity() {
+        communityListEl.innerHTML = '<div class="muted">加载中…</div>';
+        const data = await fetchJson("/api/community");
+        const jobs = data.jobs || [];
+        if (!jobs.length) {
+          communityListEl.innerHTML = '<div class="muted">暂无公开作品。</div>';
+          return;
+        }
+        communityListEl.innerHTML = "";
+        for (const job of jobs) {
+          const item = document.createElement("div");
+          item.className = "community-item";
+          const title = document.createElement("div");
+          title.style.fontWeight = "600";
+          title.textContent = _shortText(job.prompt || "未命名作品", 90);
+          item.appendChild(title);
+
+          const meta = document.createElement("div");
+          meta.className = "muted";
+          meta.textContent = `${job.provider || "-"} · ${job.share_permission === "downloadable" ? "可下载" : "仅试听"}`;
+          item.appendChild(meta);
+
+          if (job.audio_url) {
+            const audio = document.createElement("audio");
+            audio.controls = true;
+            audio.preload = "metadata";
+            audio.src = job.audio_url;
+            audio.style.marginTop = "8px";
+            item.appendChild(audio);
+          }
+          if (job.download_url) {
+            const link = document.createElement("a");
+            link.href = job.download_url;
+            link.className = "btn btn-primary btn-sm";
+            link.style.marginTop = "8px";
+            link.textContent = "下载";
+            item.appendChild(link);
+          }
+          communityListEl.appendChild(item);
+        }
       }
 
       function loadHistoryPageSizePref() {
@@ -2944,7 +3408,7 @@
                     const a = document.createElement("audio");
                     a.controls = true;
                     a.preload = "metadata";
-                    a.src = j.audio_url;
+                    attachAuthenticatedAudio(a, j.audio_url);
                     existingRow.appendChild(a);
                   }
                 }
@@ -3016,6 +3480,50 @@
         });
 
         right.appendChild(restoreBtn);
+        if (j.status === "succeeded") {
+          const shareWrap = document.createElement("span");
+          shareWrap.className = "share-control";
+
+          if (j.visibility === "published") {
+            const unpublishBtn = document.createElement("button");
+            unpublishBtn.className = "btn btn-secondary btn-sm";
+            unpublishBtn.textContent = "取消发布";
+            unpublishBtn.addEventListener("click", async (e) => {
+              e.stopPropagation();
+              try {
+                await fetchJson(`/api/jobs/${j.job_id}/unpublish`, { method: "POST" });
+                await loadHistoryPage(historyOffset);
+                loadCommunity().catch(() => {});
+              } catch (err) {
+                setError(`取消发布失败：${String(err)}`);
+              }
+            });
+            shareWrap.appendChild(unpublishBtn);
+          } else {
+            const permSelect = document.createElement("select");
+            permSelect.innerHTML = '<option value="listen_only">仅试听</option><option value="downloadable">可下载</option>';
+            const publishBtn = document.createElement("button");
+            publishBtn.className = "btn btn-secondary btn-sm";
+            publishBtn.textContent = "发布";
+            publishBtn.addEventListener("click", async (e) => {
+              e.stopPropagation();
+              try {
+                await fetchJson(`/api/jobs/${j.job_id}/publish`, {
+                  method: "POST",
+                  headers: { "content-type": "application/json" },
+                  body: JSON.stringify({ share_permission: permSelect.value })
+                });
+                await loadHistoryPage(historyOffset);
+                loadCommunity().catch(() => {});
+              } catch (err) {
+                setError(`发布失败：${String(err)}`);
+              }
+            });
+            shareWrap.appendChild(permSelect);
+            shareWrap.appendChild(publishBtn);
+          }
+          right.appendChild(shareWrap);
+        }
         right.appendChild(deleteBtn);
         header.appendChild(left);
         header.appendChild(right);
@@ -3025,7 +3533,7 @@
           const a = document.createElement("audio");
           a.controls = true;
           a.preload = "metadata";
-          a.src = j.audio_url;
+          attachAuthenticatedAudio(a, j.audio_url);
           row.appendChild(a);
 
           const timeEl = document.createElement("div");
@@ -3041,13 +3549,9 @@
           jobIdEl.textContent = currentJobId;
           setError("");
           if (j.audio_url) {
-            player.src = j.audio_url;
-            downloadLink.href = j.audio_url;
-            downloadLink.style.display = "inline";
-            extendGroup.style.display = "inline-flex";
+            setMainPlayerAudio(j);
           } else {
-            downloadLink.style.display = "none";
-            extendGroup.style.display = "none";
+            setMainPlayerAudio(null);
           }
         });
 
@@ -3105,6 +3609,10 @@
           const newIds = data.job_ids || [];
           currentJobs = newIds;
           currentJobId = newIds[0] || null;
+          if (data.quota && currentUser) {
+            currentUser.quota = data.quota;
+            updateQuotaDisplay(currentUser);
+          }
         } else {
           const data = await fetchJson("/api/generate", {
             method: "POST",
@@ -3113,6 +3621,10 @@
           });
           currentJobId = data.job_id;
           currentJobs = [currentJobId];
+          if (data.quota && currentUser) {
+            currentUser.quota = data.quota;
+            updateQuotaDisplay(currentUser);
+          }
         }
 
         jobIdEl.textContent = currentJobId || "-";
@@ -3171,10 +3683,7 @@
           }
 
           if (current && current.audio_url) {
-            player.src = current.audio_url;
-            downloadLink.href = current.audio_url;
-            downloadLink.style.display = "inline";
-            extendGroup.style.display = "inline-flex";
+            setMainPlayerAudio(current);
 
             if (currentJobProvider === "elevenlabs" && currentJobSongId) {
               stemsSection.style.display = "block";
@@ -3245,6 +3754,10 @@
         const newJobId = data.job_id;
         currentJobs = [newJobId];
         currentJobId = newJobId;
+        if (data.quota && currentUser) {
+          currentUser.quota = data.quota;
+          updateQuotaDisplay(currentUser);
+        }
         jobIdEl.textContent = newJobId;
         refreshBtn.style.display = "inline-flex";
         extendGroup.style.display = "none";
@@ -3636,7 +4149,29 @@
         });
       }
 
-      initProviders().then(() => loadHistoryPage(0));
+      document.getElementById("loginBtn").addEventListener("click", () => {
+        login().catch(e => setAuthError(errorMessage(e)));
+      });
+      document.getElementById("registerBtn").addEventListener("click", () => {
+        registerAccount().catch(e => setAuthError(errorMessage(e)));
+      });
+      showLoginBtn.addEventListener("click", () => showAuthMode("login"));
+      showRegisterBtn.addEventListener("click", () => showAuthMode("register"));
+      document.getElementById("logoutBtn").addEventListener("click", () => {
+        setSession("", null);
+        providersMeta = null;
+        historyJobs = [];
+        listEl.innerHTML = "";
+        revokeAudioBlobUrls();
+        setMainPlayerAudio(null);
+      });
+      tabCreateBtn.addEventListener("click", () => showTab("create"));
+      tabDiscoverBtn.addEventListener("click", () => showTab("discover"));
+      document.getElementById("refreshCommunityBtn").addEventListener("click", () => {
+        loadCommunity().catch(e => setError(String(e)));
+      });
+
+      refreshCurrentUser();
 
       refreshBtn.addEventListener("click", () => {
         if (!currentJobs || currentJobs.length === 0) return;

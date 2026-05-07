@@ -44,6 +44,17 @@ def redacted_config(cfg: dict[str, Any]) -> dict[str, Any]:
         for k, v in list(secrets_obj.items()):
             if isinstance(v, str) and v:
                 secrets_obj[k] = "********"
+    for key in ("jwt_secret", "admin_password"):
+        if isinstance(out.get(key), str) and out.get(key):
+            out[key] = "********"
+    auth_obj = out.get("auth")
+    if isinstance(auth_obj, dict):
+        for key in ("jwt_secret", "admin_password"):
+            if isinstance(auth_obj.get(key), str) and auth_obj.get(key):
+                auth_obj[key] = "********"
+    admin_obj = out.get("admin")
+    if isinstance(admin_obj, dict) and isinstance(admin_obj.get("password"), str) and admin_obj.get("password"):
+        admin_obj["password"] = "********"
     if isinstance(out.get("admin_token"), str) and out.get("admin_token"):
         out["admin_token"] = "********"
     return out

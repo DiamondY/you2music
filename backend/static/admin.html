@@ -3,458 +3,357 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>you2music - 配置</title>
+    <title>you2music - 管理后台</title>
     <style>
       :root { color-scheme: light dark; }
-      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 24px; max-width: 980px; }
-      textarea, input, select, button { width: 100%; padding: 10px; font-size: 14px; box-sizing: border-box; }
+      * { box-sizing: border-box; }
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans SC", sans-serif; margin: 24px; max-width: 1100px; line-height: 1.5; }
+      h1, h2, h3 { margin: 0 0 12px; }
+      input, select, textarea, button { width: 100%; padding: 10px; font-size: 14px; font-family: inherit; }
       textarea { min-height: 260px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
       label { display:block; margin: 10px 0 6px; font-weight: 600; }
-      .card { border: 1px solid rgba(127,127,127,.35); border-radius: 12px; padding: 16px; margin-top: 14px; }
-      .actions { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
-      .actions button { width: auto; padding: 10px 14px; cursor: pointer; }
+      table { width: 100%; border-collapse: collapse; }
+      th, td { border-bottom: 1px solid rgba(127,127,127,.25); padding: 8px; text-align: left; vertical-align: middle; }
+      th { font-size: 13px; opacity: .8; }
+      .card { border: 1px solid rgba(127,127,127,.35); border-radius: 10px; padding: 16px; margin-top: 14px; }
+      .actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+      .actions button, .actions a { width: auto; }
+      .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
       .muted { opacity: .8; font-size: 13px; }
       .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-      .err { color: #b00020; white-space: pre-wrap; }
+      .err { color: #b00020; white-space: pre-wrap; margin-top: 8px; }
       .ok { color: #1b7f3a; }
+      .hidden { display: none !important; }
+      .danger { color: #b00020; border: 1px solid #b00020; background: transparent; }
+      @media (max-width: 760px) {
+        body { margin: 14px; }
+        .grid { grid-template-columns: 1fr; }
+        table, thead, tbody, tr, th, td { display: block; }
+        th { display: none; }
+        td { border-bottom: none; padding: 6px 0; }
+        tr { border-bottom: 1px solid rgba(127,127,127,.25); padding: 8px 0; }
+      }
     </style>
   </head>
   <body>
-    <h1>配置管理</h1>
-    <p class="muted">
-      该页面用于编辑 <span class="mono">config/providers.local.json</span>。
-      需要设置 <span class="mono">AI_MUSIC_ADMIN_TOKEN</span>（或在配置文件中设置 <span class="mono">admin_token</span>）后才能保存。
-    </p>
+    <h1>管理后台</h1>
+    <p class="muted">所有管理员操作使用 JWT 登录态；旧的 admin_token 不再用于接口鉴权。</p>
 
-    <div class="card">
-      <label for="token">Admin Token</label>
-      <input id="token" placeholder="填写 admin token（会保存在浏览器 localStorage）" />
+    <div class="card" id="loginCard">
+      <h2>登录</h2>
+      <div class="grid">
+        <div>
+          <label for="username">用户名</label>
+          <input id="username" autocomplete="username">
+        </div>
+        <div>
+          <label for="password">密码</label>
+          <input id="password" type="password" autocomplete="current-password">
+        </div>
+      </div>
       <div class="actions" style="margin-top: 10px;">
-        <button id="loadBtn">加载</button>
-        <button id="saveBtn">保存</button>
-        <button id="applyBtn">应用</button>
-        <button id="toggleJsonBtn">显示 JSON</button>
-        <span id="status" class="muted"></span>
+        <button id="loginBtn">登录</button>
+        <span id="loginStatus" class="muted"></span>
       </div>
-      <div id="error" class="err"></div>
+      <div id="loginError" class="err"></div>
     </div>
 
-    <div class="card" id="formCard" style="display:none;">
-      <h3 style="margin-top:0;">基础设置</h3>
-      <div class="actions">
-        <div style="flex:1; min-width: 220px;">
-          <label for="defaultProvider">默认 Provider</label>
-          <select id="defaultProvider"></select>
-        </div>
-        <div style="flex:1; min-width: 220px;">
-          <label for="enabledProviders">启用 Providers</label>
-          <div id="enabledProviders" class="muted"></div>
+    <div id="adminApp" class="hidden">
+      <div class="card">
+        <div class="actions" style="justify-content: space-between;">
+          <div>
+            <strong id="accountName">-</strong>
+            <span class="muted" id="accountRole"></span>
+          </div>
+          <div class="actions">
+            <a href="/" class="muted">返回首页</a>
+            <button id="logoutBtn">退出</button>
+          </div>
         </div>
       </div>
 
-      <div style="margin-top: 10px; border-top: 1px solid rgba(127,127,127,.25); padding-top: 10px;">
-        <div class="muted">管理口令（可选）：不修改则保持不变。</div>
-        <div class="actions" style="margin-top:8px;">
-          <label style="display:flex; gap:8px; align-items:center; width:auto;">
-            <input type="checkbox" id="adminTokenUpdate" style="width:auto;" />
-            更新 admin_token
-          </label>
-          <label style="display:flex; gap:8px; align-items:center; width:auto;">
-            <input type="checkbox" id="adminTokenClear" style="width:auto;" />
-            清空 admin_token
-          </label>
+      <div class="card">
+        <div class="actions" style="justify-content: space-between;">
+          <h2>用户管理</h2>
+          <button id="reloadUsersBtn">刷新</button>
         </div>
-        <input id="adminTokenValue" type="password" placeholder="留空表示不改；勾选“更新”后用此值覆盖" />
-        <div class="muted" style="margin-top:6px;">提示：如果清空 admin_token 且未设置 AI_MUSIC_ADMIN_TOKEN，将无法访问 /api/admin/*。</div>
+        <div id="usersOut"></div>
       </div>
-    </div>
 
-    <div class="card" id="proxyCard" style="display:none;">
-      <h3 style="margin-top:0;">代理（全局）</h3>
-      <div class="row">
-        <div>
-          <label for="proxyHttp">HTTP_PROXY</label>
-          <input id="proxyHttp" placeholder="例如 http://127.0.0.1:7890" />
+      <div class="card">
+        <div class="actions" style="justify-content: space-between;">
+          <h2>邀请码</h2>
+          <button id="createInviteBtn">生成邀请码</button>
         </div>
-        <div>
-          <label for="proxyHttps">HTTPS_PROXY</label>
-          <input id="proxyHttps" placeholder="例如 http://127.0.0.1:7890" />
+        <div id="inviteStatus" class="muted"></div>
+        <div id="inviteOut" style="margin-top:10px;"></div>
+      </div>
+
+      <div class="card">
+        <div class="actions" style="justify-content: space-between;">
+          <h2>Provider 配置</h2>
+          <div class="actions">
+            <button id="loadConfigBtn">加载</button>
+            <button id="saveConfigBtn">保存</button>
+            <button id="reloadConfigBtn">应用</button>
+            <button id="testBtn">测试</button>
+          </div>
         </div>
-      </div>
-      <label for="proxyNo">NO_PROXY</label>
-      <input id="proxyNo" placeholder="例如 127.0.0.1,localhost" />
-      <div class="muted" style="margin-top:8px;">保存后会映射到环境变量，供后端请求（httpx/urllib）使用。</div>
-    </div>
-
-    <div class="card" id="secretsCard" style="display:none;">
-      <h3 style="margin-top:0;">密钥（Secrets）</h3>
-      <div class="muted">不改的密钥会保持不变；勾选“更新”后才会覆盖。</div>
-      <div id="secretsForm"></div>
-    </div>
-
-    <div class="card" id="endpointsCard" style="display:none;">
-      <h3 style="margin-top:0;">Endpoints</h3>
-      <div id="endpointsForm"></div>
-    </div>
-
-    <div class="card" id="testCard" style="display:none;">
-      <h3 style="margin-top:0;">连通性测试（含代理）</h3>
-      <div class="muted">用于快速确认各 provider 的密钥与网络连通性。默认不做真实生成（避免消耗额度）。</div>
-      <div class="actions" style="margin-top:10px;">
-        <button id="testBtn">运行测试</button>
-      </div>
-      <div id="testOut" class="mono muted" style="white-space:pre-wrap; margin-top:10px;"></div>
-    </div>
-
-    <div class="card" id="defaultsCard" style="display:none;">
-      <h3 style="margin-top:0;">Provider 参数默认值（UI Defaults）</h3>
-      <div class="actions">
-        <label style="display:flex; gap:8px; align-items:center; width:auto;">
-          <input type="checkbox" id="showAdvancedDefaults" style="width:auto;" />
-          显示高级字段
-        </label>
-      </div>
-      <div id="defaultsForm"></div>
-    </div>
-
-    <div class="card" id="jsonCard" style="display:none;">
-      <label for="json">高级：直接编辑 providers.local.json</label>
-      <textarea id="json" spellcheck="false"></textarea>
-      <div class="muted" style="margin-top: 8px;">
-        注意：加载时会把 secrets/admin_token 打码为 <span class="mono">********</span>。保存时如果保持 <span class="mono">********</span>，后端会保留原值。
+        <textarea id="configJson" spellcheck="false"></textarea>
+        <div class="muted">保存时会移除旧的 <span class="mono">admin_token</span> 字段；密钥保持 <span class="mono">********</span> 时后端会保留原值。</div>
+        <div id="configStatus" class="muted"></div>
+        <div id="configError" class="err"></div>
+        <pre id="testOut" class="mono muted" style="white-space:pre-wrap;"></pre>
       </div>
     </div>
 
     <script>
-      const tokenEl = document.getElementById("token");
-      const jsonEl = document.getElementById("json");
-      const statusEl = document.getElementById("status");
-      const errorEl = document.getElementById("error");
-      const formCard = document.getElementById("formCard");
-      const proxyCard = document.getElementById("proxyCard");
-      const secretsCard = document.getElementById("secretsCard");
-      const endpointsCard = document.getElementById("endpointsCard");
-      const defaultsCard = document.getElementById("defaultsCard");
-      const jsonCard = document.getElementById("jsonCard");
+      let authToken = localStorage.getItem("you2music.jwt") || "";
+      let currentUser = null;
 
-      const defaultProviderEl = document.getElementById("defaultProvider");
-      const enabledProvidersEl = document.getElementById("enabledProviders");
-      const proxyHttpEl = document.getElementById("proxyHttp");
-      const proxyHttpsEl = document.getElementById("proxyHttps");
-      const proxyNoEl = document.getElementById("proxyNo");
-      const secretsFormEl = document.getElementById("secretsForm");
-      const endpointsFormEl = document.getElementById("endpointsForm");
-      const defaultsFormEl = document.getElementById("defaultsForm");
-      const showAdvancedDefaultsEl = document.getElementById("showAdvancedDefaults");
-      const adminTokenUpdateEl = document.getElementById("adminTokenUpdate");
-      const adminTokenClearEl = document.getElementById("adminTokenClear");
-      const adminTokenValueEl = document.getElementById("adminTokenValue");
-      const testCard = document.getElementById("testCard");
+      const loginCard = document.getElementById("loginCard");
+      const adminApp = document.getElementById("adminApp");
+      const loginStatus = document.getElementById("loginStatus");
+      const loginError = document.getElementById("loginError");
+      const usersOut = document.getElementById("usersOut");
+      const inviteOut = document.getElementById("inviteOut");
+      const inviteStatus = document.getElementById("inviteStatus");
+      const configJson = document.getElementById("configJson");
+      const configStatus = document.getElementById("configStatus");
+      const configError = document.getElementById("configError");
       const testOut = document.getElementById("testOut");
 
-      let loadedConfig = null;
-      let providersMeta = null;
-
-      function setStatus(msg, ok) {
-        statusEl.textContent = msg || "";
-        statusEl.className = ok ? "muted ok" : "muted";
-      }
-      function setError(msg) { errorEl.textContent = msg || ""; }
-
       async function fetchJson(url, opts) {
-        const res = await fetch(url, opts);
+        const nextOpts = Object.assign({}, opts || {});
+        const headers = Object.assign({}, nextOpts.headers || {});
+        if (authToken) headers.Authorization = `Bearer ${authToken}`;
+        nextOpts.headers = headers;
+        const res = await fetch(url, nextOpts);
         const text = await res.text();
         let data = {};
         try { data = text ? JSON.parse(text) : {}; } catch { data = { raw: text }; }
-        if (!res.ok) throw new Error(data.detail || data.error || data.raw || text || `HTTP ${res.status}`);
+        if (!res.ok) throw new Error(formatApiError(data, text || `HTTP ${res.status}`));
         return data;
       }
 
-      function getToken() {
-        const t = tokenEl.value.trim();
-        if (t) localStorage.setItem("ai_music_admin_token", t);
-        return t;
+      function formatApiError(data, fallback) {
+        if (!data) return fallback || "请求失败";
+        const detail = data.detail !== undefined ? data.detail : (data.error !== undefined ? data.error : data.raw);
+        if (Array.isArray(detail)) {
+          const lines = detail.map(item => {
+            if (!item || typeof item !== "object") return String(item);
+            const field = Array.isArray(item.loc) ? item.loc.filter(x => x !== "body").join(".") : "";
+            return formatValidationItem(field, item);
+          }).filter(Boolean);
+          return lines.length ? lines.join("\n") : (fallback || "输入不符合要求");
+        }
+        if (detail && typeof detail === "object") {
+          if (detail.msg || detail.message) return String(detail.msg || detail.message);
+          try { return JSON.stringify(detail); } catch { return fallback || "请求失败"; }
+        }
+        return String(detail || fallback || "请求失败");
+      }
+
+      function fieldLabel(field) {
+        const labels = {
+          username: "用户名",
+          password: "密码",
+          invite_code: "邀请码",
+          old_password: "当前密码",
+          new_password: "新密码"
+        };
+        return labels[field] || field || "输入";
+      }
+
+      function formatValidationItem(field, item) {
+        const label = fieldLabel(field);
+        const type = item.type || "";
+        const ctx = item.ctx || {};
+        if (type === "missing") return `请填写${label}`;
+        if (type === "string_too_short") return `${label}至少需要 ${ctx.min_length || 1} 个字符`;
+        if (type === "string_too_long") return `${label}不能超过 ${ctx.max_length || "限制"} 个字符`;
+        if (type === "string_pattern_mismatch") return `${label}格式不正确`;
+        if (type === "string_type") return `${label}必须是文本`;
+        return `${label}: ${item.msg || item.message || "输入不符合要求"}`;
+      }
+
+      function errorMessage(err) {
+        return err && err.message ? String(err.message) : String(err || "请求失败");
+      }
+
+      function setSession(token, user) {
+        authToken = token || "";
+        currentUser = user || null;
+        if (authToken) localStorage.setItem("you2music.jwt", authToken);
+        else localStorage.removeItem("you2music.jwt");
+        const ok = Boolean(authToken && currentUser && currentUser.role === "admin");
+        loginCard.classList.toggle("hidden", ok);
+        adminApp.classList.toggle("hidden", !ok);
+        if (ok) {
+          document.getElementById("accountName").textContent = currentUser.username;
+          document.getElementById("accountRole").textContent = currentUser.role;
+        }
+      }
+
+      async function login() {
+        loginError.textContent = "";
+        loginStatus.textContent = "登录中…";
+        const username = document.getElementById("username").value.trim();
+        const password = document.getElementById("password").value;
+        const data = await fetchJson("/api/auth/login", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ username, password })
+        });
+        if (!data.user || data.user.role !== "admin") throw new Error("当前账户不是管理员");
+        setSession(data.token, data.user);
+        loginStatus.textContent = "";
+        await Promise.all([loadUsers(), loadInviteCodes(), loadConfig()]);
+      }
+
+      async function initSession() {
+        if (!authToken) {
+          setSession("", null);
+          return;
+        }
+        try {
+          const data = await fetchJson("/api/auth/me");
+          if (!data.user || data.user.role !== "admin") throw new Error("not admin");
+          setSession(authToken, data.user);
+          await Promise.all([loadUsers(), loadInviteCodes(), loadConfig()]);
+        } catch {
+          setSession("", null);
+        }
+      }
+
+      async function loadUsers() {
+        usersOut.innerHTML = '<div class="muted">加载中…</div>';
+        const data = await fetchJson("/api/admin/users");
+        const users = data.users || [];
+        if (!users.length) {
+          usersOut.innerHTML = '<div class="muted">暂无用户。</div>';
+          return;
+        }
+        const rows = users.map(u => `
+          <tr data-user-id="${u.id}">
+            <td>${u.id}</td>
+            <td>${escapeHtml(u.username)}</td>
+            <td>
+              <select data-field="role">
+                <option value="user" ${u.role === "user" ? "selected" : ""}>user</option>
+                <option value="admin" ${u.role === "admin" ? "selected" : ""}>admin</option>
+              </select>
+            </td>
+            <td><input type="number" min="0" data-field="daily_quota" value="${u.daily_quota}"></td>
+            <td><input type="checkbox" data-field="disabled" ${u.disabled ? "checked" : ""}></td>
+            <td class="actions">
+              <button data-action="save">保存</button>
+              <button class="danger" data-action="delete">删除</button>
+            </td>
+          </tr>
+        `).join("");
+        usersOut.innerHTML = `<table><thead><tr><th>ID</th><th>用户名</th><th>角色</th><th>每日配额</th><th>禁用</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table>`;
+      }
+
+      async function loadInviteCodes() {
+        const data = await fetchJson("/api/admin/invite-codes");
+        const codes = data.invite_codes || [];
+        if (!codes.length) {
+          inviteOut.innerHTML = '<div class="muted">暂无邀请码。</div>';
+          return;
+        }
+        inviteOut.innerHTML = codes.map(c => {
+          const state = c.used_by ? `已使用：用户 ${c.used_by}` : "未使用";
+          return `<div><span class="mono">${escapeHtml(c.code)}</span> <span class="muted">${state}</span></div>`;
+        }).join("");
+      }
+
+      async function createInviteCode() {
+        inviteStatus.textContent = "生成中…";
+        const data = await fetchJson("/api/admin/invite-codes", { method: "POST" });
+        inviteStatus.textContent = `新邀请码：${data.invite_code && data.invite_code.code ? data.invite_code.code : ""}`;
+        await loadInviteCodes();
+      }
+
+      async function saveUser(row) {
+        const userId = row.getAttribute("data-user-id");
+        const role = row.querySelector('[data-field="role"]').value;
+        const daily_quota = parseInt(row.querySelector('[data-field="daily_quota"]').value, 10);
+        const disabled = row.querySelector('[data-field="disabled"]').checked;
+        await fetchJson(`/api/admin/users/${userId}`, {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ role, daily_quota, disabled })
+        });
+        await loadUsers();
+      }
+
+      async function deleteUser(row) {
+        const userId = row.getAttribute("data-user-id");
+        if (!window.confirm("确定删除该用户？")) return;
+        await fetchJson(`/api/admin/users/${userId}`, { method: "DELETE" });
+        await loadUsers();
       }
 
       async function loadConfig() {
-        setError("");
-        setStatus("加载中…");
-        const t = getToken();
-        const [cfgResp, provResp] = await Promise.all([
-          fetchJson("/api/admin/config", { headers: { "x-admin-token": t } }),
-          fetchJson("/api/admin/providers", { headers: { "x-admin-token": t } })
-        ]);
-        loadedConfig = cfgResp.config || {};
-        providersMeta = provResp;
-        jsonEl.value = JSON.stringify(loadedConfig, null, 2);
-        renderFormFromConfig();
-        setStatus("已加载", true);
-      }
-
-      function renderFormFromConfig() {
-        formCard.style.display = "block";
-        proxyCard.style.display = "block";
-        secretsCard.style.display = "block";
-        endpointsCard.style.display = "block";
-        defaultsCard.style.display = "block";
-        testCard.style.display = "block";
-
-        const cfg = loadedConfig || {};
-        const providers = (providersMeta && providersMeta.providers) ? providersMeta.providers : [];
-        const allIds = providers.map(p => p.id);
-
-        // default provider
-        defaultProviderEl.innerHTML = allIds.map(id => `<option value="${id}">${id}</option>`).join("");
-        defaultProviderEl.value = cfg.default_provider || providersMeta.default_provider || (allIds[0] || "elevenlabs");
-
-        // enabled providers
-        const enabled = Array.isArray(cfg.enabled_providers) ? cfg.enabled_providers : (Array.isArray(allIds) ? allIds : []);
-        enabledProvidersEl.innerHTML = allIds.map(id => {
-          const checked = enabled.includes(id) ? "checked" : "";
-          return `<label style="display:block; margin:4px 0;"><input type="checkbox" data-enabled="${id}" style="width:auto;" ${checked}> ${id}</label>`;
-        }).join("");
-
-        // proxy
-        const proxy = (cfg.proxy && typeof cfg.proxy === "object") ? cfg.proxy : {};
-        proxyHttpEl.value = proxy.http || "";
-        proxyHttpsEl.value = proxy.https || "";
-        proxyNoEl.value = proxy.no_proxy || "127.0.0.1,localhost";
-
-        // secrets (provider-driven)
-        const secrets = (cfg.secrets && typeof cfg.secrets === "object") ? cfg.secrets : {};
-        const secretProviders = providers.filter(p => p.config_secret_key);
-        secretsFormEl.innerHTML = secretProviders.map(p => {
-          const key = p.config_secret_key;
-          const label = `${p.name} (${p.env_secret_name || key})`;
-          const masked = secrets[key] ? String(secrets[key]) : "";
-          return `
-            <div style="border:1px solid rgba(127,127,127,.25); border-radius:10px; padding:10px; margin-top:10px;">
-              <div class="muted">${label} <span class="mono">(${key})</span></div>
-              <div class="actions" style="margin-top:8px;">
-                <label style="display:flex; gap:8px; align-items:center; width:auto;">
-                  <input type="checkbox" data-secret-update="${key}" style="width:auto;" />
-                  更新
-                </label>
-                <label style="display:flex; gap:8px; align-items:center; width:auto;">
-                  <input type="checkbox" data-secret-clear="${key}" style="width:auto;" />
-                  清空
-                </label>
-              </div>
-              <input type="password" data-secret-value="${key}" placeholder="${masked ? '已配置（保持不变请不要勾选“更新”）' : '未配置'}" />
-            </div>
-          `;
-        }).join("");
-
-        // endpoints (provider-driven)
-        const endpoints = (cfg.endpoints && typeof cfg.endpoints === "object") ? cfg.endpoints : {};
-        const endpointDefs = [];
-        providers.forEach(p => {
-          if (Array.isArray(p.endpoints) && p.endpoints.length) {
-            p.endpoints.forEach(e => endpointDefs.push({ ...e, provider_name: p.name }));
-            return;
-          }
-          if (p.config_endpoint_key) {
-            endpointDefs.push({
-              key: p.config_endpoint_key,
-              env: p.env_endpoint_name || p.config_endpoint_key,
-              label: "Base URL",
-              provider_name: p.name
-            });
-          }
-        });
-        // De-dup by key (some providers may share a base URL key)
-        const endpointByKey = new Map();
-        endpointDefs.forEach(e => { if (e && e.key && !endpointByKey.has(e.key)) endpointByKey.set(e.key, e); });
-        endpointsFormEl.innerHTML = Array.from(endpointByKey.values()).map(e => {
-          const key = e.key;
-          const label = `${e.provider_name} ${e.label || ''} (${e.env || key})`.trim();
-          return `
-            <label>${label} <span class="mono">(${key})</span></label>
-            <input type="text" data-endpoint="${key}" value="${endpoints[key] || ''}" placeholder="留空则使用默认" />
-          `;
-        }).join("");
-
-        // defaults per provider (based on schema)
-        const uiDefaults = (cfg.ui_defaults && typeof cfg.ui_defaults === "object") ? cfg.ui_defaults : {};
-        defaultsFormEl.innerHTML = providers.map(p => {
-          const pid = p.id;
-          const pDefaults = (uiDefaults[pid] && typeof uiDefaults[pid] === "object") ? uiDefaults[pid] : {};
-          const fields = (p.fields || []);
-          const showAdvanced = showAdvancedDefaultsEl.checked;
-          const rendered = fields
-            .filter(f => showAdvanced || !f.advanced)
-            .map(f => {
-              const val = (pDefaults[f.key] !== undefined) ? pDefaults[f.key] : (f.default !== undefined ? f.default : "");
-              const k = `${pid}.${f.key}`;
-              if (f.kind === "boolean") {
-                const checked = val ? "checked" : "";
-                return `<label style="display:flex; gap:8px; align-items:center;">
-                  <input type="checkbox" data-uid="${k}" data-kind="boolean" style="width:auto;" ${checked} />
-                  ${f.label} <span class="mono">(${f.key})</span>
-                </label>`;
-              }
-              if (f.kind === "enum" && Array.isArray(f.enum)) {
-                const opts = f.enum.map(opt => {
-                  const sel = String(opt) === String(val) ? "selected" : "";
-                  return `<option value="${opt}" ${sel}>${opt}</option>`;
-                }).join("");
-                return `<label>${f.label} <span class="mono">(${f.key})</span></label>
-                  <select data-uid="${k}" data-kind="enum">${opts}</select>`;
-              }
-              const inputType = (f.kind === "integer" || f.kind === "number") ? "number" : "text";
-              const placeholder = (f.kind === "json") ? "JSON" : "";
-              return `<label>${f.label} <span class="mono">(${f.key})</span></label>
-                <input type="${inputType}" data-uid="${k}" data-kind="${f.kind}" value="${(val === null || val === undefined) ? '' : String(val).replaceAll('"','&quot;')}" placeholder="${placeholder}" />`;
-            })
-            .join("");
-          return `
-            <div style="border:1px solid rgba(127,127,127,.25); border-radius:10px; padding:10px; margin-top:10px;">
-              <div class="muted">${p.name} <span class="mono">(${pid})</span></div>
-              ${rendered || '<div class="muted">无可配置字段</div>'}
-            </div>
-          `;
-        }).join("");
-      }
-
-      function buildConfigFromForm() {
-        const cfg = JSON.parse(JSON.stringify(loadedConfig || {}));
-        cfg.default_provider = defaultProviderEl.value;
-
-        const enabled = [];
-        enabledProvidersEl.querySelectorAll("input[type=checkbox][data-enabled]").forEach(cb => {
-          if (cb.checked) enabled.push(cb.getAttribute("data-enabled"));
-        });
-        cfg.enabled_providers = enabled;
-
-        cfg.proxy = {
-          http: proxyHttpEl.value.trim(),
-          https: proxyHttpsEl.value.trim(),
-          no_proxy: proxyNoEl.value.trim()
-        };
-
-        // admin_token
-        if (adminTokenClearEl.checked) {
-          cfg.admin_token = "";
-        } else if (adminTokenUpdateEl.checked) {
-          cfg.admin_token = adminTokenValueEl.value;
-        } else {
-          cfg.admin_token = "********";
-        }
-
-        cfg.endpoints = cfg.endpoints && typeof cfg.endpoints === "object" ? cfg.endpoints : {};
-        endpointsFormEl.querySelectorAll("[data-endpoint]").forEach(inp => {
-          const k = inp.getAttribute("data-endpoint");
-          cfg.endpoints[k] = inp.value.trim();
-        });
-
-        cfg.secrets = cfg.secrets && typeof cfg.secrets === "object" ? cfg.secrets : {};
-        secretsFormEl.querySelectorAll("[data-secret-value]").forEach(inp => {
-          const k = inp.getAttribute("data-secret-value");
-          const update = secretsFormEl.querySelector(`[data-secret-update="${k}"]`)?.checked;
-          const clear = secretsFormEl.querySelector(`[data-secret-clear="${k}"]`)?.checked;
-          if (clear) {
-            cfg.secrets[k] = "";
-            return;
-          }
-          if (update) {
-            cfg.secrets[k] = inp.value;
-            return;
-          }
-          // preserve
-          cfg.secrets[k] = "********";
-        });
-
-        // ui defaults
-        cfg.ui_defaults = cfg.ui_defaults && typeof cfg.ui_defaults === "object" ? cfg.ui_defaults : {};
-        defaultsFormEl.querySelectorAll("[data-uid]").forEach(el => {
-          const uid = el.getAttribute("data-uid"); // provider.key
-          const kind = el.getAttribute("data-kind");
-          const [pid, key] = uid.split(".", 2);
-          if (!cfg.ui_defaults[pid] || typeof cfg.ui_defaults[pid] !== "object") cfg.ui_defaults[pid] = {};
-          let v;
-          if (kind === "boolean") v = el.checked;
-          else if (kind === "integer") v = el.value === "" ? null : parseInt(el.value, 10);
-          else if (kind === "number") v = el.value === "" ? null : parseFloat(el.value);
-          else if (kind === "json") v = el.value === "" ? null : el.value;
-          else v = el.value === "" ? null : el.value;
-          cfg.ui_defaults[pid][key] = v;
-        });
-
-        return cfg;
+        configError.textContent = "";
+        configStatus.textContent = "加载配置中…";
+        const data = await fetchJson("/api/admin/config");
+        configJson.value = JSON.stringify(data.config || {}, null, 2);
+        configStatus.textContent = "配置已加载";
       }
 
       async function saveConfig() {
-        setError("");
-        setStatus("保存中…");
-        const t = getToken();
+        configError.textContent = "";
+        configStatus.textContent = "保存配置中…";
         let cfg;
-        if (formCard.style.display !== "none") {
-          cfg = buildConfigFromForm();
-          jsonEl.value = JSON.stringify(cfg, null, 2);
-        } else {
-          try { cfg = JSON.parse(jsonEl.value); } catch (e) { throw new Error("JSON 解析失败: " + e); }
-        }
+        try { cfg = JSON.parse(configJson.value || "{}"); } catch (e) { throw new Error("JSON 解析失败: " + e); }
+        if (cfg && typeof cfg === "object") delete cfg.admin_token;
         await fetchJson("/api/admin/config", {
           method: "POST",
-          headers: { "content-type": "application/json", "x-admin-token": t },
+          headers: { "content-type": "application/json" },
           body: JSON.stringify({ config: cfg })
         });
-        setStatus("已保存", true);
+        configStatus.textContent = "配置已保存";
       }
 
-      async function applyReload() {
-        setError("");
-        setStatus("应用中…");
-        const t = getToken();
-        await fetchJson("/api/admin/reload", { method: "POST", headers: { "x-admin-token": t }});
-        setStatus("已应用（可回到首页刷新 provider 列表）", true);
+      async function reloadConfig() {
+        configStatus.textContent = "应用中…";
+        await fetchJson("/api/admin/reload", { method: "POST" });
+        configStatus.textContent = "已应用";
       }
 
-      document.getElementById("loadBtn").addEventListener("click", () => loadConfig().catch(e => setError(String(e))));
-      document.getElementById("saveBtn").addEventListener("click", () => saveConfig().catch(e => setError(String(e))));
-      document.getElementById("applyBtn").addEventListener("click", () => applyReload().catch(e => setError(String(e))));
-      document.getElementById("testBtn").addEventListener("click", async () => {
-        setError("");
-        setStatus("测试中…");
-        testOut.textContent = "";
-        try {
-          const t = getToken();
-          const data = await fetchJson("/api/admin/test", { method: "POST", headers: { "x-admin-token": t }});
-          const results = Array.isArray(data.results) ? data.results : [];
-          const okCount = results.filter(r => r && r.ok).length;
-          const failCount = results.length - okCount;
-          const lines = results.map(r => {
-            const ok = r && r.ok;
-            const badge = ok ? "OK  " : "FAIL";
-            const kind = r && r.kind ? ` (${r.kind})` : "";
-            const msg = r && (r.message || r.error) ? ` - ${r.message || r.error}` : "";
-            const attempts = Array.isArray(r.attempts) ? r.attempts : [];
-            const attemptLine = attempts.length
-              ? " [" + attempts.map(a => {
-                  const s = (a && a.http_status !== undefined) ? String(a.http_status) : (a && a.kind ? a.kind : "?");
-                  return `${a && a.name ? a.name : "attempt"}:${s}`;
-                }).join(", ") + "]"
-              : "";
-            return `${badge} ${r.provider || "unknown"}${kind}${msg}${attemptLine}`;
-          });
-          const summary = `OK ${okCount}/${results.length}，FAIL ${failCount}/${results.length}`;
-          testOut.textContent = summary + "\n" + lines.join("\n") + "\n\n" + JSON.stringify(data, null, 2);
-          setStatus("测试完成", true);
-        } catch (e) {
-          setError(String(e));
-          setStatus("");
-        }
-      });
-      document.getElementById("toggleJsonBtn").addEventListener("click", () => {
-        jsonCard.style.display = (jsonCard.style.display === "none") ? "block" : "none";
-      });
-      showAdvancedDefaultsEl.addEventListener("change", () => {
-        if (loadedConfig && providersMeta) renderFormFromConfig();
+      async function runTest() {
+        configStatus.textContent = "测试中…";
+        const data = await fetchJson("/api/admin/test", { method: "POST" });
+        testOut.textContent = JSON.stringify(data, null, 2);
+        configStatus.textContent = "测试完成";
+      }
+
+      function escapeHtml(s) {
+        return String(s || "").replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+      }
+
+      document.getElementById("loginBtn").addEventListener("click", () => login().catch(e => {
+        loginStatus.textContent = "";
+        loginError.textContent = errorMessage(e);
+      }));
+      document.getElementById("logoutBtn").addEventListener("click", () => setSession("", null));
+      document.getElementById("reloadUsersBtn").addEventListener("click", () => loadUsers().catch(e => { usersOut.innerHTML = `<div class="err">${escapeHtml(String(e))}</div>`; }));
+      document.getElementById("createInviteBtn").addEventListener("click", () => createInviteCode().catch(e => { inviteStatus.textContent = String(e); }));
+      document.getElementById("loadConfigBtn").addEventListener("click", () => loadConfig().catch(e => { configError.textContent = String(e); }));
+      document.getElementById("saveConfigBtn").addEventListener("click", () => saveConfig().catch(e => { configError.textContent = String(e); configStatus.textContent = ""; }));
+      document.getElementById("reloadConfigBtn").addEventListener("click", () => reloadConfig().catch(e => { configError.textContent = String(e); configStatus.textContent = ""; }));
+      document.getElementById("testBtn").addEventListener("click", () => runTest().catch(e => { configError.textContent = String(e); configStatus.textContent = ""; }));
+      usersOut.addEventListener("click", e => {
+        const action = e.target && e.target.getAttribute ? e.target.getAttribute("data-action") : "";
+        if (!action) return;
+        const row = e.target.closest("tr");
+        if (action === "save") saveUser(row).catch(err => alert(String(err)));
+        if (action === "delete") deleteUser(row).catch(err => alert(String(err)));
       });
 
-      tokenEl.value = localStorage.getItem("ai_music_admin_token") || "";
-      // Auto-load if token is present
-      if (tokenEl.value) loadConfig().catch(() => {});
+      initSession();
     </script>
   </body>
 </html>
