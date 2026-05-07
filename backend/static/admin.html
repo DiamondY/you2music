@@ -4,115 +4,1179 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>you2music - 管理后台</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'><stop offset='0%25' stop-color='%236366F1'/><stop offset='100%25' stop-color='%238B5CF6'/></linearGradient></defs><rect width='100' height='100' rx='20' fill='url(%23g)'/><path d='M38 28v34a12 12 0 1 1-6-10.4V22l30-6v40a12 12 0 1 1-6-10.4V22z' fill='white' opacity='0.95'/></svg>" type="image/svg+xml" />
     <style>
-      :root { color-scheme: light dark; }
-      * { box-sizing: border-box; }
-      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans SC", sans-serif; margin: 24px; max-width: 1100px; line-height: 1.5; }
-      h1, h2, h3 { margin: 0 0 12px; }
-      input, select, textarea, button { width: 100%; padding: 10px; font-size: 14px; font-family: inherit; }
-      textarea { min-height: 260px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-      label { display:block; margin: 10px 0 6px; font-weight: 600; }
-      table { width: 100%; border-collapse: collapse; }
-      th, td { border-bottom: 1px solid rgba(127,127,127,.25); padding: 8px; text-align: left; vertical-align: middle; }
-      th { font-size: 13px; opacity: .8; }
-      .card { border: 1px solid rgba(127,127,127,.35); border-radius: 10px; padding: 16px; margin-top: 14px; }
-      .actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-      .actions button, .actions a { width: auto; }
-      .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-      .muted { opacity: .8; font-size: 13px; }
-      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-      .err { color: #b00020; white-space: pre-wrap; margin-top: 8px; }
-      .ok { color: #1b7f3a; }
+      /* ========================================
+         CSS Variables - Design System
+         ======================================== */
+      :root {
+        --color-bg-primary: #F5F5FA;
+        --color-bg-card: #FFFFFF;
+        --color-bg-hover: #F0F0F8;
+        --color-bg-subtle: rgba(99, 102, 241, 0.05);
+        --color-bg-surface: #F3F4F6;
+        --color-primary: #6366F1;
+        --color-primary-dark: #4F46E5;
+        --color-secondary: #8B5CF6;
+        --color-success: #10B981;
+        --color-warning: #F59E0B;
+        --color-error: #EF4444;
+        --color-text-primary: #1F2937;
+        --color-text-secondary: #6B7280;
+        --color-text-muted: #9CA3AF;
+        --color-border: #E5E7EB;
+        --color-border-hover: #D1D5DB;
+
+        --color-primary-a05: rgba(99, 102, 241, 0.05);
+        --color-primary-a10: rgba(99, 102, 241, 0.1);
+        --color-primary-a15: rgba(99, 102, 241, 0.15);
+        --color-primary-a20: rgba(99, 102, 241, 0.2);
+        --color-primary-a30: rgba(99, 102, 241, 0.3);
+        --color-error-a05: rgba(239, 68, 68, 0.05);
+        --color-error-a10: rgba(239, 68, 68, 0.1);
+        --color-error-a30: rgba(239, 68, 68, 0.3);
+        --color-success-a05: rgba(16, 185, 129, 0.05);
+        --color-success-a10: rgba(16, 185, 129, 0.1);
+        --color-success-a20: rgba(16, 185, 129, 0.2);
+        --color-warning-a10: rgba(245, 158, 11, 0.1);
+        --color-warning-a20: rgba(245, 158, 11, 0.2);
+
+        --focus-ring: 0 0 0 3px rgba(99, 102, 241, 0.1);
+        --radius-sm: 4px;
+        --radius-md: 8px;
+        --radius-lg: 12px;
+        --radius-xl: 20px;
+        --shadow-card: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+        --shadow-card-hover: 0 4px 6px rgba(0,0,0,0.07), 0 2px 4px rgba(0,0,0,0.04);
+        --shadow-elevated: 0 10px 25px rgba(0,0,0,0.1);
+        --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans SC", sans-serif;
+        --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        --space-xs: 4px;
+        --space-sm: 8px;
+        --space-md: 16px;
+        --space-lg: 24px;
+        --space-xl: 32px;
+        --transition-fast: 0.15s ease;
+        --transition-normal: 0.2s ease;
+        --sidebar-width: 220px;
+      }
+
+      /* ========================================
+         Dark Theme
+         ======================================== */
+      [data-theme="dark"] {
+        --color-bg-primary: #0F0F23;
+        --color-bg-card: #1A1A2E;
+        --color-bg-hover: #252540;
+        --color-bg-subtle: rgba(129, 140, 248, 0.08);
+        --color-bg-surface: #252540;
+        --color-primary: #818CF8;
+        --color-primary-dark: #6366F1;
+        --color-secondary: #A78BFA;
+        --color-success: #22C55E;
+        --color-warning: #FBBF24;
+        --color-error: #F87171;
+        --color-text-primary: #F8FAFC;
+        --color-text-secondary: #94A3B8;
+        --color-text-muted: #64748B;
+        --color-border: rgba(255,255,255,0.08);
+        --color-border-hover: rgba(255,255,255,0.15);
+        --shadow-card: 0 1px 3px rgba(0,0,0,0.3);
+        --shadow-card-hover: 0 4px 12px rgba(0,0,0,0.4);
+        --shadow-elevated: 0 10px 25px rgba(0,0,0,0.5);
+        --color-primary-a05: rgba(129, 140, 248, 0.05);
+        --color-primary-a10: rgba(129, 140, 248, 0.1);
+        --color-primary-a15: rgba(129, 140, 248, 0.15);
+        --color-primary-a20: rgba(129, 140, 248, 0.2);
+        --color-primary-a30: rgba(129, 140, 248, 0.3);
+        --color-error-a05: rgba(248, 113, 113, 0.05);
+        --color-error-a10: rgba(248, 113, 113, 0.1);
+        --color-error-a30: rgba(248, 113, 113, 0.3);
+        --color-success-a05: rgba(34, 197, 94, 0.05);
+        --color-success-a10: rgba(34, 197, 94, 0.1);
+        --color-success-a20: rgba(34, 197, 94, 0.2);
+        --color-warning-a10: rgba(251, 191, 36, 0.1);
+        --color-warning-a20: rgba(251, 191, 36, 0.2);
+        --focus-ring: 0 0 0 3px rgba(129, 140, 248, 0.2);
+      }
+
+      @media (prefers-color-scheme: dark) {
+        :root:not([data-theme]) {
+          --color-bg-primary: #0F0F23;
+          --color-bg-card: #1A1A2E;
+          --color-bg-hover: #252540;
+          --color-bg-subtle: rgba(129, 140, 248, 0.08);
+          --color-bg-surface: #252540;
+          --color-primary: #818CF8;
+          --color-primary-dark: #6366F1;
+          --color-secondary: #A78BFA;
+          --color-success: #22C55E;
+          --color-warning: #FBBF24;
+          --color-error: #F87171;
+          --color-text-primary: #F8FAFC;
+          --color-text-secondary: #94A3B8;
+          --color-text-muted: #64748B;
+          --color-border: rgba(255,255,255,0.08);
+          --color-border-hover: rgba(255,255,255,0.15);
+          --shadow-card: 0 1px 3px rgba(0,0,0,0.3);
+          --shadow-card-hover: 0 4px 12px rgba(0,0,0,0.4);
+          --shadow-elevated: 0 10px 25px rgba(0,0,0,0.5);
+          --color-primary-a05: rgba(129, 140, 248, 0.05);
+          --color-primary-a10: rgba(129, 140, 248, 0.1);
+          --color-primary-a15: rgba(129, 140, 248, 0.15);
+          --color-primary-a20: rgba(129, 140, 248, 0.2);
+          --color-primary-a30: rgba(129, 140, 248, 0.3);
+          --color-error-a05: rgba(248, 113, 113, 0.05);
+          --color-error-a10: rgba(248, 113, 113, 0.1);
+          --color-error-a30: rgba(248, 113, 113, 0.3);
+          --color-success-a05: rgba(34, 197, 94, 0.05);
+          --color-success-a10: rgba(34, 197, 94, 0.1);
+          --color-success-a20: rgba(34, 197, 94, 0.2);
+          --color-warning-a10: rgba(251, 191, 36, 0.1);
+          --color-warning-a20: rgba(251, 191, 36, 0.2);
+          --focus-ring: 0 0 0 3px rgba(129, 140, 248, 0.2);
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after {
+          animation-duration: 0.01ms !important;
+          transition-duration: 0.01ms !important;
+        }
+      }
+
+      /* ========================================
+         SVG Icons
+         ======================================== */
+      .icon {
+        display: inline-block;
+        width: 1em;
+        height: 1em;
+        vertical-align: -0.125em;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        flex-shrink: 0;
+      }
+      .icon-lg { width: 20px; height: 20px; }
+      .icon-sm { width: 14px; height: 14px; }
+
+      /* ========================================
+         Base Styles
+         ======================================== */
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+
+      body {
+        font-family: var(--font-sans);
+        font-size: 14px;
+        line-height: 1.5;
+        color: var(--color-text-primary);
+        background: var(--color-bg-primary);
+        min-height: 100vh;
+        transition: background-color 0.3s ease, color 0.3s ease;
+      }
+
+      a { color: var(--color-primary); text-decoration: none; }
+      a:hover { text-decoration: underline; }
+
+      /* ========================================
+         Layout - Sidebar + Main
+         ======================================== */
+      .admin-layout {
+        display: flex;
+        min-height: 100vh;
+      }
+
+      .admin-sidebar {
+        width: var(--sidebar-width);
+        background: var(--color-bg-card);
+        border-right: 1px solid var(--color-border);
+        padding: var(--space-lg) 0;
+        display: flex;
+        flex-direction: column;
+        position: fixed;
+        top: 0;
+        left: 0;
+        bottom: 0;
+        z-index: 10;
+        transition: transform 0.3s ease, background-color 0.3s ease;
+      }
+
+      .sidebar-brand {
+        padding: 0 var(--space-lg);
+        margin-bottom: var(--space-xl);
+      }
+
+      .sidebar-brand-title {
+        font-size: 18px;
+        font-weight: 700;
+        background: linear-gradient(135deg, var(--color-primary), var(--color-secondary));
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+      }
+
+      .sidebar-brand-sub {
+        font-size: 12px;
+        color: var(--color-text-muted);
+        margin-top: 2px;
+      }
+
+      .sidebar-nav {
+        flex: 1;
+        padding: 0 var(--space-sm);
+      }
+
+      .nav-item {
+        display: flex;
+        align-items: center;
+        gap: var(--space-sm);
+        padding: var(--space-sm) var(--space-md);
+        border-radius: var(--radius-md);
+        color: var(--color-text-secondary);
+        cursor: pointer;
+        transition: all var(--transition-fast);
+        font-size: 14px;
+        font-weight: 500;
+        border: none;
+        background: none;
+        width: 100%;
+        text-align: left;
+        font-family: inherit;
+      }
+
+      .nav-item:hover {
+        background: var(--color-bg-hover);
+        color: var(--color-text-primary);
+      }
+
+      .nav-item.active {
+        background: var(--color-primary-a10);
+        color: var(--color-primary);
+      }
+
+      .nav-item .icon { width: 18px; height: 18px; }
+
+      .sidebar-footer {
+        padding: var(--space-md) var(--space-lg);
+        border-top: 1px solid var(--color-border);
+        margin-top: var(--space-md);
+      }
+
+      .sidebar-user {
+        display: flex;
+        align-items: center;
+        gap: var(--space-sm);
+      }
+
+      .sidebar-avatar {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, var(--color-primary), var(--color-secondary));
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-size: 14px;
+        font-weight: 600;
+        flex-shrink: 0;
+      }
+
+      .sidebar-user-info {
+        min-width: 0;
+      }
+
+      .sidebar-user-name {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--color-text-primary);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .sidebar-user-role {
+        font-size: 11px;
+        color: var(--color-text-muted);
+      }
+
+      /* Mobile sidebar toggle */
+      .sidebar-toggle {
+        display: none;
+        position: fixed;
+        top: var(--space-md);
+        left: var(--space-md);
+        z-index: 20;
+        width: 40px;
+        height: 40px;
+        border-radius: var(--radius-md);
+        background: var(--color-bg-card);
+        border: 1px solid var(--color-border);
+        cursor: pointer;
+        align-items: center;
+        justify-content: center;
+        color: var(--color-text-primary);
+        box-shadow: var(--shadow-card);
+      }
+
+      .sidebar-toggle .icon { width: 20px; height: 20px; }
+
+      .sidebar-overlay {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,0.4);
+        z-index: 9;
+      }
+
+      .admin-main {
+        flex: 1;
+        margin-left: var(--sidebar-width);
+        padding: var(--space-xl);
+        max-width: 960px;
+        min-width: 0;
+        transition: margin-left 0.3s ease;
+      }
+
+      /* ========================================
+         Page Header
+         ======================================== */
+      .page-header {
+        margin-bottom: var(--space-xl);
+      }
+
+      .page-title {
+        font-size: 22px;
+        font-weight: 700;
+        color: var(--color-text-primary);
+        display: flex;
+        align-items: center;
+        gap: var(--space-sm);
+      }
+
+      .page-title .icon {
+        color: var(--color-primary);
+        width: 24px;
+        height: 24px;
+      }
+
+      .page-desc {
+        font-size: 13px;
+        color: var(--color-text-muted);
+        margin-top: var(--space-xs);
+      }
+
+      /* ========================================
+         Cards
+         ======================================== */
+      .card {
+        background: var(--color-bg-card);
+        border-radius: var(--radius-lg);
+        box-shadow: var(--shadow-card);
+        padding: var(--space-lg);
+        margin-bottom: var(--space-lg);
+        transition: box-shadow var(--transition-normal), background-color 0.3s ease;
+      }
+
+      .card-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--space-md);
+        margin-bottom: var(--space-lg);
+        flex-wrap: wrap;
+      }
+
+      .card-header-left {
+        display: flex;
+        align-items: center;
+        gap: var(--space-sm);
+      }
+
+      .card-title {
+        font-size: 16px;
+        font-weight: 600;
+        color: var(--color-text-primary);
+      }
+
+      .card-title .icon {
+        color: var(--color-primary);
+        width: 20px;
+        height: 20px;
+      }
+
+      .card-actions {
+        display: flex;
+        align-items: center;
+        gap: var(--space-sm);
+        flex-wrap: wrap;
+      }
+
+      /* ========================================
+         Buttons
+         ======================================== */
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: var(--space-xs);
+        padding: var(--space-sm) var(--space-md);
+        min-height: 36px;
+        font-size: 13px;
+        font-weight: 500;
+        font-family: inherit;
+        border: none;
+        border-radius: var(--radius-md);
+        cursor: pointer;
+        transition: all var(--transition-fast);
+        text-decoration: none;
+        white-space: nowrap;
+      }
+
+      .btn-primary {
+        background: linear-gradient(135deg, var(--color-primary), var(--color-secondary));
+        color: white;
+        box-shadow: 0 2px 4px var(--color-primary-a30);
+      }
+
+      .btn-primary:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 8px var(--color-primary-a30);
+      }
+
+      .btn-primary:active:not(:disabled) {
+        transform: translateY(0) scale(0.98);
+      }
+
+      .btn-secondary {
+        background: var(--color-bg-surface);
+        color: var(--color-text-primary);
+        border: 1px solid var(--color-border);
+      }
+
+      .btn-secondary:hover {
+        background: var(--color-border);
+        border-color: var(--color-border-hover);
+      }
+
+      .btn-outline {
+        background: transparent;
+        color: var(--color-primary);
+        border: 1px solid var(--color-primary);
+      }
+
+      .btn-outline:hover {
+        background: var(--color-primary-a10);
+      }
+
+      .btn-danger {
+        color: var(--color-error);
+        border: 1px solid var(--color-error);
+        background: transparent;
+      }
+
+      .btn-danger:hover {
+        background: var(--color-error-a10);
+      }
+
+      .btn-ghost {
+        background: transparent;
+        color: var(--color-text-secondary);
+        border: none;
+      }
+
+      .btn-ghost:hover {
+        background: var(--color-bg-hover);
+        color: var(--color-text-primary);
+      }
+
+      .btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+        transform: none !important;
+      }
+
+      /* ========================================
+         Form Elements
+         ======================================== */
+      label {
+        display: block;
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--color-text-secondary);
+        margin-bottom: var(--space-sm);
+      }
+
+      input[type="text"],
+      input[type="password"],
+      input[type="number"],
+      input[type="email"],
+      textarea,
+      select {
+        width: 100%;
+        padding: var(--space-sm) var(--space-md);
+        font-size: 14px;
+        font-family: inherit;
+        color: var(--color-text-primary);
+        background: var(--color-bg-surface);
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-md);
+        transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+      }
+
+      input:focus,
+      textarea:focus,
+      select:focus {
+        outline: none;
+        border-color: var(--color-primary);
+        box-shadow: var(--focus-ring);
+      }
+
+      input::placeholder,
+      textarea::placeholder {
+        color: var(--color-text-muted);
+      }
+
+      textarea {
+        min-height: 200px;
+        font-family: var(--font-mono);
+        font-size: 13px;
+        resize: vertical;
+        line-height: 1.6;
+      }
+
+      select { cursor: pointer; }
+
+      input[type="checkbox"] {
+        width: 16px;
+        height: 16px;
+        cursor: pointer;
+        accent-color: var(--color-primary);
+      }
+
+      .form-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: var(--space-md);
+      }
+
+      .form-group {
+        margin-bottom: var(--space-md);
+      }
+
+      .form-group:last-child {
+        margin-bottom: 0;
+      }
+
+      .form-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-sm);
+        align-items: center;
+        margin-top: var(--space-md);
+      }
+
+      /* ========================================
+         Table
+         ======================================== */
+      .table-wrap {
+        overflow-x: auto;
+        margin: 0 calc(-1 * var(--space-lg));
+        padding: 0 var(--space-lg);
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+      }
+
+      thead th {
+        font-size: 12px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--color-text-muted);
+        padding: var(--space-sm) var(--space-md);
+        text-align: left;
+        border-bottom: 1px solid var(--color-border);
+        white-space: nowrap;
+      }
+
+      tbody td {
+        padding: var(--space-md);
+        border-bottom: 1px solid var(--color-border);
+        vertical-align: middle;
+      }
+
+      tbody tr {
+        transition: background-color var(--transition-fast);
+      }
+
+      tbody tr:hover {
+        background: var(--color-bg-subtle);
+      }
+
+      tbody tr:last-child td {
+        border-bottom: none;
+      }
+
+      /* Inline editing in table */
+      td select,
+      td input[type="number"] {
+        min-height: 32px;
+        padding: 4px 8px;
+        font-size: 13px;
+        width: auto;
+        max-width: 120px;
+      }
+
+      td input[type="number"] {
+        width: 80px;
+      }
+
+      .cell-actions {
+        display: flex;
+        gap: var(--space-xs);
+        flex-wrap: wrap;
+      }
+
+      .cell-id {
+        font-family: var(--font-mono);
+        font-size: 12px;
+        color: var(--color-text-muted);
+      }
+
+      .cell-username {
+        font-weight: 600;
+        color: var(--color-text-primary);
+      }
+
+      .cell-badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 2px 8px;
+        border-radius: var(--radius-xl);
+        font-size: 11px;
+        font-weight: 600;
+      }
+
+      .badge-admin {
+        background: var(--color-primary-a10);
+        color: var(--color-primary);
+      }
+
+      .badge-user {
+        background: var(--color-bg-surface);
+        color: var(--color-text-secondary);
+      }
+
+      /* ========================================
+         Invite Code List
+         ======================================== */
+      .invite-list {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-sm);
+      }
+
+      .invite-item {
+        display: flex;
+        align-items: center;
+        gap: var(--space-md);
+        padding: var(--space-sm) var(--space-md);
+        background: var(--color-bg-surface);
+        border-radius: var(--radius-md);
+        transition: background-color var(--transition-fast);
+      }
+
+      .invite-item:hover {
+        background: var(--color-bg-hover);
+      }
+
+      .invite-code {
+        font-family: var(--font-mono);
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--color-text-primary);
+        letter-spacing: 0.03em;
+      }
+
+      .invite-status {
+        font-size: 12px;
+        font-weight: 500;
+        margin-left: auto;
+        white-space: nowrap;
+      }
+
+      .invite-status.used {
+        color: var(--color-text-muted);
+      }
+
+      .invite-status.unused {
+        color: var(--color-success);
+        background: var(--color-success-a05);
+        padding: 2px 8px;
+        border-radius: var(--radius-xl);
+      }
+
+      .empty-state {
+        text-align: center;
+        padding: var(--space-xl);
+        color: var(--color-text-muted);
+        font-size: 14px;
+      }
+
+      .empty-state .icon {
+        width: 32px;
+        height: 32px;
+        margin-bottom: var(--space-sm);
+        opacity: 0.4;
+      }
+
+      /* ========================================
+         Status & Messages
+         ======================================== */
+      .status-text {
+        font-size: 13px;
+        color: var(--color-text-secondary);
+      }
+
+      .status-text.success { color: var(--color-success); }
+      .status-text.error { color: var(--color-error); }
+
+      .error-message {
+        background: var(--color-error-a05);
+        border: 1px solid var(--color-error-a30);
+        border-radius: var(--radius-md);
+        padding: var(--space-sm) var(--space-md);
+        color: var(--color-error);
+        font-size: 13px;
+        margin-top: var(--space-md);
+        white-space: pre-wrap;
+      }
+
+      .info-message {
+        background: var(--color-primary-a05);
+        border-radius: var(--radius-md);
+        padding: var(--space-md);
+        font-size: 13px;
+        color: var(--color-text-secondary);
+        margin-top: var(--space-md);
+        line-height: 1.6;
+      }
+
+      .mono { font-family: var(--font-mono); }
+
+      /* ========================================
+         Login Page
+         ======================================== */
+      .login-page {
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: var(--space-lg);
+        background: var(--color-bg-primary);
+      }
+
+      .login-card {
+        width: 100%;
+        max-width: 400px;
+        background: var(--color-bg-card);
+        border-radius: var(--radius-lg);
+        box-shadow: var(--shadow-elevated);
+        padding: var(--space-xl);
+        transition: background-color 0.3s ease;
+      }
+
+      .login-header {
+        text-align: center;
+        margin-bottom: var(--space-xl);
+      }
+
+      .login-logo {
+        font-size: 24px;
+        font-weight: 700;
+        background: linear-gradient(135deg, var(--color-primary), var(--color-secondary));
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        margin-bottom: var(--space-xs);
+      }
+
+      .login-subtitle {
+        font-size: 14px;
+        color: var(--color-text-muted);
+      }
+
+      .login-footer {
+        margin-top: var(--space-lg);
+        text-align: center;
+        font-size: 13px;
+        color: var(--color-text-muted);
+      }
+
+      .login-footer a {
+        color: var(--color-primary);
+        font-weight: 500;
+      }
+
+      /* ========================================
+         Config Section
+         ======================================== */
+      .config-hint {
+        font-size: 12px;
+        color: var(--color-text-muted);
+        margin-top: var(--space-sm);
+        line-height: 1.6;
+      }
+
+      .test-output {
+        background: var(--color-bg-surface);
+        border-radius: var(--radius-md);
+        padding: var(--space-md);
+        font-family: var(--font-mono);
+        font-size: 12px;
+        color: var(--color-text-secondary);
+        white-space: pre-wrap;
+        word-break: break-all;
+        max-height: 300px;
+        overflow-y: auto;
+        margin-top: var(--space-md);
+      }
+
+      /* ========================================
+         Hidden
+         ======================================== */
       .hidden { display: none !important; }
-      .danger { color: #b00020; border: 1px solid #b00020; background: transparent; }
-      @media (max-width: 760px) {
-        body { margin: 14px; }
-        .grid { grid-template-columns: 1fr; }
-        table, thead, tbody, tr, th, td { display: block; }
-        th { display: none; }
-        td { border-bottom: none; padding: 6px 0; }
-        td::before { content: attr(data-label); display: block; font-weight: 600; font-size: 12px; opacity: .7; margin-bottom: 2px; }
-        tr { border-bottom: 1px solid rgba(127,127,127,.25); padding: 8px 0; }
+
+      /* ========================================
+         Section Panels (sidebar tab switching)
+         ======================================== */
+      .section-panel { display: none; }
+      .section-panel.active { display: block; }
+
+      /* ========================================
+         Theme Toggle
+         ======================================== */
+      .theme-toggle {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 36px;
+        height: 36px;
+        border-radius: var(--radius-md);
+        background: transparent;
+        border: 1px solid var(--color-border);
+        cursor: pointer;
+        color: var(--color-text-secondary);
+        transition: all var(--transition-fast);
+      }
+
+      .theme-toggle:hover {
+        background: var(--color-bg-hover);
+        color: var(--color-text-primary);
+      }
+
+      .theme-toggle .icon { width: 18px; height: 18px; }
+
+      /* ========================================
+         Responsive
+         ======================================== */
+      @media (max-width: 768px) {
+        .admin-sidebar {
+          transform: translateX(-100%);
+        }
+
+        .admin-sidebar.open {
+          transform: translateX(0);
+        }
+
+        .sidebar-toggle {
+          display: flex;
+        }
+
+        .sidebar-overlay.visible {
+          display: block;
+        }
+
+        .admin-main {
+          margin-left: 0;
+          padding: var(--space-md);
+          padding-top: 64px;
+        }
+
+        .form-row {
+          grid-template-columns: 1fr;
+        }
+
+        .page-title {
+          font-size: 18px;
+        }
+
+        /* Responsive table on small screens */
+        .table-wrap-mobile table,
+        .table-wrap-mobile thead,
+        .table-wrap-mobile tbody,
+        .table-wrap-mobile tr,
+        .table-wrap-mobile th,
+        .table-wrap-mobile td {
+          display: block;
+        }
+
+        .table-wrap-mobile thead { display: none; }
+
+        .table-wrap-mobile tr {
+          border: 1px solid var(--color-border);
+          border-radius: var(--radius-md);
+          padding: var(--space-md);
+          margin-bottom: var(--space-sm);
+          background: var(--color-bg-card);
+        }
+
+        .table-wrap-mobile td {
+          border-bottom: none;
+          padding: var(--space-xs) 0;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: var(--space-sm);
+        }
+
+        .table-wrap-mobile td::before {
+          content: attr(data-label);
+          font-weight: 600;
+          font-size: 12px;
+          color: var(--color-text-muted);
+          flex-shrink: 0;
+        }
+
+        .table-wrap-mobile td:last-child {
+          justify-content: flex-end;
+        }
+
+        .login-card {
+          padding: var(--space-lg);
+        }
+      }
+
+      @media (max-width: 480px) {
+        .admin-main {
+          padding: var(--space-sm);
+          padding-top: 56px;
+        }
+
+        .card {
+          padding: var(--space-md);
+        }
+
+        .invite-item {
+          flex-wrap: wrap;
+        }
       }
     </style>
   </head>
   <body>
-    <h1>管理后台</h1>
-    <p class="muted">所有管理员操作使用 JWT 登录态；旧的 admin_token 不再用于接口鉴权。</p>
 
-    <div class="card" id="loginCard">
-      <h2>登录</h2>
-      <div class="grid">
-        <div>
+    <!-- ==================== LOGIN PAGE ==================== -->
+    <div id="loginPage" class="login-page">
+      <div class="login-card">
+        <div class="login-header">
+          <div class="login-logo">you2music</div>
+          <div class="login-subtitle">管理后台登录</div>
+        </div>
+        <div class="form-group">
           <label for="username">用户名</label>
-          <input id="username" autocomplete="username">
+          <input id="username" autocomplete="username" placeholder="请输入用户名">
         </div>
-        <div>
+        <div class="form-group">
           <label for="password">密码</label>
-          <input id="password" type="password" autocomplete="current-password">
+          <input id="password" type="password" autocomplete="current-password" placeholder="请输入密码">
+        </div>
+        <div class="form-actions">
+          <button class="btn btn-primary" id="loginBtn" style="flex:1;">登录</button>
+        </div>
+        <div id="loginStatus" class="status-text" style="margin-top:var(--space-sm);text-align:center;"></div>
+        <div id="loginError" class="error-message hidden"></div>
+        <div class="login-footer">
+          <a href="/">返回首页</a>
         </div>
       </div>
-      <div class="actions" style="margin-top: 10px;">
-        <button id="loginBtn">登录</button>
-        <span id="loginStatus" class="muted"></span>
-      </div>
-      <div id="loginError" class="err"></div>
     </div>
 
-    <div id="adminApp" class="hidden">
-      <div class="card">
-        <div class="actions" style="justify-content: space-between;">
-          <div>
-            <strong id="accountName">-</strong>
-            <span class="muted" id="accountRole"></span>
-          </div>
-          <div class="actions">
-            <a href="/" class="muted">返回首页</a>
-            <button id="logoutBtn">退出</button>
-          </div>
-        </div>
-      </div>
+    <!-- ==================== ADMIN LAYOUT ==================== -->
+    <div id="adminApp" class="admin-layout hidden">
 
-      <div class="card">
-        <div class="actions" style="justify-content: space-between;">
-          <h2>用户管理</h2>
-          <button id="reloadUsersBtn">刷新</button>
-        </div>
-        <div id="usersOut"></div>
-      </div>
+      <!-- Mobile sidebar toggle -->
+      <button class="sidebar-toggle" id="sidebarToggle">
+        <svg class="icon" viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
 
-      <div class="card">
-        <div class="actions" style="justify-content: space-between;">
-          <h2>邀请码</h2>
-          <button id="createInviteBtn">生成邀请码</button>
-        </div>
-        <div id="inviteStatus" class="muted"></div>
-        <div id="inviteOut" style="margin-top:10px;"></div>
-      </div>
+      <!-- Sidebar overlay (mobile) -->
+      <div class="sidebar-overlay" id="sidebarOverlay"></div>
 
-      <div class="card">
-        <div class="actions" style="justify-content: space-between;">
-          <h2>Provider 配置</h2>
-          <div class="actions">
-            <button id="loadConfigBtn">加载</button>
-            <button id="saveConfigBtn">保存</button>
-            <button id="reloadConfigBtn">应用</button>
-            <button id="testBtn">测试</button>
+      <!-- Sidebar -->
+      <aside class="admin-sidebar" id="adminSidebar">
+        <div class="sidebar-brand">
+          <div class="sidebar-brand-title">you2music</div>
+          <div class="sidebar-brand-sub">管理后台</div>
+        </div>
+
+        <nav class="sidebar-nav">
+          <button class="nav-item active" data-section="users">
+            <svg class="icon" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            用户管理
+          </button>
+          <button class="nav-item" data-section="invites">
+            <svg class="icon" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            邀请码
+          </button>
+          <button class="nav-item" data-section="config">
+            <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            Provider 配置
+          </button>
+        </nav>
+
+        <div class="sidebar-footer">
+          <div class="sidebar-user">
+            <div class="sidebar-avatar" id="sidebarAvatar">A</div>
+            <div class="sidebar-user-info">
+              <div class="sidebar-user-name" id="sidebarUsername">Admin</div>
+              <div class="sidebar-user-role" id="sidebarRole">管理员</div>
+            </div>
+            <button class="btn btn-ghost" id="logoutBtn" title="退出登录" style="margin-left:auto;padding:4px;">
+              <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+            </button>
           </div>
         </div>
-        <textarea id="configJson" spellcheck="false"></textarea>
-        <div class="muted">保存时会移除旧的 <span class="mono">admin_token</span> 字段；密钥保持 <span class="mono">********</span> 时后端会保留原值。</div>
-        <div id="configStatus" class="muted"></div>
-        <div id="configError" class="err"></div>
-        <pre id="testOut" class="mono muted" style="white-space:pre-wrap;"></pre>
-      </div>
+      </aside>
+
+      <!-- Main Content -->
+      <main class="admin-main">
+
+        <!-- ===== Users Section ===== -->
+        <div class="section-panel active" id="section-users">
+          <div class="page-header">
+            <div class="page-title">
+              <svg class="icon" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+              用户管理
+            </div>
+            <div class="page-desc">管理系统用户、角色与配额</div>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title">用户列表</div>
+              <button class="btn btn-secondary" id="reloadUsersBtn">
+                <svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                刷新
+              </button>
+            </div>
+            <div id="usersOut">
+              <div class="empty-state">
+                <svg class="icon" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+                <div>加载中…</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ===== Invites Section ===== -->
+        <div class="section-panel" id="section-invites">
+          <div class="page-header">
+            <div class="page-title">
+              <svg class="icon" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+              邀请码
+            </div>
+            <div class="page-desc">生成和管理注册邀请码</div>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title">邀请码列表</div>
+              <button class="btn btn-primary" id="createInviteBtn">
+                <svg class="icon icon-sm" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                生成邀请码
+              </button>
+            </div>
+            <div id="inviteStatus" class="status-text" style="margin-bottom:var(--space-md);"></div>
+            <div id="inviteOut">
+              <div class="empty-state">
+                <svg class="icon" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                <div>加载中…</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ===== Config Section ===== -->
+        <div class="section-panel" id="section-config">
+          <div class="page-header">
+            <div class="page-title">
+              <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+              Provider 配置
+            </div>
+            <div class="page-desc">管理 AI 服务商配置与密钥</div>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title">配置编辑器</div>
+              <div class="card-actions">
+                <button class="btn btn-secondary" id="loadConfigBtn">
+                  <svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                  加载
+                </button>
+                <button class="btn btn-primary" id="saveConfigBtn">
+                  <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                  保存
+                </button>
+                <button class="btn btn-outline" id="reloadConfigBtn">
+                  <svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+                  应用
+                </button>
+                <button class="btn btn-outline" id="testBtn">
+                  <svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                  测试
+                </button>
+              </div>
+            </div>
+            <textarea id="configJson" spellcheck="false" placeholder="点击「加载」获取当前配置…"></textarea>
+            <div class="config-hint">
+              保存时会移除旧的 <span class="mono">admin_token</span> 字段；密钥保持 <span class="mono">********</span> 时后端会保留原值。
+            </div>
+            <div id="configStatus" class="status-text" style="margin-top:var(--space-sm);"></div>
+            <div id="configError" class="error-message hidden"></div>
+            <pre id="testOut" class="test-output hidden"></pre>
+          </div>
+        </div>
+
+      </main>
     </div>
 
     <script>
+      /* ========================================
+         State
+         ======================================== */
       let authToken = localStorage.getItem("you2music.jwt") || "";
       let currentUser = null;
 
-      const loginCard = document.getElementById("loginCard");
+      /* ========================================
+         Theme Management
+         ======================================== */
+      function initTheme() {
+        const saved = localStorage.getItem("you2music.theme");
+        if (saved) {
+          document.documentElement.setAttribute("data-theme", saved);
+        }
+      }
+      initTheme();
+
+      /* ========================================
+         DOM References
+         ======================================== */
+      const loginPage = document.getElementById("loginPage");
       const adminApp = document.getElementById("adminApp");
       const loginStatus = document.getElementById("loginStatus");
       const loginError = document.getElementById("loginError");
@@ -124,6 +1188,9 @@
       const configError = document.getElementById("configError");
       const testOut = document.getElementById("testOut");
 
+      /* ========================================
+         API Helper
+         ======================================== */
       async function fetchJson(url, opts) {
         const nextOpts = Object.assign({}, opts || {});
         const headers = Object.assign({}, nextOpts.headers || {});
@@ -182,22 +1249,27 @@
         return err && err.message ? String(err.message) : String(err || "请求失败");
       }
 
+      /* ========================================
+         Session Management
+         ======================================== */
       function setSession(token, user) {
         authToken = token || "";
         currentUser = user || null;
         if (authToken) localStorage.setItem("you2music.jwt", authToken);
         else localStorage.removeItem("you2music.jwt");
         const ok = Boolean(authToken && currentUser && currentUser.role === "admin");
-        loginCard.classList.toggle("hidden", ok);
+        loginPage.classList.toggle("hidden", ok);
         adminApp.classList.toggle("hidden", !ok);
         if (ok) {
-          document.getElementById("accountName").textContent = currentUser.username;
-          document.getElementById("accountRole").textContent = currentUser.role;
+          const name = currentUser.username || "Admin";
+          document.getElementById("sidebarUsername").textContent = name;
+          document.getElementById("sidebarRole").textContent = currentUser.role === "admin" ? "管理员" : currentUser.role;
+          document.getElementById("sidebarAvatar").textContent = name.charAt(0).toUpperCase();
         }
       }
 
       async function login() {
-        loginError.textContent = "";
+        loginError.classList.add("hidden");
         loginStatus.textContent = "登录中…";
         const username = document.getElementById("username").value.trim();
         const password = document.getElementById("password").value;
@@ -227,18 +1299,63 @@
         }
       }
 
+      /* ========================================
+         Sidebar Navigation
+         ======================================== */
+      function switchSection(sectionId) {
+        document.querySelectorAll(".nav-item").forEach(btn => {
+          btn.classList.toggle("active", btn.getAttribute("data-section") === sectionId);
+        });
+        document.querySelectorAll(".section-panel").forEach(panel => {
+          panel.classList.toggle("active", panel.id === `section-${sectionId}`);
+        });
+        // Close sidebar on mobile
+        document.getElementById("adminSidebar").classList.remove("open");
+        document.getElementById("sidebarOverlay").classList.remove("visible");
+      }
+
+      document.querySelectorAll(".nav-item[data-section]").forEach(btn => {
+        btn.addEventListener("click", () => switchSection(btn.getAttribute("data-section")));
+      });
+
+      // Mobile sidebar toggle
+      document.getElementById("sidebarToggle").addEventListener("click", () => {
+        const sidebar = document.getElementById("adminSidebar");
+        const overlay = document.getElementById("sidebarOverlay");
+        sidebar.classList.toggle("open");
+        overlay.classList.toggle("visible");
+      });
+
+      document.getElementById("sidebarOverlay").addEventListener("click", () => {
+        document.getElementById("adminSidebar").classList.remove("open");
+        document.getElementById("sidebarOverlay").classList.remove("visible");
+      });
+
+      /* ========================================
+         Users Management
+         ======================================== */
+      function escapeHtml(s) {
+        return String(s || "").replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+      }
+
       async function loadUsers() {
-        usersOut.innerHTML = '<div class="muted">加载中…</div>';
+        usersOut.innerHTML = '<div class="empty-state"><div>加载中…</div></div>';
         const data = await fetchJson("/api/admin/users");
         const users = data.users || [];
         if (!users.length) {
-          usersOut.innerHTML = '<div class="muted">暂无用户。</div>';
+          usersOut.innerHTML = '<div class="empty-state"><svg class="icon" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg><div>暂无用户</div></div>';
           return;
         }
-        const rows = users.map(u => `
+        const isMobile = window.innerWidth <= 768;
+        const wrapClass = isMobile ? 'table-wrap table-wrap-mobile' : 'table-wrap';
+        const rows = users.map(u => {
+          const roleBadge = u.role === "admin"
+            ? `<span class="cell-badge badge-admin">admin</span>`
+            : `<span class="cell-badge badge-user">user</span>`;
+          return `
           <tr data-user-id="${u.id}">
-            <td data-label="ID">${u.id}</td>
-            <td data-label="用户名">${escapeHtml(u.username)}</td>
+            <td data-label="ID"><span class="cell-id">${u.id}</span></td>
+            <td data-label="用户名"><span class="cell-username">${escapeHtml(u.username)}</span></td>
             <td data-label="角色">
               <select data-field="role">
                 <option value="user" ${u.role === "user" ? "selected" : ""}>user</option>
@@ -247,33 +1364,13 @@
             </td>
             <td data-label="每日配额"><input type="number" min="0" data-field="daily_quota" value="${u.daily_quota}"></td>
             <td data-label="禁用"><input type="checkbox" data-field="disabled" ${u.disabled ? "checked" : ""}></td>
-            <td data-label="操作" class="actions">
-              <button data-action="save">保存</button>
-              <button class="danger" data-action="delete">删除</button>
+            <td data-label="操作" class="cell-actions">
+              <button class="btn btn-sm btn-outline" data-action="save">保存</button>
+              <button class="btn btn-sm btn-danger" data-action="delete">删除</button>
             </td>
-          </tr>
-        `).join("");
-        usersOut.innerHTML = `<table><thead><tr><th>ID</th><th>用户名</th><th>角色</th><th>每日配额</th><th>禁用</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table>`;
-      }
-
-      async function loadInviteCodes() {
-        const data = await fetchJson("/api/admin/invite-codes");
-        const codes = data.invite_codes || [];
-        if (!codes.length) {
-          inviteOut.innerHTML = '<div class="muted">暂无邀请码。</div>';
-          return;
-        }
-        inviteOut.innerHTML = codes.map(c => {
-          const state = c.used_by ? `已使用：用户 ${c.used_by}` : "未使用";
-          return `<div><span class="mono">${escapeHtml(c.code)}</span> <span class="muted">${state}</span></div>`;
+          </tr>`;
         }).join("");
-      }
-
-      async function createInviteCode() {
-        inviteStatus.textContent = "生成中…";
-        const data = await fetchJson("/api/admin/invite-codes", { method: "POST" });
-        inviteStatus.textContent = `新邀请码：${data.invite_code && data.invite_code.code ? data.invite_code.code : ""}`;
-        await loadInviteCodes();
+        usersOut.innerHTML = `<div class="${wrapClass}"><table><thead><tr><th>ID</th><th>用户名</th><th>角色</th><th>每日配额</th><th>禁用</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table></div>`;
       }
 
       async function saveUser(row) {
@@ -296,17 +1393,54 @@
         await loadUsers();
       }
 
+      /* ========================================
+         Invite Codes
+         ======================================== */
+      async function loadInviteCodes() {
+        const data = await fetchJson("/api/admin/invite-codes");
+        const codes = data.invite_codes || [];
+        if (!codes.length) {
+          inviteOut.innerHTML = '<div class="empty-state"><svg class="icon" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg><div>暂无邀请码</div></div>';
+          return;
+        }
+        inviteOut.innerHTML = '<div class="invite-list">' + codes.map(c => {
+          const isUsed = Boolean(c.used_by);
+          const statusClass = isUsed ? 'used' : 'unused';
+          const statusText = isUsed ? `已使用 · 用户 ${c.used_by}` : '未使用';
+          return `<div class="invite-item">
+            <span class="invite-code">${escapeHtml(c.code)}</span>
+            <span class="invite-status ${statusClass}">${statusText}</span>
+          </div>`;
+        }).join("") + '</div>';
+      }
+
+      async function createInviteCode() {
+        inviteStatus.textContent = "生成中…";
+        inviteStatus.classList.remove("success", "error");
+        const data = await fetchJson("/api/admin/invite-codes", { method: "POST" });
+        const code = data.invite_code && data.invite_code.code ? data.invite_code.code : "";
+        inviteStatus.textContent = `新邀请码：${code}`;
+        inviteStatus.classList.add("success");
+        await loadInviteCodes();
+      }
+
+      /* ========================================
+         Config Management
+         ======================================== */
       async function loadConfig() {
-        configError.textContent = "";
+        configError.classList.add("hidden");
         configStatus.textContent = "加载配置中…";
+        configStatus.classList.remove("success", "error");
         const data = await fetchJson("/api/admin/config");
         configJson.value = JSON.stringify(data.config || {}, null, 2);
         configStatus.textContent = "配置已加载";
+        configStatus.classList.add("success");
       }
 
       async function saveConfig() {
-        configError.textContent = "";
+        configError.classList.add("hidden");
         configStatus.textContent = "保存配置中…";
+        configStatus.classList.remove("success", "error");
         let cfg;
         try { cfg = JSON.parse(configJson.value || "{}"); } catch (e) { throw new Error("JSON 解析失败: " + e); }
         if (cfg && typeof cfg === "object") delete cfg.admin_token;
@@ -316,36 +1450,70 @@
           body: JSON.stringify({ config: cfg })
         });
         configStatus.textContent = "配置已保存";
+        configStatus.classList.add("success");
       }
 
       async function reloadConfig() {
         configStatus.textContent = "应用中…";
+        configStatus.classList.remove("success", "error");
         await fetchJson("/api/admin/reload", { method: "POST" });
         configStatus.textContent = "已应用";
+        configStatus.classList.add("success");
       }
 
       async function runTest() {
         configStatus.textContent = "测试中…";
+        configStatus.classList.remove("success", "error");
+        testOut.classList.remove("hidden");
         const data = await fetchJson("/api/admin/test", { method: "POST" });
         testOut.textContent = JSON.stringify(data, null, 2);
         configStatus.textContent = "测试完成";
+        configStatus.classList.add("success");
       }
 
-      function escapeHtml(s) {
-        return String(s || "").replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
-      }
-
+      /* ========================================
+         Event Listeners
+         ======================================== */
       document.getElementById("loginBtn").addEventListener("click", () => login().catch(e => {
         loginStatus.textContent = "";
         loginError.textContent = errorMessage(e);
+        loginError.classList.remove("hidden");
       }));
+
+      // Enter key on password field
+      document.getElementById("password").addEventListener("keydown", e => {
+        if (e.key === "Enter") document.getElementById("loginBtn").click();
+      });
+
       document.getElementById("logoutBtn").addEventListener("click", () => setSession("", null));
-      document.getElementById("reloadUsersBtn").addEventListener("click", () => loadUsers().catch(e => { usersOut.innerHTML = `<div class="err">${escapeHtml(String(e))}</div>`; }));
-      document.getElementById("createInviteBtn").addEventListener("click", () => createInviteCode().catch(e => { inviteStatus.textContent = String(e); }));
-      document.getElementById("loadConfigBtn").addEventListener("click", () => loadConfig().catch(e => { configError.textContent = String(e); }));
-      document.getElementById("saveConfigBtn").addEventListener("click", () => saveConfig().catch(e => { configError.textContent = String(e); configStatus.textContent = ""; }));
-      document.getElementById("reloadConfigBtn").addEventListener("click", () => reloadConfig().catch(e => { configError.textContent = String(e); configStatus.textContent = ""; }));
-      document.getElementById("testBtn").addEventListener("click", () => runTest().catch(e => { configError.textContent = String(e); configStatus.textContent = ""; }));
+      document.getElementById("reloadUsersBtn").addEventListener("click", () => loadUsers().catch(e => {
+        usersOut.innerHTML = `<div class="error-message">${escapeHtml(String(e))}</div>`;
+      }));
+      document.getElementById("createInviteBtn").addEventListener("click", () => createInviteCode().catch(e => {
+        inviteStatus.textContent = String(e);
+        inviteStatus.classList.add("error");
+      }));
+      document.getElementById("loadConfigBtn").addEventListener("click", () => loadConfig().catch(e => {
+        configError.textContent = String(e);
+        configError.classList.remove("hidden");
+      }));
+      document.getElementById("saveConfigBtn").addEventListener("click", () => saveConfig().catch(e => {
+        configError.textContent = String(e);
+        configError.classList.remove("hidden");
+        configStatus.textContent = "";
+      }));
+      document.getElementById("reloadConfigBtn").addEventListener("click", () => reloadConfig().catch(e => {
+        configError.textContent = String(e);
+        configError.classList.remove("hidden");
+        configStatus.textContent = "";
+      }));
+      document.getElementById("testBtn").addEventListener("click", () => runTest().catch(e => {
+        configError.textContent = String(e);
+        configError.classList.remove("hidden");
+        configStatus.textContent = "";
+      }));
+
+      // User table action delegation
       usersOut.addEventListener("click", e => {
         const action = e.target && e.target.getAttribute ? e.target.getAttribute("data-action") : "";
         if (!action) return;
@@ -354,6 +1522,18 @@
         if (action === "delete") deleteUser(row).catch(err => alert(String(err)));
       });
 
+      // Re-render table on resize for mobile/desktop switch
+      let resizeTimer;
+      window.addEventListener("resize", () => {
+        clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(() => {
+          if (currentUser && currentUser.role === "admin") loadUsers().catch(() => {});
+        }, 300);
+      });
+
+      /* ========================================
+         Init
+         ======================================== */
       initSession();
     </script>
   </body>
