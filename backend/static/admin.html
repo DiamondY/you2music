@@ -31,6 +31,7 @@
         table, thead, tbody, tr, th, td { display: block; }
         th { display: none; }
         td { border-bottom: none; padding: 6px 0; }
+        td::before { content: attr(data-label); display: block; font-weight: 600; font-size: 12px; opacity: .7; margin-bottom: 2px; }
         tr { border-bottom: 1px solid rgba(127,127,127,.25); padding: 8px 0; }
       }
     </style>
@@ -236,17 +237,17 @@
         }
         const rows = users.map(u => `
           <tr data-user-id="${u.id}">
-            <td>${u.id}</td>
-            <td>${escapeHtml(u.username)}</td>
-            <td>
+            <td data-label="ID">${u.id}</td>
+            <td data-label="用户名">${escapeHtml(u.username)}</td>
+            <td data-label="角色">
               <select data-field="role">
                 <option value="user" ${u.role === "user" ? "selected" : ""}>user</option>
                 <option value="admin" ${u.role === "admin" ? "selected" : ""}>admin</option>
               </select>
             </td>
-            <td><input type="number" min="0" data-field="daily_quota" value="${u.daily_quota}"></td>
-            <td><input type="checkbox" data-field="disabled" ${u.disabled ? "checked" : ""}></td>
-            <td class="actions">
+            <td data-label="每日配额"><input type="number" min="0" data-field="daily_quota" value="${u.daily_quota}"></td>
+            <td data-label="禁用"><input type="checkbox" data-field="disabled" ${u.disabled ? "checked" : ""}></td>
+            <td data-label="操作" class="actions">
               <button data-action="save">保存</button>
               <button class="danger" data-action="delete">删除</button>
             </td>
