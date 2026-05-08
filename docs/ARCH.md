@@ -1,6 +1,6 @@
-# 架构说明（小范围工具）
+# 架构说明（当前实现）
 
-目标：在不追求“平台级复杂度”的前提下，把 **Prompt → 生成（可唱歌）→ 试听/下载 → 留痕** 的技术链路打通，并保持可替换性（将来可接入其他音乐 API 或自托管推理服务）。
+目标：在不引入“平台级复杂度”的前提下，把 **Prompt/歌词 → 生成 → 试听/下载 → 留痕（SQLite）** 的端到端链路打通，同时保持 provider 可扩展、并发可控、排障成本低。
 
 ---
 
@@ -8,129 +8,81 @@
 
 ### A) FastAPI 模式（推荐）
 
-- 入口：`backend\main.py`
-- 依赖：`backend\requirements.txt`
-- 优点：
-  - API 结构更标准
-  - `/docs`、`/redoc` 自动生成接口文档
-  - 后续加鉴权/限流/中间件更方便
+- 入口：`backend/main.py`
+- 依赖：`backend/requirements.txt`
+- 特点：
+  - 支持登录/注册（JWT）
+  - 支持配额与管理员管理
+  - 异步 worker + provider 队列（更适合长任务和并发控制）
 
-### B) stdlib 零依赖模式
+### B) stdlib 模式（零依赖）
 
-- 入口：`backend\stdlib_server.py`
-- 依赖：Python 标准库（无需 pip）
-- 优点：
-  - 在依赖安装受限的机器上也能跑
-  - 便于快速验证功能链路
+- 入口：`backend/stdlib_server.py`
+- 依赖：仅 Python 标准库
+- 特点：
+  - 用于本地快速跑通（无登录/注册接口）
+  - UI 会自动切换到“本地模式”（无需登录即可生成）
 
-两种模式的 UI 与核心 API 路径保持一致：
-
-- `POST /api/generate`
-- `POST /api/generate_many`
-- `POST /api/extend`
-- `GET /api/jobs/{job_id}`
-- `GET /api/jobs?ids=...`
-- `GET /api/audio/{job_id}.mp3`
-- `GET /api/providers`（provider 列表与参数 schema）
+两种模式都复用同一套静态页面：`backend/static/index.html`。
 
 ---
 
-## 2. 主要模块
+## 2. 核心模块
 
-### `backend\config.py`
+### `backend/config.py`
 
-配置加载（环境变量 → `Settings`）：
+配置加载：环境变量 → `config/providers.local.json` → `config/providers.json` → 默认值。
 
-- `ELEVENLABS_API_KEY`
-- `AI_MUSIC_DATA_DIR`
-- `AI_MUSIC_OUTPUT_FORMAT`
-- `AI_MUSIC_REQUEST_TIMEOUT_S`
-- `ELEVENLABS_BASE_URL`
+输出为 `Settings`（包含 base_url、api_key、默认 provider、并发配置、proxy 等）。
 
-### `backend\storage.py`
+### `backend/storage.py`
 
-SQLite job 存储（用于排查、复现、回溯）：
+SQLite 的 job store：
 
 - 表：`jobs`
-- 字段（核心）：`job_id`, `status`, `prompt`, `params_json`, `output_path`, `error`
-- 扩展字段：`kind`, `parent_job_id`（用于区分 generate/variation/extend，并建立派生关系）
-- `status`：`queued | running | succeeded | failed`
+- 关键字段：`job_id`, `status`, `provider`, `prompt`, `params_json`, `output_path`, `error`
+- 状态：`queued | running | succeeded | failed`
 
-### `backend\providers\elevenlabs.py`（FastAPI 用）
+### `backend/user_store.py`（FastAPI 模式使用）
 
-通过 `httpx` 调用 ElevenLabs Music API（异步）。
+SQLite 的 user store：
 
-### `backend\providers\elevenlabs_stdlib.py`（stdlib 用）
+- 用户：`users`
+- 邀请码：`invite_codes`
+- 配额消耗：`user_quotas`
 
-通过 `urllib.request` 调用 ElevenLabs Music API（无第三方依赖）。
+### `backend/concurrency.py`
 
----
+并发治理（FastAPI 模式）：
 
-## 3. 关键产品能力与实现说明
+- `ProviderQueue`：按 provider 拆分队列，控制同时在跑的 worker 数量
+- `TokenBucket`：按 provider 做简单的 rate limit
+- `run_with_retry`：对上游短暂失败做指数退避重试
 
-### 3.1 “人声唱歌（vocals）”
+### `backend/workers.py`
 
-在请求中：
+FastAPI 模式的 job 执行入口：
 
-- `vocals=true` → 发送给 provider：`force_instrumental=false`
-- `vocals=false` → 发送给 provider：`force_instrumental=true`
+- 从 provider 队列取 job
+- 做 cooldown / rate limit / queue timeout
+- 调用 provider client（MiniMax / ACE-Step）
+- 写音频到 `data/audio/`，并更新 job 状态
 
-同时后端会对 Prompt 做轻微“提示增强”：
+### `backend/providers/*`
 
-- vocals on：追加 `with vocals, singing ...`
-- vocals off：追加 `instrumental only ...`
+provider 客户端实现：
 
-### 3.1.1 Provider 动态切换 + 参数（per-request）
-
-请求体支持：
-
-- `provider`：每次请求指定 provider（不传则使用 `AI_MUSIC_PROVIDER_DEFAULT`）
-- `provider_params`：provider 专属参数对象
-
-UI 不写死表单：前端通过 `GET /api/providers` 获取字段定义并动态渲染（支持普通/高级模式）。
-
-### 3.2 多候选（variations）
-
-`POST /api/generate_many`：
-
-- 一次创建 2–4 个 job（`kind="variation"`）
-- 每个 job 独立调用 provider（结果彼此不同）
-- UI 用 `GET /api/jobs?ids=...` 一次轮询多个任务
-
-### 3.3 延长（extend）
-
-`POST /api/extend`：
-
-- 依赖一个已完成的 parent job（`status=succeeded`）
-- 新建一个子 job（`kind="extend"`, `parent_job_id=<parent>`）
-- **当前实现策略**：把 `duration_sec` 增加 `extra_sec`，然后用相同 prompt/参数 **重新生成更长版本**
-
-> 这不是“无缝续写/拼接”，而是 best-effort 的“更长重生成”。如果未来接入的 provider 支持真正的续写/continuation，可以把 extend 实现替换成 provider 的原生能力（或做音频拼接+淡入淡出）。
+- `backend/providers/minimax.py` / `backend/providers/minimax_stdlib.py`
+- `backend/providers/acestep.py` / `backend/providers/acestep_stdlib.py`
+- `backend/providers/registry.py`：把 provider 元信息（UI 字段、默认值、能力）聚合成 `/api/providers` 输出
 
 ---
 
-## 4. 可替换点（以后接入别家 API 怎么做）
+## 3. 典型请求链路（FastAPI）
 
-目前 provider 是“写死为 ElevenLabs”，但你可以把它抽象成接口（建议方向）：
-
-- `compose(prompt, length_ms, force_instrumental, seed, model_id, output_format) -> audio_bytes`
-
-如果接入另一个 API（例如支持 native extend 的服务）：
-
-- 为新服务新增一个 `backend\providers\<name>.py`
-- 在 `main.py / stdlib_server.py` 里根据配置选择 provider
-- 把 `extend` 从“重生成”改为“原生续写 + 拼接/版本化”
-
----
-
-## 5. 目录结构（概览）
-
-- `backend\main.py`：FastAPI 入口
-- `backend\stdlib_server.py`：零依赖 HTTP server 入口
-- `backend\static\index.html`：单页 UI
-- `backend\storage.py`：SQLite job store
-- `backend\config.py`：配置
-- `backend\providers\`：provider 实现（ElevenLabs）
-- `data\`：默认数据目录（运行时生成）
-- `docs\`：文档（USAGE/CONFIG/ARCH）
-- `tools\`：安装/兼容性脚本（含 Python 3.14 tempfile 修复）
+1. 前端提交 `POST /api/generate` 或 `POST /api/generate_many`
+2. 后端创建 job（`storage.JobStore.create_job()`），状态为 `queued`
+3. 把 job_id 放入 provider 的 `ProviderQueue`
+4. worker 将 job 状态置为 `running`，调用 provider API
+5. 成功：写文件，状态置为 `succeeded`，提供 `/api/audio/{job_id}` 播放
+6. 失败：状态置为 `failed`，错误信息写入 `error`

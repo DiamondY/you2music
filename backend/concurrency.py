@@ -260,7 +260,6 @@ class ProviderQueue:
                 # pulled but not yet processed.
                 if not self._stopping:
                     self.queue.put_nowait(job_id)
-                self.queue.task_done()
                 raise
             except Exception:
                 # handler is expected to set the job status to "failed" internally.

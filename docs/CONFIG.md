@@ -1,270 +1,135 @@
-# 配置说明（ENV Vars）
+# 配置说明（Env + 配置文件）
 
-本项目通过环境变量配置运行参数（PowerShell 示例以 Windows 为主）。
+本项目的配置来源按优先级覆盖（高优先级覆盖低优先级）：
 
-也支持通过 **配置文件** 录入 provider 信息（推荐用于小范围工具，避免每次敲命令行设置 env vars）。
+1. 环境变量（Env）
+2. `config/providers.local.json`（本地私有配置，已在 `.gitignore` 中忽略）
+3. `config/providers.json`（可选：团队共享配置）
+4. 代码内默认值
+
+推荐：复制 `config/providers.local.example.json` 为 `config/providers.local.json`，在文件里集中管理 key/base_url/默认 provider 等配置。
 
 ---
 
-## 必需
+## 1. 必需配置
 
-### `ELEVENLABS_API_KEY`
+### 1.1 至少配置一个 Provider 的 API Key
 
-ElevenLabs API Key（需要开通 Music 能力）。
+二选一（或都配）：
+
+- `MINIMAX_API_KEY`：MiniMax 官方 API Key
+- `ACESTEP_API_KEY`：ACE-Step (acemusic.ai) API Key
+
+PowerShell 示例：
 
 ```powershell
-$env:ELEVENLABS_API_KEY="YOUR_KEY"
+$env:MINIMAX_API_KEY="YOUR_MINIMAX_KEY"
+# 或：
+$env:ACESTEP_API_KEY="YOUR_ACESTEP_KEY"
 ```
 
-## 推荐：配置文件方式（无需敲命令行）
+---
 
-在项目目录下创建（或复制示例）：
+## 2. FastAPI 模式的认证配置（推荐使用时需要）
 
-- `config\providers.local.json`（本地私密配置，已在 `.gitignore` 中忽略）
+FastAPI 模式包含登录/注册与 JWT。你需要配置：
 
-你可以从示例复制：
+- `AI_MUSIC_JWT_SECRET`：JWT 签名密钥（建议用足够长的随机字符串）
 
-- `config\providers.local.example.json`
+PowerShell 示例：
 
-其中可填写：
+```powershell
+$env:AI_MUSIC_JWT_SECRET="a-long-random-secret"
+```
 
-- 各 provider 的 key/token（`secrets`）
-- 各 provider 的 base url（`endpoints`）
-- 管理页面 token（`admin_token`）
-- 代理（`proxy`）
-- UI 默认值（`ui_defaults`）
-- 默认 provider（`default_provider`）
-- 启用的 provider 列表（`enabled_providers`，可选）
+说明：
+- stdlib 模式（`backend/stdlib_server.py`）不使用 JWT，也不提供登录/注册接口。
 
-> 优先级：环境变量（env）会覆盖配置文件里的值，方便临时切换。
+---
 
-### `admin_token`（配置管理页面）
+## 3. 常用可选配置
 
-为了避免任何人打开 `/admin` 就能读写密钥，配置管理 API 需要 token 校验。
+### 3.1 Provider / 输出
 
-- 可通过环境变量：`AI_MUSIC_ADMIN_TOKEN`
-- 或写在配置文件：`"admin_token": "..."`（更方便小范围使用）
+- `AI_MUSIC_PROVIDER_DEFAULT`：默认 provider（`minimax` 或 `acestep`），默认 `minimax`
+- `MINIMAX_BASE_URL`：MiniMax API base_url（不要包含 `/v1`），默认 `https://api.minimaxi.com`
+- `ACESTEP_BASE_URL`：ACE-Step API base_url（不要包含 `/v1`），默认 `https://api.acemusic.ai`
+- `AI_MUSIC_OUTPUT_FORMAT`：默认输出格式（用于 UI 默认值/部分 provider 参数），默认 `mp3_44100_192`
+- `AI_MUSIC_REQUEST_TIMEOUT_S`：后端请求上游 API 的超时时间（秒），默认 `120`
 
-### `proxy`（代理设置）
+### 3.2 数据目录
 
-在配置文件中增加：
+- `AI_MUSIC_DATA_DIR`：数据落盘目录（SQLite + audio 文件），默认是项目根目录下的 `data/`
+
+### 3.3 服务监听
+
+- `AI_MUSIC_HOST`：监听地址，默认 `127.0.0.1`
+- `AI_MUSIC_PORT`：监听端口，默认 `8000`
+
+### 3.4 代理
+
+你可以用环境变量（httpx/urllib 都能识别）：
+
+- `HTTP_PROXY` / `http_proxy`
+- `HTTPS_PROXY` / `https_proxy`
+- `NO_PROXY` / `no_proxy`
+
+也可以写到配置文件 `proxy` 字段中（见下文）。
+
+---
+
+## 4. 配置文件格式（`config/providers.local.json`）
+
+文件结构（示例）：
 
 ```json
 {
+  "secrets": {
+    "minimax_api_key": "YOUR_MINIMAX_KEY",
+    "acestep_api_key": "YOUR_ACESTEP_KEY"
+  },
+  "endpoints": {
+    "minimax_base_url": "https://api.minimaxi.com",
+    "acestep_base_url": "https://api.acemusic.ai"
+  },
+  "default_provider": "minimax",
+  "enabled_providers": ["minimax", "acestep"],
   "proxy": {
     "http": "http://127.0.0.1:7890",
     "https": "http://127.0.0.1:7890",
     "no_proxy": "127.0.0.1,localhost"
+  },
+  "server": {
+    "host": "127.0.0.1",
+    "port": 8000
+  },
+  "auth": {
+    "jwt_secret": "a-long-random-secret"
+  },
+  "admin": {
+    "username": "admin",
+    "password": "change-me",
+    "default_daily_quota": 20
+  },
+  "concurrency": {
+    "minimax": { "max_concurrent": 3, "rate_limit_per_sec": 2.0 },
+    "acestep": { "max_concurrent": 1, "rate_limit_per_sec": 1.0, "cooldown_sec": 30.0 },
+    "retry": { "max_retries": 3, "base_delay_sec": 2.0, "retryable_statuses": [429, 502, 503, 504] },
+    "queue_timeout_sec": 300
   }
 }
 ```
 
-启动/加载时会将它映射到环境变量：
-
-- `HTTP_PROXY`
-- `HTTPS_PROXY`
-- `NO_PROXY`
-
-这样 `httpx` 与 `urllib` 都能自动走代理。
-
----
-
-## 可选（常用）
-
-### `AI_MUSIC_PROVIDER_DEFAULT`
-
-默认 Provider（如果请求未指定 `provider`，就用这个）。
-
-- 默认：优先读配置文件里的 `default_provider`；若都未配置，则 fallback 为 `elevenlabs`
-- 推荐：`replicate`（默认模型 `minimax/music-1.5`，新用户通常有免费 credits）
-
-```powershell
-$env:AI_MUSIC_PROVIDER_DEFAULT="replicate"
-```
-
-### `FAL_KEY`
-
-fal.ai API Key（用于 provider=`fal`）。
-
-```powershell
-$env:FAL_KEY="YOUR_FAL_KEY"
-```
-
-### `REPLICATE_API_TOKEN`
-
-Replicate API Token（用于 provider=`replicate`）。
-
-```powershell
-$env:REPLICATE_API_TOKEN="YOUR_REPLICATE_TOKEN"
-```
-
-### `MINIMAX_API_KEY`
-
-MiniMax 官方 API Key（用于 provider=`minimax`）。
-
-```powershell
-$env:MINIMAX_API_KEY="YOUR_MINIMAX_KEY"
-```
-
-### `STABILITY_API_KEY`
-
-Stability API Key（用于 provider=`stability`）。
-
-```powershell
-$env:STABILITY_API_KEY="YOUR_STABILITY_KEY"
-```
-
-### `SUNO_API_KEY`
-
-Suno 第三方 API Key（用于 provider=`suno`，例如 musicapi.ai）。
-
-```powershell
-$env:SUNO_API_KEY="YOUR_SUNO_KEY"
-```
-
-### `SUNO_BASE_URL`
-
-Suno 第三方 API base URL（用于 provider=`suno`）。
-- 默认：`https://api.musicapi.ai`
-
-```powershell
-$env:SUNO_BASE_URL="https://api.musicapi.ai"
-```
-
-### `AI_MUSIC_DATA_DIR`
-
-数据落盘目录（SQLite + 音频文件）。
-
-- 默认：`ai-music-tool\data`
-- 影响：
-  - SQLite：`<AI_MUSIC_DATA_DIR>\app.db`
-  - 音频：`<AI_MUSIC_DATA_DIR>\audio\<job_id>.mp3`
-
-```powershell
-$env:AI_MUSIC_DATA_DIR="C:\Users\Administrator\Documents\Playground\ai-music-tool\data"
-```
-
-### `AI_MUSIC_OUTPUT_FORMAT`
-
-ElevenLabs 输出格式（传给 `output_format`）。
-
-- 默认：`mp3_44100_192`
-- 兼容：旧值 `mp3_128kbps` / `mp3_192kbps` 会自动转换为 `mp3_44100_128` / `mp3_44100_192`
-
-```powershell
-$env:AI_MUSIC_OUTPUT_FORMAT="mp3_44100_192"
-```
-
----
-
-## 可选（服务监听）
-
-### `AI_MUSIC_HOST`
-
-- 默认：`127.0.0.1`
-
-```powershell
-$env:AI_MUSIC_HOST="127.0.0.1"
-```
-
-### `AI_MUSIC_PORT`
-
-- 默认：`8000`
-
-```powershell
-$env:AI_MUSIC_PORT="8000"
-```
-
----
-
-## 可选（Provider / 网络）
-
-### `ELEVENLABS_BASE_URL`
-
-ElevenLabs API base URL。
-
-- 默认：`https://api.elevenlabs.io`
-- 何时需要改：
-  - 内网代理/网关
-  - 自建兼容网关（极少）
-
-```powershell
-$env:ELEVENLABS_BASE_URL="https://api.elevenlabs.io"
-```
-
-### `FAL_QUEUE_BASE_URL`
-
-fal queue base URL。
-
-- 默认：`https://queue.fal.run`
-
-```powershell
-$env:FAL_QUEUE_BASE_URL="https://queue.fal.run"
-```
-
-### `FAL_PLATFORM_BASE_URL`
-
-fal platform API base URL。
-
-- 默认：`https://api.fal.ai`
-- 用途：
-  - `/api/admin/test` 会优先用 platform API 做鉴权/连通性检查（更权威）
-  - 如果你自建了兼容网关，也可以用它来指向网关地址
-
-```powershell
-$env:FAL_PLATFORM_BASE_URL="https://api.fal.ai"
-```
-
-### `REPLICATE_BASE_URL`
-
-Replicate API base URL。
-
-- 默认：`https://api.replicate.com`
-
-```powershell
-$env:REPLICATE_BASE_URL="https://api.replicate.com"
-```
-
-### `MINIMAX_BASE_URL`
-
-MiniMax API base URL。
-
-- 默认（国内）：`https://api.minimaxi.com`
-- 国际/海外：`https://api.minimax.io`
-
-> 注意：不要包含 `/v1`（例如 `.../v1`），程序会自动拼接 `/v1/music_generation`。
-
-```powershell
-$env:MINIMAX_BASE_URL="https://api.minimaxi.com"
-```
-
-### `STABILITY_BASE_URL`
-
-Stability API base URL。
-
-- 默认：`https://api.stability.ai`
-
-```powershell
-$env:STABILITY_BASE_URL="https://api.stability.ai"
-```
-
-### `AI_MUSIC_REQUEST_TIMEOUT_S`
-
-HTTP 请求超时时间（秒）。
-
-- 默认：`120`
-
-```powershell
-$env:AI_MUSIC_REQUEST_TIMEOUT_S="180"
-```
-
----
-
-## Python 3.14 + pip 安装（仅在 FastAPI 模式需要）
-
-如果你需要安装 `backend\requirements.txt`，并且机器上存在 `tempfile` 目录不可写的问题：
-
-- 使用脚本：`tools\pip_install_backend.ps1`
-- 它会设置：
-  - `PYTHONPATH=tools\py314_tempfile_fix`（加载 `sitecustomize.py`）
-  - `PY_TEMP_BASE=<project>\.tmp_python`（把临时目录固定到项目内可写路径）
+字段说明（仅列当前代码实际读取/使用的部分）：
+
+- `secrets.minimax_api_key` / `secrets.acestep_api_key`：provider 密钥
+- `endpoints.minimax_base_url` / `endpoints.acestep_base_url`：provider base_url
+- `default_provider`：默认 provider
+- `enabled_providers`：限制 UI 和后端允许的 provider 列表（可选）
+- `ui_defaults`：provider 表单默认值（可选，具体字段由 `/api/providers` 下发）
+- `proxy`：写入环境变量，供网络请求使用
+- `server.host` / `server.port`：监听配置
+- `auth.jwt_secret`：JWT secret（FastAPI 模式使用）
+- `admin.username` / `admin.password`：初始管理员账号（FastAPI 模式使用）
+- `admin.default_daily_quota`：新建用户默认配额（FastAPI 模式使用）
+- `concurrency`：provider 队列/限流/重试配置

@@ -167,7 +167,7 @@ def auth_update_me(req: ProfileUpdateRequest, current_user: UserRecord = Depends
 @app.put("/api/auth/password")
 def auth_update_password(req: PasswordUpdateRequest, current_user: UserRecord = Depends(get_current_user)) -> dict[str, Any]:
     if not verify_password(req.old_password, current_user.password_hash):
-        raise HTTPException(status_code=403, detail="invalid current password")
+        raise HTTPException(status_code=403, detail="当前密码错误")
     try:
         password_hash = hash_password(req.new_password)
     except ValueError as e:
@@ -549,7 +549,10 @@ async def generate(req: GenerateRequest, current_user: UserRecord = Depends(get_
     try:
         quota = STATE.user_store.consume_quota(user_id=current_user.id, amount=1, daily_quota=current_user.daily_quota)
     except ValueError as e:
-        raise HTTPException(status_code=429, detail=str(e)) from e
+        msg = str(e)
+        if msg == "daily quota exhausted":
+            msg = "今日配额已用完"
+        raise HTTPException(status_code=429, detail=msg) from e
 
     job_id = STATE.store.create_job(
         provider=provider_name,
@@ -597,7 +600,10 @@ async def generate_many(req: GenerateManyRequest, current_user: UserRecord = Dep
     try:
         quota = STATE.user_store.consume_quota(user_id=current_user.id, amount=req.count, daily_quota=current_user.daily_quota)
     except ValueError as e:
-        raise HTTPException(status_code=429, detail=str(e)) from e
+        msg = str(e)
+        if msg == "daily quota exhausted":
+            msg = "今日配额已用完"
+        raise HTTPException(status_code=429, detail=msg) from e
 
     job_ids: list[str] = []
     for _ in range(req.count):

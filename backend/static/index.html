@@ -2017,6 +2017,7 @@
       let currentJobProvider = null;
       let currentUser = null;
       let authToken = localStorage.getItem("you2music.jwt") || "";
+      let localMode = false;
       let pollTimer = null;
       let providersMeta = null;
 
@@ -2212,19 +2213,25 @@
         if (authToken) localStorage.setItem("you2music.jwt", authToken);
         else localStorage.removeItem("you2music.jwt");
 
-        const loggedIn = Boolean(currentUser && authToken);
+        const loggedIn = localMode || Boolean(currentUser && authToken);
         authCard.classList.toggle("hidden", loggedIn);
         accountBar.classList.toggle("hidden", !loggedIn);
         tabCreateBtn.disabled = !loggedIn;
         // Admin link
         const adminLink = document.getElementById("adminLink");
-        adminLink.style.display = (loggedIn && currentUser.role === "admin") ? "inline-block" : "none";
+        adminLink.style.display = (loggedIn && !localMode && currentUser && currentUser.role === "admin") ? "inline-block" : "none";
         if (loggedIn) {
-          accountNameEl.textContent = currentUser.username || "-";
-          accountRoleEl.textContent = currentUser.role || "user";
-          updateQuotaDisplay(currentUser);
+          if (localMode) {
+            accountNameEl.textContent = "本地模式";
+            accountRoleEl.textContent = "local";
+            updateQuotaDisplay(null);
+          } else {
+            accountNameEl.textContent = (currentUser && currentUser.username) ? currentUser.username : "-";
+            accountRoleEl.textContent = (currentUser && currentUser.role) ? currentUser.role : "user";
+            updateQuotaDisplay(currentUser);
+          }
           // Force change password check
-          if (currentUser.must_change_password) {
+          if (!localMode && currentUser && currentUser.must_change_password) {
             showForceChangePwd();
           } else {
             showTab("create");
@@ -2285,7 +2292,7 @@
       }
 
       function showTab(name) {
-        const canCreate = Boolean(currentUser && authToken);
+        const canCreate = localMode || Boolean(currentUser && authToken);
         const createActive = name === "create" && canCreate;
         appContent.classList.toggle("hidden", !createActive);
         discoverContent.classList.toggle("hidden", name !== "discover" && createActive);
@@ -2296,17 +2303,44 @@
         }
       }
 
+      async function detectLocalMode() {
+        try {
+          const res = await fetch("/api/auth/me", { method: "GET" });
+          // FastAPI mode implements this route and returns 401 without a token.
+          // stdlib_server mode typically returns 404 (route not found).
+          return Boolean(res && res.status === 404);
+        } catch {
+          return false;
+        }
+      }
+
       async function refreshCurrentUser() {
         if (!authToken) {
-          setSession("", null);
+          localMode = await detectLocalMode();
+          if (localMode) {
+            setSession("", { username: "本地模式", role: "user", must_change_password: false, quota: null });
+            await initProviders();
+            await loadHistoryPage(0);
+          } else {
+            setSession("", null);
+          }
           return;
         }
+        localMode = false;
         try {
           const data = await fetchJson("/api/auth/me");
           setSession(authToken, data.user);
           await initProviders();
           await loadHistoryPage(0);
         } catch (e) {
+          localMode = await detectLocalMode();
+          if (localMode) {
+            setAuthError("");
+            setSession("", { username: "本地模式", role: "user", must_change_password: false, quota: null });
+            await initProviders();
+            await loadHistoryPage(0);
+            return;
+          }
           setSession("", null);
           setAuthError("登录已过期，请重新登录。");
         }
@@ -2343,10 +2377,16 @@
 
       async function loadCommunity() {
         communityListEl.innerHTML = '<div class="muted">加载中…</div>';
-        const data = await fetchJson("/api/community");
-        const jobs = data.jobs || [];
+        let jobs = [];
+        if (localMode) {
+          const data = await fetchJson("/api/jobs/recent?limit=30");
+          jobs = data.jobs || [];
+        } else {
+          const data = await fetchJson("/api/community");
+          jobs = data.jobs || [];
+        }
         if (!jobs.length) {
-          communityListEl.innerHTML = '<div class="muted">暂无公开作品。</div>';
+          communityListEl.innerHTML = localMode ? '<div class="muted">暂无历史记录。</div>' : '<div class="muted">暂无公开作品。</div>';
           return;
         }
         communityListEl.innerHTML = "";
@@ -2360,7 +2400,12 @@
 
           const meta = document.createElement("div");
           meta.className = "muted";
-          meta.textContent = `${job.provider || "-"} · ${job.share_permission === "downloadable" ? "可下载" : "仅试听"}`;
+          if (localMode) {
+            const st = job.status || "-";
+            meta.textContent = `${job.provider || "-"} · ${st}`;
+          } else {
+            meta.textContent = `${job.provider || "-"} · ${job.share_permission === "downloadable" ? "可下载" : "仅试听"}`;
+          }
           item.appendChild(meta);
 
           if (job.audio_url) {
@@ -2371,7 +2416,7 @@
             audio.style.marginTop = "8px";
             item.appendChild(audio);
           }
-          if (job.download_url) {
+          if (!localMode && job.download_url) {
             const link = document.createElement("a");
             link.href = job.download_url;
             link.className = "btn btn-primary btn-sm";

@@ -126,9 +126,9 @@ def get_current_user(authorization: str | None = Header(default=None)) -> UserRe
     payload = verify_token(token=token, settings=STATE.settings)
     user = STATE.user_store.get_by_id(payload.user_id)
     if not user:
-        raise HTTPException(status_code=401, detail="user not found")
+        raise HTTPException(status_code=401, detail="用户不存在或已被删除")
     if user.disabled:
-        raise HTTPException(status_code=403, detail="user disabled")
+        raise HTTPException(status_code=403, detail="账户已被禁用")
     return user
 
 
