@@ -6,6 +6,7 @@ import logging
 import os
 import random
 import re
+import time
 from pathlib import Path
 from typing import Any, Callable
 
@@ -18,6 +19,7 @@ from pydantic import BaseModel, Field
 
 from app_state import AppState
 from auth import create_token, extract_bearer_token, hash_password, verify_password, verify_token
+from concurrency import run_with_retry
 from providers.registry import providers_payload
 from providers.minimax import MiniMaxMusicClient
 from providers.acestep import ACEStepClient
@@ -199,7 +201,7 @@ def _serialize_job(rec: Any, *, include_download: bool = True) -> dict[str, Any]
         audio_url = f"/api/audio/{rec.job_id}"
         if include_download and rec.share_permission == "downloadable":
             download_url = audio_url
-    return {
+    result = {
         "job_id": rec.job_id,
         "status": rec.status,
         "created_at_ms": rec.created_at_ms,
@@ -215,6 +217,14 @@ def _serialize_job(rec: Any, *, include_download: bool = True) -> dict[str, Any]
         "visibility": rec.visibility,
         "share_permission": rec.share_permission,
     }
+    # Add queue position info for queued jobs
+    if rec.status == "queued":
+        provider_name = str(rec.provider) if rec.provider else "minimax"
+        pq = STATE.provider_queues.get(provider_name)
+        if pq:
+            result["queue_position"] = pq.get_position(rec.job_id)
+            result["queue_depth"] = pq.pending_count
+    return result
 
 
 def _auth_error_detail(msg: str) -> str:
@@ -272,57 +282,18 @@ def _install_windows_asyncio_connection_reset_suppression() -> None:
     loop.set_exception_handler(handler)
 
 
-def _spawn_job_task(coro: "asyncio.Future[Any] | asyncio.Task[Any] | Any") -> None:
-    """
-    Spawn a background job task and track it for shutdown cancellation.
-
-    Uvicorn on Windows may appear to "not stop" on Ctrl+C if there are long-running
-    background tasks. Tracking lets us cancel them promptly on shutdown.
-    """
-    task = asyncio.create_task(coro)
-
-    tasks = getattr(app.state, "job_tasks", None)
-    if tasks is None:
-        tasks = set()
-        setattr(app.state, "job_tasks", tasks)
-
-    tasks.add(task)
-
-    def _done(t: asyncio.Task[Any]) -> None:
-        try:
-            tasks.discard(t)
-        except Exception:
-            pass
-
-    task.add_done_callback(_done)
-
-
 @app.on_event("startup")
 async def _startup_install_loop_handler() -> None:
     _install_windows_asyncio_connection_reset_suppression()
-    if getattr(app.state, "job_tasks", None) is None:
-        setattr(app.state, "job_tasks", set())
+    # Start provider worker pools
+    await STATE.start_workers(handler=_job_worker_handler)
 
 
 @app.on_event("shutdown")
 async def _shutdown_cancel_jobs() -> None:
-    tasks = getattr(app.state, "job_tasks", None)
-    if not tasks:
-        return
-
-    # Cancel outstanding jobs quickly so Ctrl+C stops reliably in dev.
-    snapshot = [t for t in list(tasks) if not t.done()]
-    for t in snapshot:
-        t.cancel()
-
-    # Best effort: don't let cancellation errors block shutdown.
-    # On Windows, cancellation of in-flight network IO can sometimes take longer than expected.
-    # Keep shutdown bounded so dev iteration is reliable.
-    timeout_s = float(os.getenv("AI_MUSIC_SHUTDOWN_CANCEL_TIMEOUT_S", "0.5"))
-    try:
-        await asyncio.wait_for(asyncio.gather(*snapshot, return_exceptions=True), timeout=timeout_s)
-    except asyncio.TimeoutError:
-        return
+    # Stop provider workers and close shared httpx clients.
+    # Worker cancellation + client cleanup is handled by shutdown_workers().
+    await STATE.shutdown_workers()
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -755,6 +726,55 @@ def admin_list_invite_codes(current_user: UserRecord = Depends(require_admin)) -
     return {"invite_codes": [code.__dict__ for code in STATE.user_store.list_invite_codes()]}
 
 
+@app.get("/api/admin/jobs")
+def admin_list_jobs(
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=20, ge=1, le=200),
+    status: str | None = Query(default=None),
+    current_user: UserRecord = Depends(require_admin),
+) -> dict[str, Any]:
+    total = STATE.store.count_jobs(include_all=True, status=status)
+    records = STATE.store.list_page(offset=offset, limit=limit, include_all=True, status=status)
+    user_map = {u.id: u.username for u in STATE.user_store.list_users()}
+    jobs = []
+    for rec in records:
+        d = _serialize_job(rec)
+        d["username"] = user_map.get(rec.user_id, str(rec.user_id) if rec.user_id else "-")
+        jobs.append(d)
+    return {"jobs": jobs, "total": total, "offset": offset, "limit": limit}
+
+
+@app.post("/api/admin/jobs/{job_id}/cancel")
+def admin_cancel_job(
+    job_id: str,
+    current_user: UserRecord = Depends(require_admin),
+) -> dict[str, Any]:
+    rec = STATE.store.get(job_id)
+    if not rec:
+        raise HTTPException(status_code=404, detail="job not found")
+    if rec.status != "queued":
+        raise HTTPException(status_code=409, detail="只能取消排队中的任务")
+    provider_name = str(rec.provider) if rec.provider else "minimax"
+    pq = STATE.provider_queues.get(provider_name)
+    cancelled_from_queue = False
+    if pq:
+        cancelled_from_queue = pq.cancel(job_id)
+    STATE.store.set_status(job_id, status="failed", error="管理员取消排队")
+    return {"ok": True, "cancelled_from_queue": cancelled_from_queue}
+
+
+@app.delete("/api/admin/jobs/{job_id}")
+def admin_delete_job(
+    job_id: str,
+    current_user: UserRecord = Depends(require_admin),
+) -> dict[str, Any]:
+    rec = STATE.store.get(job_id)
+    if not rec:
+        raise HTTPException(status_code=404, detail="job not found")
+    ok = STATE.store.delete(job_id)
+    return {"ok": ok}
+
+
 @app.post("/api/generate")
 async def generate(req: GenerateRequest, current_user: UserRecord = Depends(get_current_user)) -> dict[str, Any]:
     provider_name = _resolve_provider(req.provider)
@@ -797,7 +817,8 @@ async def generate(req: GenerateRequest, current_user: UserRecord = Depends(get_
         user_id=current_user.id,
     )
 
-    _spawn_job_task(_run_job(job_id=job_id, prompt=prompt, params=params))
+    # Submit to provider queue (job starts in "queued" status, worker picks it up)
+    await STATE.provider_queues[provider_name].submit(job_id)
     return {"job_id": job_id, "quota": quota}
 
 
@@ -846,7 +867,8 @@ async def generate_many(req: GenerateManyRequest, current_user: UserRecord = Dep
             user_id=current_user.id,
         )
         job_ids.append(job_id)
-        _spawn_job_task(_run_job(job_id=job_id, prompt=prompt, params=params))
+        # Submit to provider queue (job starts in "queued" status, worker picks it up)
+        await STATE.provider_queues[provider_name].submit(job_id)
 
     return {"job_ids": job_ids, "quota": quota}
 
@@ -896,7 +918,9 @@ async def extend(req: ExtendRequest, current_user: UserRecord = Depends(get_curr
         user_id=current_user.id,
     )
 
-    _spawn_job_task(_run_job(job_id=job_id, prompt=parent.prompt, params=new_params))
+    # Submit to provider queue (job starts in "queued" status, worker picks it up)
+    provider_name = str(new_params.get("provider") or parent.provider)
+    await STATE.provider_queues[provider_name].submit(job_id)
     return {"job_id": job_id, "parent_job_id": parent.job_id, "quota": quota}
 
 
@@ -905,7 +929,7 @@ def get_recent_jobs(
     limit: int = Query(default=20, ge=1, le=50),
     current_user: UserRecord = Depends(get_current_user),
 ) -> dict[str, Any]:
-    records = STATE.store.list_recent(limit=limit, user_id=current_user.id, include_all=_is_admin(current_user))
+    records = STATE.store.list_recent(limit=limit, user_id=current_user.id, include_all=False)
     return {"jobs": [_serialize_job(rec) for rec in records]}
 
 
@@ -915,7 +939,7 @@ def get_jobs_history(
     limit: int = Query(default=20, ge=1, le=200),
     current_user: UserRecord = Depends(get_current_user),
 ) -> dict[str, Any]:
-    include_all = _is_admin(current_user)
+    include_all = False  # Homepage only shows own jobs; admin job management is in the admin panel
     total = STATE.store.count_jobs(user_id=current_user.id, include_all=include_all)
     records = STATE.store.list_page(offset=offset, limit=limit, user_id=current_user.id, include_all=include_all)
     return {"jobs": [_serialize_job(rec) for rec in records], "total": total, "offset": offset, "limit": limit}
@@ -954,6 +978,29 @@ def delete_job(job_id: str, current_user: UserRecord = Depends(get_current_user)
         raise HTTPException(status_code=403, detail="job is private")
     ok = STATE.store.delete(job_id)
     return {"ok": ok}
+
+
+@app.post("/api/jobs/{job_id}/cancel")
+def cancel_job(job_id: str, current_user: UserRecord = Depends(get_current_user)) -> dict[str, Any]:
+    """Cancel a queued job. Only works for jobs still in 'queued' status."""
+    rec = STATE.store.get(job_id)
+    if not rec:
+        raise HTTPException(status_code=404, detail="job not found")
+    if not (_is_admin(current_user) or rec.user_id == current_user.id):
+        raise HTTPException(status_code=403, detail="job is private")
+    if rec.status != "queued":
+        raise HTTPException(status_code=409, detail="只能取消排队中的任务")
+
+    # Remove from provider queue's pending list
+    provider_name = str(rec.provider) if rec.provider else "minimax"
+    pq = STATE.provider_queues.get(provider_name)
+    cancelled_from_queue = False
+    if pq:
+        cancelled_from_queue = pq.cancel(job_id)
+
+    # Mark as failed in store
+    STATE.store.set_status(job_id, status="failed", error="用户取消排队")
+    return {"ok": True, "cancelled_from_queue": cancelled_from_queue}
 
 
 @app.delete("/api/jobs")
@@ -1052,9 +1099,76 @@ def get_audio_mp3_compat(job_id: str, current_user: UserRecord | None = Depends(
     return get_audio(job_id, current_user)
 
 
-async def _run_job(*, job_id: str, prompt: str, params: dict[str, Any]) -> None:
+async def _job_worker_handler(job_id: str) -> None:
+    """Worker handler: called by ProviderQueue workers for each job.
+
+    Sets job status from 'queued' → 'running', acquires a rate-limit token,
+    then executes the job with retry support. Includes queue timeout check:
+    if a job waited too long (in queue + rate-limit wait), it is marked as failed.
+    """
+    rec = STATE.store.get(job_id)
+    if not rec:
+        return
+
+    # If the job was cancelled while in queue, its status is no longer "queued"
+    # — skip it entirely.
+    if rec.status != "queued":
+        return
+
     try:
-        STATE.store.set_status(job_id, status="running")
+        params = json.loads(rec.params_json)
+    except Exception:
+        params = {}
+
+    provider_name = str(params.get("provider") or "minimax")
+
+    # Acquire rate-limit token before starting work
+    bucket = STATE.rate_limiters.get(provider_name)
+    if bucket:
+        await bucket.acquire()
+
+    # Check queue timeout: if the job waited too long (queue wait + rate-limit wait), fail it
+    queue_timeout_sec = float(STATE.settings.concurrency_config.get("queue_timeout_sec", 300))
+    if queue_timeout_sec > 0:
+        elapsed_sec = (time.time() * 1000 - rec.created_at_ms) / 1000.0
+        if elapsed_sec > queue_timeout_sec:
+            STATE.store.set_status(
+                job_id,
+                status="failed",
+                error=f"排队超时：等待了 {elapsed_sec:.0f} 秒，超过上限 {queue_timeout_sec:.0f} 秒",
+            )
+            logger.warning("Job %s queue timeout: waited %.0fs (limit %ds)", job_id, elapsed_sec, int(queue_timeout_sec))
+            return
+
+    # Set status to running
+    STATE.store.set_status(job_id, status="running")
+
+    # Execute with retry
+    retry_cfg = STATE.settings.concurrency_config.get("retry", {}) if isinstance(STATE.settings.concurrency_config.get("retry"), dict) else {}
+    max_retries = int(retry_cfg.get("max_retries", 3))
+    base_delay = float(retry_cfg.get("base_delay_sec", 2.0))
+    retryable_statuses = retry_cfg.get("retryable_statuses", [429, 502, 503, 504])
+
+    try:
+        await run_with_retry(
+            lambda: _run_job(job_id=job_id, prompt=rec.prompt, params=params),
+            max_retries=max_retries,
+            retryable_statuses=retryable_statuses,
+            base_delay=base_delay,
+            retry_logger=logging.getLogger(__name__),
+        )
+    except asyncio.CancelledError:
+        # Shutdown: mark job as failed so it doesn't stay "running" forever.
+        STATE.store.set_status(job_id, status="failed", error="cancelled")
+        raise
+    except Exception as e:
+        # run_with_retry exhausted retries or non-retryable error
+        STATE.store.set_status(job_id, status="failed", error=str(e))
+
+
+async def _run_job(*, job_id: str, prompt: str, params: dict[str, Any]) -> None:
+    """Execute a single music generation job. Called by _job_worker_handler via run_with_retry."""
+    try:
         STATE.audio_dir.mkdir(parents=True, exist_ok=True)
 
         provider_name = str(params.get("provider") or "minimax")
@@ -1068,10 +1182,13 @@ async def _run_job(*, job_id: str, prompt: str, params: dict[str, Any]) -> None:
 
         if provider_name == "minimax":
             # MiniMax official API (music-2.6)
+            # Use shared httpx client for connection pooling
+            shared_client = STATE.http_clients.get("minimax")
             client = MiniMaxMusicClient(
                 api_key=STATE.settings.minimax_api_key,
                 base_url=STATE.settings.minimax_base_url,
                 timeout_s=STATE.settings.request_timeout_s,
+                http_client=shared_client,
             )
             model = str(provider_params.get("model") or "music-2.6")
             lyrics_raw = params.get("lyrics") or provider_params.get("lyrics")
@@ -1119,10 +1236,13 @@ async def _run_job(*, job_id: str, prompt: str, params: dict[str, Any]) -> None:
             out_ext = audio_format
         elif provider_name == "acestep":
             # ACE-Step 1.5 via acemusic.ai (OpenAI-compatible API)
+            # Use shared httpx client for connection pooling
+            shared_client = STATE.http_clients.get("acestep")
             client = ACEStepClient(
                 api_key=STATE.settings.acestep_api_key,
                 base_url=STATE.settings.acestep_base_url,
                 timeout_s=STATE.settings.request_timeout_s,
+                http_client=shared_client,
             )
             model = str(provider_params.get("model") or "acemusic/acestep-v1.5-turbo")
             lyrics = params.get("lyrics") or provider_params.get("lyrics")
@@ -1151,8 +1271,6 @@ async def _run_job(*, job_id: str, prompt: str, params: dict[str, Any]) -> None:
         # Shutdown/dev stop: treat as a controlled failure to avoid leaving jobs "running".
         STATE.store.set_status(job_id, status="failed", error="cancelled")
         raise
-    except Exception as e:
-        STATE.store.set_status(job_id, status="failed", error=str(e))
 
 
 class _SuppressUvicornShutdownTimeoutFilter(logging.Filter):

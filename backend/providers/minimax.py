@@ -36,12 +36,13 @@ class MiniMaxMusicResult:
 class MiniMaxMusicClient:
     """MiniMax Music API client for music-2.6 model."""
 
-    def __init__(self, *, api_key: str, base_url: str, timeout_s: float) -> None:
+    def __init__(self, *, api_key: str, base_url: str, timeout_s: float, http_client: httpx.AsyncClient | None = None) -> None:
         if not api_key:
             raise ValueError("MINIMAX_API_KEY is required for minimax provider.")
         self._key = api_key
         self._base = base_url.rstrip("/")
         self._timeout = timeout_s
+        self._shared_client = http_client
 
     async def generate(
         self,
@@ -98,10 +99,15 @@ class MiniMaxMusicClient:
             if v is not None:
                 body[k] = v
 
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
-            resp = await client.post(url, headers=headers, json=body)
+        if self._shared_client:
+            resp = await self._shared_client.post(url, headers=headers, json=body)
             self._check_response(resp)
             data = resp.json()
+        else:
+            async with httpx.AsyncClient(timeout=self._timeout) as client:
+                resp = await client.post(url, headers=headers, json=body)
+                self._check_response(resp)
+                data = resp.json()
 
             base_resp = data.get("base_resp") or {}
             status_code = base_resp.get("status_code")
@@ -133,6 +139,10 @@ class MiniMaxMusicClient:
 
     async def download_audio(self, audio_url: str) -> bytes:
         """Download audio from MiniMax result URL."""
+        if self._shared_client:
+            resp = await self._shared_client.get(audio_url)
+            resp.raise_for_status()
+            return resp.content
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             resp = await client.get(audio_url)
             resp.raise_for_status()

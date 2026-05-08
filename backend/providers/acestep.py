@@ -44,12 +44,13 @@ class ACEStepClient:
         "ACE-Step V1.5 XL Turbo": "acemusic/acestep-v1.5-xl-turbo",
     }
 
-    def __init__(self, *, api_key: str, base_url: str, timeout_s: float) -> None:
+    def __init__(self, *, api_key: str, base_url: str, timeout_s: float, http_client: httpx.AsyncClient | None = None) -> None:
         if not api_key:
             raise ValueError("ACESTEP_API_KEY is required for acestep provider.")
         self._key = api_key
         self._base = base_url.rstrip("/")
         self._timeout = timeout_s
+        self._shared_client = http_client
 
     def _get_model_id(self, model: str) -> str:
         """Map friendly model names to API model IDs."""
@@ -143,10 +144,15 @@ class ACEStepClient:
             if v is not None and k not in ("poll_interval_s", "max_wait_s", "inference_steps", "seed"):
                 body[k] = v
 
-        async with httpx.AsyncClient(timeout=self._timeout, follow_redirects=True) as client:
-            resp = await client.post(url, headers=headers, json=body)
+        if self._shared_client:
+            resp = await self._shared_client.post(url, headers=headers, json=body)
             self._check_response(resp)
             data = resp.json()
+        else:
+            async with httpx.AsyncClient(timeout=self._timeout, follow_redirects=True) as client:
+                resp = await client.post(url, headers=headers, json=body)
+                self._check_response(resp)
+                data = resp.json()
 
         # Parse the OpenAI-style response
         choices = data.get("choices", [])
@@ -228,6 +234,10 @@ class ACEStepClient:
 
     async def download_audio(self, audio_url: str) -> bytes:
         """Download audio from URL (not used for OpenAI-compatible API)."""
+        if self._shared_client:
+            resp = await self._shared_client.get(audio_url)
+            resp.raise_for_status()
+            return resp.content
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             resp = await client.get(audio_url)
             resp.raise_for_status()

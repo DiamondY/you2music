@@ -3481,8 +3481,18 @@
                 const existingRow = listEl.querySelector(`[data-job-id="${j.job_id}"]`);
                 if (existingRow) {
                   const statusEl = existingRow.querySelector(".job-status");
-                  if (statusEl) statusEl.textContent = j.status;
-                  if (statusEl) statusEl.className = `job-status ${j.status}`;
+                  if (statusEl) {
+                    statusEl.textContent = _statusLabel(j.status, j.queue_position, j.queue_depth);
+                    statusEl.className = `job-status ${j.status}`;
+                  }
+                  // If status changed (e.g. queued→running or queued→failed),
+                  // rebuild the row to update action buttons (cancel button visibility).
+                  const oldStatus = existingRow.dataset.status;
+                  if (oldStatus !== j.status) {
+                    const newRow = _buildJobRow(j);
+                    if (newRow) existingRow.replaceWith(newRow);
+                    continue;
+                  }
                   // Add audio player if job just succeeded and has audio_url
                   if (j.audio_url && !existingRow.querySelector("audio")) {
                     const a = document.createElement("audio");
@@ -3511,6 +3521,19 @@
         }
       }
 
+      function _statusLabel(status, queuePosition, queueDepth) {
+        const map = { queued: "排队中", running: "生成中", succeeded: "已完成", failed: "失败" };
+        let label = map[status] || status;
+        if (status === "queued") {
+          if (queuePosition && queuePosition > 0) {
+            label = `排队中（第${queuePosition}位/共${queueDepth || "?"}位）`;
+          } else if (queueDepth && queueDepth > 0) {
+            label = `排队中（共${queueDepth}位）`;
+          }
+        }
+        return label;
+      }
+
       function _buildJobRow(j) {
         if (!j || !j.job_id) return null;
         const row = document.createElement("div");
@@ -3523,7 +3546,7 @@
 
         const left = document.createElement("div");
         left.className = "job-meta";
-        left.innerHTML = `<span class="job-status ${j.status}">${j.status}</span><span class="job-provider">${String(j.provider || "").trim()}</span>`;
+        left.innerHTML = `<span class="job-status ${j.status}">${_statusLabel(j.status, j.queue_position, j.queue_depth)}</span><span class="job-provider">${String(j.provider || "").trim()}</span>`;
 
         const right = document.createElement("div");
         right.className = "job-actions";
@@ -3560,6 +3583,24 @@
         });
 
         right.appendChild(restoreBtn);
+        // Cancel button for queued jobs
+        if (j.status === "queued") {
+          const cancelBtn = document.createElement("button");
+          cancelBtn.className = "btn btn-secondary btn-sm";
+          cancelBtn.textContent = "取消排队";
+          cancelBtn.title = "取消排队";
+          cancelBtn.addEventListener("click", async (e) => {
+            e.stopPropagation();
+            if (!window.confirm("确定取消排队？")) return;
+            try {
+              await fetchJson(`/api/jobs/${j.job_id}/cancel`, { method: "POST" });
+              await loadHistoryPage(historyOffset);
+            } catch (err) {
+              setError(`取消排队失败：${String(err)}`);
+            }
+          });
+          right.appendChild(cancelBtn);
+        }
         if (j.status === "succeeded") {
           const shareWrap = document.createElement("span");
           shareWrap.className = "share-control";
@@ -3736,23 +3777,34 @@
             jobIdEl.textContent = currentJobId;
           }
 
-          const anyRunning = jobs.some(j => j.status === "queued" || j.status === "running");
+          const anyRunning = jobs.some(j => j.status === "running");
+          const anyQueued = jobs.some(j => j.status === "queued");
+          const anyActive = anyRunning || anyQueued;
           const anyFailed = jobs.some(j => j.status === "failed");
           const anySucceeded = jobs.some(j => j.status === "succeeded");
 
           if (updateStatus) {
-            if (anyRunning) setStatus("生成中…");
-            if (!anyRunning && anySucceeded) setStatus("生成完成", "ok");
-            if (!anyRunning && !anySucceeded && anyFailed) setStatus("生成失败", "err");
+            if (anyQueued && !anyRunning) {
+              const queuedJobs = jobs.filter(j => j.status === "queued");
+              const queueInfo = queuedJobs.length > 0 ? `（${queuedJobs.length}个排队中）` : "";
+              setStatus(`排队中…${queueInfo}`);
+            }
+            else if (anyRunning) {
+              const queuedCount = jobs.filter(j => j.status === "queued").length;
+              const queueInfo = queuedCount > 0 ? ` + ${queuedCount}个排队` : "";
+              setStatus(`生成中…${queueInfo}`);
+            }
+            if (!anyActive && anySucceeded) setStatus("生成完成", "ok");
+            if (!anyActive && !anySucceeded && anyFailed) setStatus("生成失败", "err");
           }
 
-          if (!anyRunning && pollTimer) { clearInterval(pollTimer); pollTimer = null; }
-          if (!anyRunning) {
+          if (!anyActive && pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+          if (!anyActive) {
             const btn = document.getElementById("generateBtn");
             btn.disabled = false;
             _updateGenerateBtnLabel();
           }
-          if (!anyRunning && updateStatus) {
+          if (!anyActive && updateStatus) {
             // Delay history refresh slightly to ensure DB has latest status,
             // then do a full rebuild followed by a final incremental pass.
             setTimeout(async () => {

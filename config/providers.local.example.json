@@ -36,5 +36,21 @@
     "admin_username": "admin",
     "admin_password": "replace-with-initial-password",
     "default_daily_quota": 20
+  },
+  "concurrency": {
+    "minimax": {
+      "max_concurrent": 3,
+      "rate_limit_per_sec": 2.0
+    },
+    "acestep": {
+      "max_concurrent": 2,
+      "rate_limit_per_sec": 1.0
+    },
+    "retry": {
+      "max_retries": 3,
+      "base_delay_sec": 2.0,
+      "retryable_statuses": [429, 502, 503, 504]
+    },
+    "queue_timeout_sec": 300
   }
 }

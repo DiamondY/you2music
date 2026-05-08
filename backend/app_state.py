@@ -1,14 +1,21 @@
 from __future__ import annotations
 
+import asyncio
+import logging
 import os
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
+import httpx
+
 from auth import hash_password
+from concurrency import ProviderQueue, TokenBucket
 from config import Settings, load_settings
 from storage import JobStore
 from user_store import UserStore
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -18,6 +25,7 @@ class AppState:
     - settings (keys, endpoints, proxy, defaults)
     - data_dir / audio_dir
     - sqlite job store
+    - provider queues, rate limiters, shared httpx clients
 
     Thread-safety: a simple lock is enough for this small-scope tool.
     """
@@ -30,6 +38,10 @@ class AppState:
     store: JobStore
     user_store: UserStore
     _lock: threading.Lock
+    # Concurrency control
+    provider_queues: dict[str, ProviderQueue] = field(default_factory=dict)
+    rate_limiters: dict[str, TokenBucket] = field(default_factory=dict)
+    http_clients: dict[str, httpx.AsyncClient] = field(default_factory=dict)
 
     @classmethod
     def create(cls) -> "AppState":
@@ -48,6 +60,28 @@ class AppState:
                 password_hash=hash_password(settings.admin_password),
                 daily_quota=settings.default_daily_quota,
             )
+
+        # Build concurrency infrastructure from config
+        provider_queues: dict[str, ProviderQueue] = {}
+        rate_limiters: dict[str, TokenBucket] = {}
+        http_clients: dict[str, httpx.AsyncClient] = {}
+
+        cc = settings.concurrency_config
+        for provider in ("minimax", "acestep"):
+            pcfg = cc.get(provider, {}) if isinstance(cc.get(provider), dict) else {}
+            max_concurrent = int(pcfg.get("max_concurrent", 2))
+            rate_limit = float(pcfg.get("rate_limit_per_sec", 1.0))
+            provider_queues[provider] = ProviderQueue.create(max_concurrent=max_concurrent)
+            rate_limiters[provider] = TokenBucket(rate=rate_limit)
+            http_clients[provider] = httpx.AsyncClient(
+                timeout=httpx.Timeout(settings.request_timeout_s),
+                limits=httpx.Limits(
+                    max_connections=max_concurrent,
+                    max_keepalive_connections=max_concurrent,
+                ),
+                follow_redirects=True,
+            )
+
         st = cls(
             settings=settings,
             data_dir=data_dir,
@@ -57,6 +91,9 @@ class AppState:
             store=store,
             user_store=user_store,
             _lock=threading.Lock(),
+            provider_queues=provider_queues,
+            rate_limiters=rate_limiters,
+            http_clients=http_clients,
         )
         st.apply_proxy_env()
         return st
@@ -84,10 +121,39 @@ class AppState:
         set_or_unset("NO_PROXY", no_proxy)
         set_or_unset("no_proxy", no_proxy)
 
+    async def start_workers(self, handler) -> None:
+        """Start worker pools for all provider queues. Call once during app startup."""
+        for provider, pq in self.provider_queues.items():
+            pq.start_workers(handler)
+            logger.info(
+                "Started %d workers for provider '%s' (queue)",
+                pq.max_concurrent,
+                provider,
+            )
+
+    async def shutdown_workers(self) -> None:
+        """Stop worker pools and close shared httpx clients. Call on app shutdown."""
+        # Stop workers first so in-flight jobs finish or get cancelled.
+        for provider, pq in self.provider_queues.items():
+            await pq.stop_workers(timeout=5.0)
+            logger.info("Stopped workers for provider '%s'", provider)
+
+        # Close shared httpx clients.
+        for provider, client in self.http_clients.items():
+            try:
+                await client.aclose()
+                logger.info("Closed httpx client for provider '%s'", provider)
+            except Exception:
+                logger.warning("Error closing httpx client for '%s'", provider, exc_info=True)
+
     def reload(self) -> None:
         """
         Reload settings from config/env. If the data_dir changed, re-init store.
         Proxy env is always updated to match new settings.
+
+        Note: concurrency infrastructure (queues, rate limiters, http_clients) is
+        NOT rebuilt on reload to avoid disrupting in-flight jobs. A full restart
+        is needed to apply new concurrency settings.
         """
         with self._lock:
             new_settings = load_settings()

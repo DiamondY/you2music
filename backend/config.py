@@ -29,6 +29,7 @@ class Settings:
     request_timeout_s: float
     host: str
     port: int
+    concurrency_config: dict[str, Any]
 
 
 MINIMAX_BASE_URL_DEFAULT = "https://api.minimaxi.com"
@@ -189,6 +190,11 @@ def load_settings() -> Settings:
     raw_port = os.getenv("AI_MUSIC_PORT", str(cfg_port or 8000)).strip()
     port = int(raw_port)
 
+    # Concurrency config (merged with defaults)
+    from concurrency import _merge_concurrency
+    concurrency_raw = cfg.get("concurrency") if isinstance(cfg, dict) else None
+    concurrency_config = _merge_concurrency(concurrency_raw if isinstance(concurrency_raw, dict) else None)
+
     return Settings(
         default_provider=default_provider,
         minimax_api_key=minimax_api_key,
@@ -209,4 +215,5 @@ def load_settings() -> Settings:
         request_timeout_s=timeout_s,
         host=host,
         port=port,
+        concurrency_config=concurrency_config,
     )

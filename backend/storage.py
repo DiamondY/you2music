@@ -171,18 +171,24 @@ class JobStore:
 
         return [_row_to_job(row) for row in rows]
 
-    def count_jobs(self, *, user_id: int | None = None, include_all: bool = False) -> int:
+    def count_jobs(self, *, user_id: int | None = None, include_all: bool = False, status: str | None = None) -> int:
+        conditions: list[str] = []
+        params: list[object] = []
+        if not include_all and user_id is not None:
+            conditions.append("user_id = ?")
+            params.append(user_id)
+        if status is not None:
+            conditions.append("status = ?")
+            params.append(status)
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         with self._lock:
             with self._connect() as conn:
-                if include_all:
-                    row = conn.execute("SELECT COUNT(*) FROM jobs").fetchone()
-                else:
-                    row = conn.execute("SELECT COUNT(*) FROM jobs WHERE user_id = ?", (user_id,)).fetchone()
+                row = conn.execute(f"SELECT COUNT(*) FROM jobs {where}", params).fetchone()
         if not row:
             return 0
         return int(row[0] or 0)
 
-    def list_page(self, *, offset: int = 0, limit: int = 20, user_id: int | None = None, include_all: bool = False) -> list[JobRecord]:
+    def list_page(self, *, offset: int = 0, limit: int = 20, user_id: int | None = None, include_all: bool = False, status: str | None = None) -> list[JobRecord]:
         off = int(offset)
         lim = int(limit)
         if off < 0:
@@ -192,29 +198,29 @@ class JobStore:
         if lim > 200:
             lim = 200
 
+        conditions: list[str] = []
+        params: list[object] = []
+        if not include_all and user_id is not None:
+            conditions.append("user_id = ?")
+            params.append(user_id)
+        if status is not None:
+            conditions.append("status = ?")
+            params.append(status)
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        params.extend([lim, off])
+
         with self._lock:
             with self._connect() as conn:
-                if include_all:
-                    rows = conn.execute(
-                        """
-                        SELECT job_id, status, created_at_ms, updated_at_ms, provider, prompt, params_json, output_path, error, song_id, user_id, visibility, share_permission
-                        FROM jobs
-                        ORDER BY created_at_ms DESC
-                        LIMIT ? OFFSET ?
-                        """,
-                        (lim, off),
-                    ).fetchall()
-                else:
-                    rows = conn.execute(
-                        """
-                        SELECT job_id, status, created_at_ms, updated_at_ms, provider, prompt, params_json, output_path, error, song_id, user_id, visibility, share_permission
-                        FROM jobs
-                        WHERE user_id = ?
-                        ORDER BY created_at_ms DESC
-                        LIMIT ? OFFSET ?
-                        """,
-                        (user_id, lim, off),
-                    ).fetchall()
+                rows = conn.execute(
+                    f"""
+                    SELECT job_id, status, created_at_ms, updated_at_ms, provider, prompt, params_json, output_path, error, song_id, user_id, visibility, share_permission
+                    FROM jobs
+                    {where}
+                    ORDER BY created_at_ms DESC
+                    LIMIT ? OFFSET ?
+                    """,
+                    params,
+                ).fetchall()
 
         return [_row_to_job(row) for row in rows]
 
