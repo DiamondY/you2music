@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 import os
 import random
 import re
@@ -12,18 +11,32 @@ from typing import Any, Callable
 
 import httpx
 from fastapi import Depends, FastAPI, HTTPException
-from fastapi import Header, Query
+from fastapi import Query
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from app_state import AppState
-from auth import create_token, extract_bearer_token, hash_password, verify_password, verify_token
-from concurrency import run_with_retry
+from auth import create_token, hash_password, verify_password
 from providers.registry import providers_payload
-from providers.minimax import MiniMaxMusicClient
-from providers.acestep import ACEStepClient
 from admin_config import load_local_config, redacted_config, save_local_config
+from shared import RANDOM_LYRICS_TEMPLATES, RANDOM_PROMPTS
+from state import STATE
+from deps import (
+    _apply_provider_prompt_options,
+    _auth_error_detail,
+    _can_access_job,
+    _is_admin,
+    _media_type_for_path,
+    _optional_current_user,
+    _public_user,
+    _resolve_output_format,
+    _resolve_provider,
+    _sanitize_filename,
+    _serialize_job,
+    get_current_user,
+    install_windows_asyncio_connection_reset_suppression,
+    require_admin,
+)
 from user_store import UserRecord, UserRole
 
 
@@ -80,211 +93,15 @@ class PublishRequest(BaseModel):
     share_permission: str = Field(default="listen_only", max_length=32)
 
 
-def _sanitize_filename(text: str) -> str:
-    text = re.sub(r"[^a-zA-Z0-9._-]+", "_", text.strip())[:80]
-    return text or "audio"
-
-
-def _build_prompt(*, base_prompt: str, lyrics: str | None, vocals: bool) -> str:
-    parts: list[str] = [base_prompt.strip()]
-    if vocals:
-        # Nudge: "singing with vocals" helps the model choose a vocal style.
-        parts.append("with vocals, singing (do not be instrumental-only)")
-    else:
-        parts.append("instrumental only (no vocals)")
-    if lyrics and lyrics.strip():
-        parts.append("Lyrics:\n" + lyrics.strip())
-    return "\n\n".join(parts).strip()
-
-
-def _apply_provider_prompt_options(
-    *,
-    base_prompt: str,
-    lyrics: str | None,
-    vocals: bool,
-    provider_params: dict[str, Any] | None,
-) -> str:
-    raw_prompt = bool((provider_params or {}).get("raw_prompt", False))
-    if raw_prompt:
-        # Still include user-provided lyrics if any, but don't add our "vocals" nudge.
-        parts = [base_prompt.strip()]
-        if lyrics and lyrics.strip():
-            parts.append(lyrics.strip())
-        return "\n\n".join(parts).strip()
-    return _build_prompt(base_prompt=base_prompt, lyrics=lyrics, vocals=vocals)
-
-
-def _resolve_provider(req_provider: str | None) -> str:
-    p = (req_provider or STATE.settings.default_provider or "minimax").strip()
-    return p or "minimax"
-
-
-def _resolve_output_format(provider_params: dict[str, Any] | None) -> str:
-    raw = (provider_params or {}).get("output_format")
-    if raw and isinstance(raw, str) and raw.strip():
-        return raw.strip()
-    return STATE.settings.output_format
-
-
-STATE = AppState.create()
-
 app = FastAPI(title="you2music", version="0.1.0")
 
 static_dir = Path(__file__).resolve().parent / "static"
 app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
 
-def _public_user(user: UserRecord) -> dict[str, Any]:
-    return {
-        "id": user.id,
-        "username": user.username,
-        "role": user.role,
-        "avatar_path": user.avatar_path,
-        "daily_quota": user.daily_quota,
-        "disabled": user.disabled,
-        "must_change_password": user.must_change_password,
-        "created_at_ms": user.created_at_ms,
-        "quota": STATE.user_store.quota_status(user_id=user.id, daily_quota=user.daily_quota),
-    }
-
-
-def _optional_current_user(authorization: str | None = Header(default=None)) -> UserRecord | None:
-    if not authorization:
-        return None
-    try:
-        token = extract_bearer_token(authorization)
-        payload = verify_token(token=token, settings=STATE.settings)
-        user = STATE.user_store.get_by_id(payload.user_id)
-        if not user:
-            return None
-        if user.disabled:
-            return None
-        return user
-    except HTTPException:
-        # Invalid/expired token — treat as unauthenticated for optional routes.
-        return None
-
-
-def get_current_user(authorization: str | None = Header(default=None)) -> UserRecord:
-    token = extract_bearer_token(authorization)
-    payload = verify_token(token=token, settings=STATE.settings)
-    user = STATE.user_store.get_by_id(payload.user_id)
-    if not user:
-        raise HTTPException(status_code=401, detail="user not found")
-    if user.disabled:
-        raise HTTPException(status_code=403, detail="user disabled")
-    return user
-
-
-def require_admin(current_user: UserRecord = Depends(get_current_user)) -> UserRecord:
-    if current_user.role != "admin":
-        raise HTTPException(status_code=403, detail="admin role required")
-    return current_user
-
-
-def _is_admin(user: UserRecord) -> bool:
-    return user.role == "admin"
-
-
-def _can_access_job(rec: Any, user: UserRecord | None) -> bool:
-    if rec.visibility == "published":
-        return True
-    if user is None:
-        return False
-    return _is_admin(user) or rec.user_id == user.id
-
-
-def _serialize_job(rec: Any, *, include_download: bool = True) -> dict[str, Any]:
-    audio_url = None
-    download_url = None
-    if rec.status == "succeeded" and rec.output_path:
-        audio_url = f"/api/audio/{rec.job_id}"
-        if include_download and rec.share_permission == "downloadable":
-            download_url = audio_url
-    result = {
-        "job_id": rec.job_id,
-        "status": rec.status,
-        "created_at_ms": rec.created_at_ms,
-        "updated_at_ms": rec.updated_at_ms,
-        "provider": rec.provider,
-        "prompt": rec.prompt,
-        "params": json.loads(rec.params_json),
-        "audio_url": audio_url,
-        "download_url": download_url,
-        "error": rec.error,
-        "song_id": rec.song_id,
-        "user_id": rec.user_id,
-        "visibility": rec.visibility,
-        "share_permission": rec.share_permission,
-    }
-    # Add queue position info for queued jobs
-    if rec.status == "queued":
-        provider_name = str(rec.provider) if rec.provider else "minimax"
-        pq = STATE.provider_queues.get(provider_name)
-        if pq:
-            result["queue_position"] = pq.get_position(rec.job_id)
-            result["queue_depth"] = pq.pending_count
-    return result
-
-
-def _auth_error_detail(msg: str) -> str:
-    mapping = {
-        "username already exists": "用户名已存在",
-        "invalid invite code": "邀请码无效",
-        "invite code has already been used": "邀请码已被使用",
-        "username is required": "请填写用户名",
-        "password hash is required": "密码处理失败，请重试",
-        "invite code is required": "请填写邀请码",
-        "password must be at most 72 bytes for bcrypt": "密码过长，请控制在 72 字节以内",
-    }
-    return mapping.get(msg, msg)
-
-
-def _install_windows_asyncio_connection_reset_suppression() -> None:
-    """
-    Suppress noisy Windows Proactor loop warnings on client disconnects.
-
-    On Windows (ProactorEventLoop), a normal client disconnect during/after a response
-    can surface as:
-      - ConnectionResetError: [WinError 10054] ...
-      - ConnectionAbortedError: [WinError 10053] ...
-    via the event loop exception handler ("Exception in callback ..._call_connection_lost()").
-
-    This is a local tool and these tracebacks are typically not actionable for users.
-    We ignore only these specific network disconnect errors and let everything else through.
-    """
-
-    if os.name != "nt":
-        return
-
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        # No running loop yet; called too early.
-        return
-
-    previous_handler = loop.get_exception_handler()
-
-    def handler(loop: asyncio.AbstractEventLoop, context: dict[str, Any]) -> None:
-        exc = context.get("exception")
-        msg = str(context.get("message") or "")
-
-        if isinstance(exc, (ConnectionResetError, ConnectionAbortedError)):
-            text = str(exc)
-            if "WinError 10054" in text or "WinError 10053" in text or "_call_connection_lost" in msg:
-                return
-
-        if previous_handler is not None:
-            previous_handler(loop, context)
-        else:
-            loop.default_exception_handler(context)
-
-    loop.set_exception_handler(handler)
-
-
 @app.on_event("startup")
 async def _startup_install_loop_handler() -> None:
-    _install_windows_asyncio_connection_reset_suppression()
+    install_windows_asyncio_connection_reset_suppression()
     # Start provider worker pools
     await STATE.start_workers(handler=_job_worker_handler)
 
@@ -364,10 +181,6 @@ def get_providers(current_user: UserRecord = Depends(get_current_user)) -> dict[
     return providers_payload(STATE.settings)
 
 
-def _require_admin(token: str | None) -> None:
-    raise HTTPException(status_code=410, detail="admin token authentication has been removed; use JWT admin role")
-
-
 class AdminConfigRequest(BaseModel):
     config: dict[str, Any]
 
@@ -375,85 +188,6 @@ class AdminConfigRequest(BaseModel):
 # ========================================
 # Random Sample Generation (ACE-Step inspired)
 # ========================================
-RANDOM_PROMPTS = [
-    "A dreamy electronic ambient track with soft synth pads and gentle arpeggios",
-    "Upbeat pop song with catchy melody and energetic drums",
-    "Melancholic piano ballad with emotional strings",
-    "Funky dance track with groovy bass line and brass section",
-    "Acoustic folk song with warm guitar strumming and heartfelt vocals",
-    "Epic cinematic orchestral piece with dramatic crescendo",
-    "Chill lo-fi hip hop beat with jazzy samples and vinyl crackle",
-    "Energetic rock anthem with powerful electric guitars and driving rhythm",
-    "Smooth R&B track with sultry vocals and lush harmonies",
-    "Traditional Chinese-inspired piece with guzheng and erhu melodies",
-    "Modern trap beat with heavy 808 bass and crisp hi-hats",
-    "Reggae-inspired track with laid-back groove and offbeat guitar skanks",
-    "Electronic dance music with buildups and drops",
-    "Jazz standard with swing rhythm and improvisational solos",
-    "New age meditation music with Tibetan singing bowls and nature sounds",
-]
-
-RANDOM_LYRICS_TEMPLATES = [
-    """[Verse 1]
-漫步在这城市的街头
-霓虹灯映照着过往的梦
-微风轻拂脸庞的感觉
-让我想起了你的温柔
-
-[Chorus]
-时光如水静静流淌
-记忆中的画面依然清晰
-那些年我们一起追的梦
-如今都变成了心底的歌""",
-    """[Verse 1]
-Standing on the edge of tomorrow
-Looking back at yesterday
-All the joy and all the sorrow
-Led me to this moment today
-
-[Chorus]
-We're chasing dreams across the sky
-No matter how far, we'll learn to fly
-Together we'll make it through the night
-Into the morning light""",
-    """[Verse 1]
-月光洒落在窗台
-思绪随着夜风飘来
-那些未曾说出口的话
-在心中悄悄绽放
-
-[Bridge]
-时间是最温柔的答案
-等待是最深情的告白
-
-[Chorus]
-让风带走所有遗憾
-让梦点亮每个夜晚""",
-    """[Verse 1]
-踏遍千山万水
-追寻心中的风景
-一路上有风有雨
-也有你温暖的笑容
-
-[Chorus]
-人生就像一场旅行
-珍惜沿途的每一道风景
-不管终点在哪里
-重要的是与你同行""",
-    """[Verse 1]
-咖啡杯里倒映着午后阳光
-书页翻动间时光悄然流淌
-窗外的城市依旧繁忙
-而我沉浸在这片刻的安详
-
-[Chorus]
-Simple moments, peaceful days
-In this quiet space, my heart stays
-Finding beauty in the ordinary
-Living life extraordinary""",
-]
-
-
 @app.get("/api/random_sample")
 def get_random_sample(current_user: UserRecord = Depends(get_current_user)) -> dict[str, Any]:
     """Generate a random prompt and lyrics sample for quick inspiration."""
@@ -771,6 +505,14 @@ def admin_delete_job(
     rec = STATE.store.get(job_id)
     if not rec:
         raise HTTPException(status_code=404, detail="job not found")
+    if rec.status == "running":
+        raise HTTPException(status_code=409, detail="无法删除正在生成中的任务，请等待完成或失败后再删除")
+    # Cancel from provider queue if still pending
+    if rec.status == "queued":
+        provider_name = str(rec.provider) if rec.provider else "minimax"
+        pq = STATE.provider_queues.get(provider_name)
+        if pq:
+            pq.cancel(job_id)
     ok = STATE.store.delete(job_id)
     return {"ok": ok}
 
@@ -976,6 +718,14 @@ def delete_job(job_id: str, current_user: UserRecord = Depends(get_current_user)
         raise HTTPException(status_code=404, detail="job not found")
     if not (_is_admin(current_user) or rec.user_id == current_user.id):
         raise HTTPException(status_code=403, detail="job is private")
+    if rec.status == "running":
+        raise HTTPException(status_code=409, detail="无法删除正在生成中的任务，请等待完成或失败后再删除")
+    # Cancel from provider queue if still pending
+    if rec.status == "queued":
+        provider_name = str(rec.provider) if rec.provider else "minimax"
+        pq = STATE.provider_queues.get(provider_name)
+        if pq:
+            pq.cancel(job_id)
     ok = STATE.store.delete(job_id)
     return {"ok": ok}
 
@@ -1062,15 +812,6 @@ def list_community(
     return {"jobs": [_serialize_community(rec) for rec in records], "offset": offset, "limit": limit}
 
 
-def _media_type_for_path(path: Path) -> str:
-    suf = path.suffix.lower()
-    if suf == ".mp3":
-        return "audio/mpeg"
-    if suf == ".wav":
-        return "audio/wav"
-    return "application/octet-stream"
-
-
 @app.get("/api/audio/{job_id}")
 def get_audio(job_id: str, current_user: UserRecord | None = Depends(_optional_current_user)) -> FileResponse:
     rec = STATE.store.get(job_id)
@@ -1099,271 +840,9 @@ def get_audio_mp3_compat(job_id: str, current_user: UserRecord | None = Depends(
     return get_audio(job_id, current_user)
 
 
-async def _job_worker_handler(job_id: str) -> None:
-    """Worker handler: called by ProviderQueue workers for each job.
-
-    Sets job status from 'queued' → 'running', acquires a rate-limit token,
-    then executes the job with retry support. Includes queue timeout check:
-    if a job waited too long (in queue + rate-limit wait), it is marked as failed.
-    """
-    rec = STATE.store.get(job_id)
-    if not rec:
-        return
-
-    # If the job was cancelled while in queue, its status is no longer "queued"
-    # — skip it entirely.
-    if rec.status != "queued":
-        return
-
-    try:
-        params = json.loads(rec.params_json)
-    except Exception:
-        params = {}
-
-    provider_name = str(params.get("provider") or "minimax")
-
-    execution_lock = STATE.provider_execution_locks.get(provider_name)
-    if execution_lock is None:
-        await _execute_queued_job(job_id=job_id, rec=rec, params=params)
-        return
-
-    async with execution_lock:
-        latest = STATE.store.get(job_id)
-        if not latest or latest.status != "queued":
-            return
-        await _execute_queued_job(job_id=job_id, rec=latest, params=params)
-
-
-async def _execute_queued_job(*, job_id: str, rec: Any, params: dict[str, Any]) -> None:
-    provider_name = str(params.get("provider") or "minimax")
-
-    await _wait_provider_cooldown(provider_name)
-
-    # Acquire rate-limit token before starting work
-    bucket = STATE.rate_limiters.get(provider_name)
-    if bucket:
-        await bucket.acquire()
-
-    # Check queue timeout: if the job waited too long (queue wait + rate-limit wait), fail it
-    queue_timeout_sec = float(STATE.settings.concurrency_config.get("queue_timeout_sec", 300))
-    if queue_timeout_sec > 0:
-        elapsed_sec = (time.time() * 1000 - rec.created_at_ms) / 1000.0
-        if elapsed_sec > queue_timeout_sec:
-            STATE.store.set_status(
-                job_id,
-                status="failed",
-                error=f"排队超时：等待了 {elapsed_sec:.0f} 秒，超过上限 {queue_timeout_sec:.0f} 秒",
-            )
-            logger.warning("Job %s queue timeout: waited %.0fs (limit %ds)", job_id, elapsed_sec, int(queue_timeout_sec))
-            return
-
-    # Set status to running only when a real provider execution slot is available.
-    STATE.store.set_status(job_id, status="running")
-
-    # Execute with retry
-    retry_cfg = STATE.settings.concurrency_config.get("retry", {}) if isinstance(STATE.settings.concurrency_config.get("retry"), dict) else {}
-    max_retries = int(retry_cfg.get("max_retries", 3))
-    base_delay = float(retry_cfg.get("base_delay_sec", 2.0))
-    retryable_statuses = retry_cfg.get("retryable_statuses", [429, 502, 503, 504])
-
-    try:
-        await run_with_retry(
-            lambda: _run_job(job_id=job_id, prompt=rec.prompt, params=params),
-            max_retries=max_retries,
-            retryable_statuses=retryable_statuses,
-            base_delay=base_delay,
-            retry_logger=logging.getLogger(__name__),
-        )
-    except asyncio.CancelledError:
-        # Shutdown: mark job as failed so it doesn't stay "running" forever.
-        STATE.store.set_status(job_id, status="failed", error="cancelled")
-        raise
-    except Exception as e:
-        # run_with_retry exhausted retries or non-retryable error
-        STATE.store.set_status(job_id, status="failed", error=str(e))
-    finally:
-        if _provider_cooldown_seconds(provider_name) > 0:
-            STATE.provider_last_finished_at[provider_name] = time.monotonic()
-
-
-def _provider_cooldown_seconds(provider_name: str) -> float:
-    provider_cfg = STATE.settings.concurrency_config.get(provider_name)
-    if not isinstance(provider_cfg, dict):
-        return 0.0
-    try:
-        return max(0.0, float(provider_cfg.get("cooldown_sec") or 0.0))
-    except (TypeError, ValueError):
-        return 0.0
-
-
-async def _wait_provider_cooldown(provider_name: str) -> None:
-    cooldown_sec = _provider_cooldown_seconds(provider_name)
-    if cooldown_sec <= 0:
-        return
-    last_finished_at = float(STATE.provider_last_finished_at.get(provider_name) or 0.0)
-    if last_finished_at <= 0:
-        return
-    wait_sec = cooldown_sec - (time.monotonic() - last_finished_at)
-    if wait_sec > 0:
-        await asyncio.sleep(wait_sec)
-
-
-async def _run_job(*, job_id: str, prompt: str, params: dict[str, Any]) -> None:
-    """Execute a single music generation job. Called by _job_worker_handler via run_with_retry."""
-    try:
-        STATE.audio_dir.mkdir(parents=True, exist_ok=True)
-
-        provider_name = str(params.get("provider") or "minimax")
-        duration_ms = int(params["duration_sec"]) * 1000
-        vocals = bool(params["vocals"])
-        provider_params = params.get("provider_params") or {}
-
-        out_bytes: bytes
-        out_ext = "mp3"
-        song_id: str | None = None
-
-        if provider_name == "minimax":
-            # MiniMax official API (music-2.6)
-            # Use shared httpx client for connection pooling
-            shared_client = STATE.http_clients.get("minimax")
-            client = MiniMaxMusicClient(
-                api_key=STATE.settings.minimax_api_key,
-                base_url=STATE.settings.minimax_base_url,
-                timeout_s=STATE.settings.request_timeout_s,
-                http_client=shared_client,
-            )
-            model = str(provider_params.get("model") or "music-2.6")
-            lyrics_raw = params.get("lyrics") or provider_params.get("lyrics")
-            lyrics_text = str(lyrics_raw).strip() if lyrics_raw is not None else ""
-            sample_rate = int(provider_params.get("sample_rate") or 44100)
-            bitrate = int(provider_params.get("bitrate") or 256000)
-            audio_format = str(provider_params.get("format") or "mp3")
-
-            # MiniMax requires lyrics unless:
-            # - is_instrumental=true, or
-            # - lyrics_optimizer=true with empty lyrics (auto-generate lyrics)
-            lyrics_optimizer_val = provider_params.get("lyrics_optimizer")
-            lyrics_optimizer = (
-                bool(lyrics_optimizer_val)
-                if isinstance(lyrics_optimizer_val, bool)
-                else (True if vocals and not lyrics_text else False)
-            )
-            is_instrumental = not vocals
-            lyrics_to_send: str | None
-            if is_instrumental:
-                lyrics_to_send = None
-                lyrics_optimizer = False
-            elif lyrics_text:
-                lyrics_to_send = lyrics_text
-            else:
-                lyrics_to_send = ""
-                lyrics_optimizer = True
-
-            result = await client.generate(
-                prompt=prompt,
-                lyrics=lyrics_to_send,
-                model=model,
-                sample_rate=sample_rate,
-                bitrate=bitrate,
-                format=audio_format,
-                lyrics_optimizer=lyrics_optimizer,
-                is_instrumental=is_instrumental,
-            )
-            if result.audio_bytes is not None:
-                out_bytes = result.audio_bytes
-            else:
-                if not result.audio_url:
-                    raise RuntimeError("MiniMax response missing audio_url")
-                out_bytes = await client.download_audio(result.audio_url)
-            out_ext = audio_format
-        elif provider_name == "acestep":
-            # ACE-Step 1.5 via acemusic.ai (OpenAI-compatible API)
-            # Use shared httpx client for connection pooling
-            shared_client = STATE.http_clients.get("acestep")
-            client = ACEStepClient(
-                api_key=STATE.settings.acestep_api_key,
-                base_url=STATE.settings.acestep_base_url,
-                timeout_s=STATE.settings.request_timeout_s,
-                http_client=shared_client,
-            )
-            model = str(provider_params.get("model") or "acemusic/acestep-v1.5-turbo")
-            lyrics = params.get("lyrics") or provider_params.get("lyrics")
-            audio_duration = provider_params.get("audio_duration")
-            if audio_duration is None:
-                audio_duration = float(params["duration_sec"])
-            audio_format = str(provider_params.get("audio_format") or "mp3")
-
-            result = await client.generate(
-                prompt=prompt,
-                lyrics=str(lyrics).strip() if lyrics else None,
-                model=model,
-                audio_duration=audio_duration,
-                audio_format=audio_format,
-            )
-
-            out_bytes = result.audio_bytes
-            out_ext = audio_format
-        else:
-            raise RuntimeError(f"unknown provider: {provider_name}")
-
-        out_path = STATE.audio_dir / f"{job_id}.{out_ext}"
-        out_path.write_bytes(out_bytes)
-        STATE.store.set_status(job_id, status="succeeded", output_path=str(out_path), song_id=song_id)
-    except asyncio.CancelledError:
-        # Shutdown/dev stop: treat as a controlled failure to avoid leaving jobs "running".
-        STATE.store.set_status(job_id, status="failed", error="cancelled")
-        raise
-
-
-class _SuppressUvicornShutdownTimeoutFilter(logging.Filter):
-    def filter(self, record: logging.LogRecord) -> bool:  # noqa: A003
-        try:
-            msg = record.getMessage()
-        except Exception:
-            return True
-        return "timeout graceful shutdown exceeded" not in (msg or "").lower()
+from workers import _job_worker_handler
 
 
 if __name__ == "__main__":
-    import uvicorn
-    import uvicorn.config
-
-    host = STATE.settings.host
-    port = STATE.settings.port
-
-    # On Windows + VSCode terminal, Ctrl+C can sometimes feel "stuck" when there are
-    # long-running background tasks or half-open client connections. Keep graceful
-    # shutdown short so dev iteration is reliable.
-    # This is a maximum wait time. In normal cases the server exits much faster,
-    # but on Windows the shutdown sequence can sometimes take a few seconds even
-    # with no active requests. Use a slightly larger default to avoid noisy
-    # "timeout graceful shutdown exceeded" logs.
-    timeout_grace_s = float(os.getenv("AI_MUSIC_TIMEOUT_GRACEFUL_SHUTDOWN_S", "3.0"))
-    timeout_keep_alive_s = int(os.getenv("AI_MUSIC_UVICORN_TIMEOUT_KEEP_ALIVE_S", "1"))
-
-    log_config = uvicorn.config.LOGGING_CONFIG
-    if os.getenv("AI_MUSIC_SUPPRESS_UVICORN_SHUTDOWN_TIMEOUT_LOG", "1").strip().lower() in ("1", "true", "yes", "on"):
-        # Use uvicorn's built-in dictConfig hook so our filter survives uvicorn's logging setup.
-        log_config = dict(log_config)
-        log_config["filters"] = dict(log_config.get("filters") or {})
-        log_config["filters"]["suppress_shutdown_timeout"] = {
-            "()": "main._SuppressUvicornShutdownTimeoutFilter",
-        }
-        log_config["handlers"] = dict(log_config.get("handlers") or {})
-        if "default" in log_config["handlers"] and isinstance(log_config["handlers"]["default"], dict):
-            handler_cfg = dict(log_config["handlers"]["default"])
-            handler_filters = list(handler_cfg.get("filters") or [])
-            if "suppress_shutdown_timeout" not in handler_filters:
-                handler_filters.append("suppress_shutdown_timeout")
-            handler_cfg["filters"] = handler_filters
-            log_config["handlers"]["default"] = handler_cfg
-
-    uvicorn.run(
-        "main:app",
-        host=host,
-        port=port,
-        reload=False,
-        timeout_graceful_shutdown=timeout_grace_s,
-        timeout_keep_alive=timeout_keep_alive_s,
-        log_config=log_config,
-    )
+    from cli import main
+    main()

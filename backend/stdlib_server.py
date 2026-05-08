@@ -17,6 +17,7 @@ from providers.minimax_stdlib import MiniMaxMusicClientStdlib
 from providers.acestep_stdlib import ACEStepClientStdlib
 from storage import JobStore
 from admin_config import load_local_config, redacted_config, save_local_config
+from shared import RANDOM_LYRICS_TEMPLATES, RANDOM_PROMPTS, build_prompt
 
 
 def _read_text(path: Path) -> str:
@@ -34,17 +35,6 @@ def _json_response(handler: BaseHTTPRequestHandler, status: int, payload: dict[s
 
 def _error(handler: BaseHTTPRequestHandler, status: int, msg: str) -> None:
     _json_response(handler, status, {"error": msg})
-
-
-def _build_prompt(*, base_prompt: str, lyrics: str | None, vocals: bool) -> str:
-    parts: list[str] = [base_prompt.strip()]
-    if vocals:
-        parts.append("with vocals, singing (do not be instrumental-only)")
-    else:
-        parts.append("instrumental only (no vocals)")
-    if lyrics and lyrics.strip():
-        parts.append("Lyrics:\n" + lyrics.strip())
-    return "\n\n".join(parts).strip()
 
 
 def _validate_generate(payload: dict[str, Any]) -> tuple[str, dict[str, Any]]:
@@ -112,7 +102,7 @@ def _validate_generate(payload: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     if not prompt:
         raise ValueError("prompt is required")
 
-    full_prompt = _build_prompt(
+    full_prompt = build_prompt(
         base_prompt=prompt,
         lyrics=lyrics,
         vocals=vocals,
@@ -329,85 +319,6 @@ ADMIN_HTML = STATIC_DIR / "admin.html"
 # ========================================
 # Random Sample Data
 # ========================================
-RANDOM_PROMPTS = [
-    "A dreamy electronic ambient track with soft synth pads and gentle arpeggios",
-    "Upbeat pop song with catchy melody and energetic drums",
-    "Melancholic piano ballad with emotional strings",
-    "Funky dance track with groovy bass line and brass section",
-    "Acoustic folk song with warm guitar strumming and heartfelt vocals",
-    "Epic cinematic orchestral piece with dramatic crescendo",
-    "Chill lo-fi hip hop beat with jazzy samples and vinyl crackle",
-    "Energetic rock anthem with powerful electric guitars and driving rhythm",
-    "Smooth R&B track with sultry vocals and lush harmonies",
-    "Traditional Chinese-inspired piece with guzheng and erhu melodies",
-    "Modern trap beat with heavy 808 bass and crisp hi-hats",
-    "Reggae-inspired track with laid-back groove and offbeat guitar skanks",
-    "Electronic dance music with buildups and drops",
-    "Jazz standard with swing rhythm and improvisational solos",
-    "New age meditation music with Tibetan singing bowls and nature sounds",
-]
-
-RANDOM_LYRICS_TEMPLATES = [
-    """[Verse 1]
-漫步在这城市的街头
-霓虹灯映照着过往的梦
-微风轻拂脸庞的感觉
-让我想起了你的温柔
-
-[Chorus]
-时光如水静静流淌
-记忆中的画面依然清晰
-那些年我们一起追的梦
-如今都变成了心底的歌""",
-    """[Verse 1]
-Standing on the edge of tomorrow
-Looking back at yesterday
-All the joy and all the sorrow
-Led me to this moment today
-
-[Chorus]
-We're chasing dreams across the sky
-No matter how far, we'll learn to fly
-Together we'll make it through the night
-Into the morning light""",
-    """[Verse 1]
-月光洒落在窗台
-思绪随着夜风飘来
-那些未曾说出口的话
-在心中悄悄绽放
-
-[Bridge]
-时间是最温柔的答案
-等待是最深情的告白
-
-[Chorus]
-让风带走所有遗憾
-让梦点亮每个夜晚""",
-    """[Verse 1]
-踏遍千山万水
-追寻心中的风景
-一路上有风有雨
-也有你温暖的笑容
-
-[Chorus]
-人生就像一场旅行
-珍惜沿途的每一道风景
-不管终点在哪里
-重要的是与你同行""",
-    """[Verse 1]
-咖啡杯里倒映着午后阳光
-书页翻动间时光悄然流淌
-窗外的城市依旧繁忙
-而我沉浸在这片刻的安详
-
-[Chorus]
-Simple moments, peaceful days
-In this quiet space, my heart stays
-Finding beauty in the ordinary
-Living life extraordinary""",
-]
-
-
 class Handler(BaseHTTPRequestHandler):
     server_version = "ai-music-tool/0.1"
 
