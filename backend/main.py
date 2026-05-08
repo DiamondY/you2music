@@ -1122,6 +1122,23 @@ async def _job_worker_handler(job_id: str) -> None:
 
     provider_name = str(params.get("provider") or "minimax")
 
+    execution_lock = STATE.provider_execution_locks.get(provider_name)
+    if execution_lock is None:
+        await _execute_queued_job(job_id=job_id, rec=rec, params=params)
+        return
+
+    async with execution_lock:
+        latest = STATE.store.get(job_id)
+        if not latest or latest.status != "queued":
+            return
+        await _execute_queued_job(job_id=job_id, rec=latest, params=params)
+
+
+async def _execute_queued_job(*, job_id: str, rec: Any, params: dict[str, Any]) -> None:
+    provider_name = str(params.get("provider") or "minimax")
+
+    await _wait_provider_cooldown(provider_name)
+
     # Acquire rate-limit token before starting work
     bucket = STATE.rate_limiters.get(provider_name)
     if bucket:
@@ -1140,7 +1157,7 @@ async def _job_worker_handler(job_id: str) -> None:
             logger.warning("Job %s queue timeout: waited %.0fs (limit %ds)", job_id, elapsed_sec, int(queue_timeout_sec))
             return
 
-    # Set status to running
+    # Set status to running only when a real provider execution slot is available.
     STATE.store.set_status(job_id, status="running")
 
     # Execute with retry
@@ -1164,6 +1181,31 @@ async def _job_worker_handler(job_id: str) -> None:
     except Exception as e:
         # run_with_retry exhausted retries or non-retryable error
         STATE.store.set_status(job_id, status="failed", error=str(e))
+    finally:
+        if _provider_cooldown_seconds(provider_name) > 0:
+            STATE.provider_last_finished_at[provider_name] = time.monotonic()
+
+
+def _provider_cooldown_seconds(provider_name: str) -> float:
+    provider_cfg = STATE.settings.concurrency_config.get(provider_name)
+    if not isinstance(provider_cfg, dict):
+        return 0.0
+    try:
+        return max(0.0, float(provider_cfg.get("cooldown_sec") or 0.0))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+async def _wait_provider_cooldown(provider_name: str) -> None:
+    cooldown_sec = _provider_cooldown_seconds(provider_name)
+    if cooldown_sec <= 0:
+        return
+    last_finished_at = float(STATE.provider_last_finished_at.get(provider_name) or 0.0)
+    if last_finished_at <= 0:
+        return
+    wait_sec = cooldown_sec - (time.monotonic() - last_finished_at)
+    if wait_sec > 0:
+        await asyncio.sleep(wait_sec)
 
 
 async def _run_job(*, job_id: str, prompt: str, params: dict[str, Any]) -> None:

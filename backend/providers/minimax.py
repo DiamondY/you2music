@@ -109,33 +109,33 @@ class MiniMaxMusicClient:
                 self._check_response(resp)
                 data = resp.json()
 
-            base_resp = data.get("base_resp") or {}
-            status_code = base_resp.get("status_code")
-            if status_code != 0:
-                status_msg = base_resp.get("status_msg") or "Unknown error"
-                raise RuntimeError(
-                    f"MiniMax API error: status_code={status_code}, msg={status_msg}"
-                    f"{_maybe_region_hint(msg=str(status_msg))}"
-                )
+        base_resp = data.get("base_resp") or {}
+        status_code = base_resp.get("status_code")
+        if status_code != 0:
+            status_msg = base_resp.get("status_msg") or "Unknown error"
+            raise RuntimeError(
+                f"MiniMax API error: status_code={status_code}, msg={status_msg}"
+                f"{_maybe_region_hint(msg=str(status_msg))}"
+            )
 
-            # MiniMax docs: response uses `data.audio` (hex by default). With output_format=url,
-            # some responses still use `data.audio` to carry the downloadable URL.
-            data_obj = data.get("data") or {}
-            task_id = data_obj.get("task_id")
-            audio_val = data_obj.get("audio_url") or data_obj.get("audio")
+        # MiniMax docs: response uses `data.audio` (hex by default). With output_format=url,
+        # some responses still use `data.audio` to carry the downloadable URL.
+        data_obj = data.get("data") or {}
+        task_id = data_obj.get("task_id")
+        audio_val = data_obj.get("audio_url") or data_obj.get("audio")
 
-            if not audio_val:
-                raise RuntimeError(f"MiniMax response missing audio field: {data}")
+        if not audio_val:
+            raise RuntimeError(f"MiniMax response missing audio field: {data}")
 
-            if str(output_format).lower() == "url":
-                return MiniMaxMusicResult(audio_url=str(audio_val), task_id=task_id)
+        if str(output_format).lower() == "url":
+            return MiniMaxMusicResult(audio_url=str(audio_val), task_id=task_id)
 
-            audio_str = str(audio_val)
-            try:
-                audio_bytes = bytes.fromhex(audio_str)
-            except ValueError:
-                raise RuntimeError(f"MiniMax response audio is not hex: {data}")
-            return MiniMaxMusicResult(audio_url=None, task_id=task_id, audio_bytes=audio_bytes)
+        audio_str = str(audio_val)
+        try:
+            audio_bytes = bytes.fromhex(audio_str)
+        except ValueError:
+            raise RuntimeError(f"MiniMax response audio is not hex: {data}")
+        return MiniMaxMusicResult(audio_url=None, task_id=task_id, audio_bytes=audio_bytes)
 
     async def download_audio(self, audio_url: str) -> bytes:
         """Download audio from MiniMax result URL."""

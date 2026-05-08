@@ -42,6 +42,8 @@ class AppState:
     provider_queues: dict[str, ProviderQueue] = field(default_factory=dict)
     rate_limiters: dict[str, TokenBucket] = field(default_factory=dict)
     http_clients: dict[str, httpx.AsyncClient] = field(default_factory=dict)
+    provider_execution_locks: dict[str, asyncio.Lock] = field(default_factory=dict)
+    provider_last_finished_at: dict[str, float] = field(default_factory=dict)
 
     @classmethod
     def create(cls) -> "AppState":
@@ -65,6 +67,8 @@ class AppState:
         provider_queues: dict[str, ProviderQueue] = {}
         rate_limiters: dict[str, TokenBucket] = {}
         http_clients: dict[str, httpx.AsyncClient] = {}
+        provider_execution_locks: dict[str, asyncio.Lock] = {}
+        provider_last_finished_at: dict[str, float] = {}
 
         cc = settings.concurrency_config
         for provider in ("minimax", "acestep"):
@@ -81,6 +85,9 @@ class AppState:
                 ),
                 follow_redirects=True,
             )
+            if provider == "acestep":
+                provider_execution_locks[provider] = asyncio.Lock()
+                provider_last_finished_at[provider] = 0.0
 
         st = cls(
             settings=settings,
@@ -94,6 +101,8 @@ class AppState:
             provider_queues=provider_queues,
             rate_limiters=rate_limiters,
             http_clients=http_clients,
+            provider_execution_locks=provider_execution_locks,
+            provider_last_finished_at=provider_last_finished_at,
         )
         st.apply_proxy_env()
         return st

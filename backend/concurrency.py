@@ -29,8 +29,9 @@ DEFAULT_CONCURRENCY: dict[str, Any] = {
         "rate_limit_per_sec": 2.0,
     },
     "acestep": {
-        "max_concurrent": 2,
+        "max_concurrent": 1,
         "rate_limit_per_sec": 1.0,
+        "cooldown_sec": 30.0,
     },
     "retry": {
         "max_retries": 3,
@@ -51,6 +52,11 @@ def _merge_concurrency(user_cfg: dict[str, Any] | None) -> dict[str, Any]:
         override = user_cfg.get(provider)
         if isinstance(override, dict):
             base.update(override)
+        if provider == "acestep":
+            # ACE-Step generation is a long-running upstream operation and is
+            # sensitive to parallel requests on the same API key. Keep the
+            # local queue serialized even if old config files still say "2".
+            base["max_concurrent"] = 1
         merged[provider] = base
     retry_base = dict(DEFAULT_CONCURRENCY.get("retry", {}))
     retry_override = user_cfg.get("retry")
@@ -149,6 +155,9 @@ class ProviderQueue:
         num_workers: int | None = None,
     ) -> None:
         """Start the worker pool. Call once during app startup."""
+        self._workers = [worker for worker in self._workers if not worker.done()]
+        if self._workers:
+            return
         n = num_workers or self.max_concurrent
         for _ in range(n):
             task = asyncio.create_task(self._worker_loop(handler))

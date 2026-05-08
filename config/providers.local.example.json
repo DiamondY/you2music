@@ -43,8 +43,9 @@
       "rate_limit_per_sec": 2.0
     },
     "acestep": {
-      "max_concurrent": 2,
-      "rate_limit_per_sec": 1.0
+      "max_concurrent": 1,
+      "rate_limit_per_sec": 1.0,
+      "cooldown_sec": 3.0
     },
     "retry": {
       "max_retries": 3,
