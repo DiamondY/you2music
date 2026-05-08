@@ -1,0 +1,181 @@
+{
+  "version": 1,
+  "placeholders": {
+    "themes_zh": [
+      "错过",
+      "重逢",
+      "告别",
+      "成长",
+      "治愈",
+      "勇气",
+      "梦",
+      "远方",
+      "雨夜",
+      "星空",
+      "海边",
+      "城市",
+      "旅行",
+      "自我和解",
+      "告白",
+      "失眠",
+      "遗憾",
+      "执念",
+      "自由",
+      "新开始",
+      "旧回忆",
+      "盼望",
+      "答案",
+      "拥抱"
+    ],
+    "themes_en": [
+      "goodbye",
+      "second chances",
+      "late-night thoughts",
+      "healing",
+      "home",
+      "the road",
+      "starlight",
+      "summer rain",
+      "new beginnings",
+      "letting go",
+      "the city",
+      "afterglow",
+      "a secret",
+      "the distance",
+      "a promise",
+      "the silence",
+      "gravity"
+    ],
+    "scenes_zh": [
+      "地铁末班车",
+      "夜里路灯下",
+      "雨后的街角",
+      "海边的风",
+      "清晨的窗台",
+      "旧相册里",
+      "咖啡店的角落",
+      "天台上",
+      "便利店门口",
+      "操场的看台",
+      "出租车后座",
+      "音乐节的人海里",
+      "河岸边的长椅",
+      "昏黄的楼道",
+      "机场的到达口"
+    ],
+    "scenes_en": [
+      "under city lights",
+      "by the ocean",
+      "in a quiet room",
+      "on the open road",
+      "at the edge of dawn",
+      "in the late-night subway",
+      "in a crowded bar",
+      "on a rooftop in the rain",
+      "in a small cafe"
+    ],
+    "emotions_zh": [
+      "温柔",
+      "克制",
+      "热烈",
+      "遗憾",
+      "释然",
+      "坚定",
+      "心动",
+      "孤独",
+      "倔强",
+      "慌张",
+      "平静",
+      "悸动",
+      "笃定",
+      "迷惘"
+    ],
+    "emotions_en": [
+      "soft",
+      "restless",
+      "hopeful",
+      "broken",
+      "brave",
+      "calm",
+      "wild",
+      "tender",
+      "numb",
+      "alive",
+      "afraid",
+      "certain"
+    ],
+    "hooks_zh": [
+      "我还在路上",
+      "别怕天会亮",
+      "把眼泪都藏好",
+      "我们会再相遇",
+      "就当作一场梦",
+      "让风带走遗憾",
+      "心跳别停下",
+      "别回头",
+      "别放手",
+      "我会等你",
+      "把这段歌唱完",
+      "别让夜太长"
+    ],
+    "hooks_en": [
+      "we will be alright",
+      "hold on to the light",
+      "I won't let you go",
+      "we're still alive",
+      "meet me in the morning",
+      "don't fade away",
+      "stay with me tonight",
+      "keep your heart open",
+      "we can start again",
+      "after the storm"
+    ]
+  },
+  "templates": [
+    {
+      "lang": "zh",
+      "name": "zh_pop_soft",
+      "text": "[Verse 1]\n{scene}，我把{emotion}藏在沉默里\n你说过的每一句话 还在我心里\n\n[Pre-Chorus]\n如果时间能倒回\n我想再勇敢一点\n\n[Chorus]\n{hook}\n就算世界太拥挤\n我也会记得你\n{hook}\n把{theme}写成歌 再唱给自己\n\n[Verse 2]\n{scene}，风把回忆吹得很轻\n我学会和{theme}和平相处下去\n\n[Outro]\n{hook}"
+    },
+    {
+      "lang": "zh",
+      "name": "zh_city_night",
+      "text": "[Verse]\n{scene}，霓虹把影子拉得很长\n我把想说的话 写进一张纸上\n\n[Chorus]\n{hook}\n别让{theme}把我们困在原地\n{hook}\n往前走吧 直到天亮\n\n[Bridge]\n我知道有些答案\n只能交给时间去讲\n\n[Final Chorus]\n{hook}\n就当作一场{theme}\n{hook}"
+    },
+    {
+      "lang": "en",
+      "name": "en_indie_pop",
+      "text": "[Verse 1]\n{scene}, I'm trying to breathe\nHolding my {emotion} where you can't see\n\n[Pre-Chorus]\nIf I fall, will you pull me back?\nIf I run, will you follow my tracks?\n\n[Chorus]\n{hook}\nWe keep moving, we don't look back\n{hook}\nTurn the {theme} into something we can hold\n\n[Verse 2]\n{scene}, the silence is loud\nBut I'm learning to stand in the crowd\n\n[Outro]\n{hook}"
+    },
+    {
+      "lang": "en",
+      "name": "en_edm_hooky",
+      "text": "[Verse]\n{scene}, heart on the line\nRunning in circles, losing track of time\n\n[Build]\nHands up, don't let it go\nFeel it rising, let the whole world know\n\n[Drop / Chorus]\n{hook}\n{hook}\n\n[Bridge]\nWe turn the {theme} into fire\n\n[Final Drop]\n{hook}"
+    },
+    {
+      "lang": "zh",
+      "name": "zh_ballad_gentle",
+      "text": "[Verse 1]\n{scene}，你走之后我学会慢慢呼吸\n把{emotion}写进日记 反复删又重启\n\n[Pre-Chorus]\n我以为我可以\n假装从未在意\n\n[Chorus]\n{hook}\n如果{theme}是一场雨\n就让它落在心里\n{hook}\n我把你留在旋律 说给自己听\n\n[Bridge]\n也许有天我会懂\n那些沉默的意义\n\n[Final Chorus]\n{hook}\n把{theme}唱成勇气"
+    },
+    {
+      "lang": "zh",
+      "name": "zh_rap_half_sung",
+      "text": "[Verse]\n{scene}，我把{theme}塞进口袋不让它掉出来\n你说的每句像回声 在脑海绕不开\n\n[Pre-Chorus]\n别问我有没有答案\n我只是还没习惯\n\n[Chorus]\n{hook}\n把{emotion}写成一段节奏 让它继续摆\n{hook}\n我们都在路上 只是走得不太快\n\n[Outro]\n{hook}"
+    },
+    {
+      "lang": "zh",
+      "name": "zh_rock_anthem",
+      "text": "[Verse]\n{scene}，把沉默点燃\n把{emotion}变成呐喊\n\n[Chorus]\n{hook}\n别让{theme}把你打败\n{hook}\n抬起头 现在就要离开\n\n[Bridge]\n我不需要完美的答案\n我只要你别停下来\n\n[Final Chorus]\n{hook}\n把{theme}丢向远方"
+    },
+    {
+      "lang": "en",
+      "name": "en_rnb_smooth",
+      "text": "[Verse 1]\n{scene}, your name on my tongue\nI hide the {emotion} but it weighs a ton\n\n[Pre-Chorus]\nMaybe I should let it show\nMaybe I should let it go\n\n[Chorus]\n{hook}\nTurn the {theme} into a slow dance\n{hook}\nHold me close until the night ends\n\n[Outro]\n{hook}"
+    },
+    {
+      "lang": "zh",
+      "name": "zh_lowercase_tags",
+      "text": "[verse]\n{scene}，我把{theme}写在风里\n让它绕过人群 回到你这里\n\n[chorus]\n{hook}\n别让{emotion}把夜吞没\n{hook}\n我们会等到天亮以后\n\n[bridge]\n如果回忆太重\n就把它交给节奏\n\n[chorus]\n{hook}"
+    }
+  ]
+}

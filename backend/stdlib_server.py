@@ -17,7 +17,16 @@ from providers.minimax_stdlib import MiniMaxMusicClientStdlib
 from providers.acestep_stdlib import ACEStepClientStdlib
 from storage import JobStore
 from admin_config import load_local_config, redacted_config, save_local_config
-from shared import RANDOM_LYRICS_TEMPLATES, RANDOM_PROMPTS, build_prompt
+from shared import (
+    RANDOM_LYRICS_TEMPLATES,
+    RANDOM_PROMPTS,
+    build_prompt,
+    generate_random_bpm,
+    generate_random_duration_sec,
+    generate_random_key_scale,
+    generate_random_lyrics,
+    generate_random_prompt,
+)
 
 
 def _read_text(path: Path) -> str:
@@ -339,6 +348,25 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("content-length", str(len(data)))
             self.end_headers()
             self.wfile.write(data)
+            return
+
+        if self.path == "/api/random_sample":
+            prompt = generate_random_prompt() or random.choice(RANDOM_PROMPTS)
+            lyrics = generate_random_lyrics() or random.choice(RANDOM_LYRICS_TEMPLATES)
+            bpm = generate_random_bpm()
+            key_scale = generate_random_key_scale()
+            duration = generate_random_duration_sec()
+            _json_response(
+                self,
+                200,
+                {
+                    "prompt": prompt,
+                    "lyrics": lyrics,
+                    "bpm": bpm,
+                    "key_scale": key_scale,
+                    "duration": duration,
+                },
+            )
             return
 
         if self.path.startswith("/api/jobs/history"):

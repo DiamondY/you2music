@@ -19,7 +19,15 @@ from pydantic import BaseModel, Field
 from auth import create_token, hash_password, verify_password
 from providers.registry import providers_payload
 from admin_config import load_local_config, redacted_config, save_local_config
-from shared import RANDOM_LYRICS_TEMPLATES, RANDOM_PROMPTS
+from shared import (
+    RANDOM_LYRICS_TEMPLATES,
+    RANDOM_PROMPTS,
+    generate_random_bpm,
+    generate_random_duration_sec,
+    generate_random_key_scale,
+    generate_random_lyrics,
+    generate_random_prompt,
+)
 from state import STATE
 from deps import (
     _apply_provider_prompt_options,
@@ -221,13 +229,13 @@ class AdminConfigRequest(BaseModel):
 @app.get("/api/random_sample")
 def get_random_sample(current_user: UserRecord = Depends(get_current_user)) -> dict[str, Any]:
     """Generate a random prompt and lyrics sample for quick inspiration."""
-    prompt = random.choice(RANDOM_PROMPTS)
-    lyrics = random.choice(RANDOM_LYRICS_TEMPLATES)
-    bpm = random.choice([60, 70, 80, 90, 100, 110, 120, 128, 140])
-    keys = ["C major", "G major", "D major", "A minor", "E minor", "F major"]
-    key_scale = random.choice(keys)
-    durations = [30, 45, 60, 90, 120, 180]
-    duration = random.choice(durations)
+    # Prefer the new fine-grained generators backed by files under
+    # `backend/random_content/`. Keep the legacy lists as fallback.
+    prompt = generate_random_prompt() or random.choice(RANDOM_PROMPTS)
+    lyrics = generate_random_lyrics() or random.choice(RANDOM_LYRICS_TEMPLATES)
+    bpm = generate_random_bpm()
+    key_scale = generate_random_key_scale()
+    duration = generate_random_duration_sec()
 
     return {
         "prompt": prompt,

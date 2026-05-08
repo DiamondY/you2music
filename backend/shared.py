@@ -2,94 +2,132 @@
 
 from __future__ import annotations
 
+import json
+import random
+from pathlib import Path
 from typing import Any
+
 
 # ========================================
 # Random Sample Data (shared)
 # ========================================
 
-RANDOM_PROMPTS: list[str] = [
-    "A dreamy electronic ambient track with soft synth pads and gentle arpeggios",
-    "Upbeat pop song with catchy melody and energetic drums",
-    "Melancholic piano ballad with emotional strings",
-    "Funky dance track with groovy bass line and brass section",
-    "Acoustic folk song with warm guitar strumming and heartfelt vocals",
-    "Epic cinematic orchestral piece with dramatic crescendo",
-    "Chill lo-fi hip hop beat with jazzy samples and vinyl crackle",
-    "Energetic rock anthem with powerful electric guitars and driving rhythm",
-    "Smooth R&B track with sultry vocals and lush harmonies",
-    "Traditional Chinese-inspired piece with guzheng and erhu melodies",
-    "Modern trap beat with heavy 808 bass and crisp hi-hats",
-    "Reggae-inspired track with laid-back groove and offbeat guitar skanks",
-    "Electronic dance music with buildups and drops",
-    "Jazz standard with swing rhythm and improvisational solos",
-    "New age meditation music with Tibetan singing bowls and nature sounds",
-]
 
-RANDOM_LYRICS_TEMPLATES: list[str] = [
-    """[Verse 1]
-漫步在这城市的街头
-霓虹灯映照着过往的梦
-微风轻拂脸庞的感觉
-让我想起了你的温柔
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parents[1]
 
-[Chorus]
-时光如水静静流淌
-记忆中的画面依然清晰
-那些年我们一起追的梦
-如今都变成了心底的歌""",
-    """[Verse 1]
-Standing on the edge of tomorrow
-Looking back at yesterday
-All the joy and all the sorrow
-Led me to this moment today
 
-[Chorus]
-We're chasing dreams across the sky
-No matter how far, we'll learn to fly
-Together we'll make it through the night
-Into the morning light""",
-    """[Verse 1]
-月光洒落在窗台
-思绪随着夜风飘来
-那些未曾说出口的话
-在心中惄惄绽放
+def _load_json(path: Path) -> dict[str, Any] | None:
+    try:
+        if not path.exists():
+            return None
+        obj = json.loads(path.read_text(encoding="utf-8"))
+        return obj if isinstance(obj, dict) else None
+    except Exception:
+        return None
 
-[Bridge]
-时间是最温柔的答案
-等待是最深情的告白
 
-[Chorus]
-让风带走所有遗憾
-让梦点亮每个夜晚""",
-    """[Verse 1]
-踏遍千山万水
-追寻心中的风景
-一路上有风有雨
-也有你温暖的笑容
+def _pick(seq: list[Any]) -> Any:
+    if not seq:
+        return ""
+    return random.choice(seq)
 
-[Chorus]
-人生就像一场旅行
-珍惜沿途的每一道风景
-不管终点在哪里
-重要的是与你同行""",
-    """[Verse 1]
-咖啡杯里倒映着午后阳光
-书页翻动间时光悄然流淌
-窗外的城市依旧繁忙
-而我沉浸在这片刻的安详
 
-[Chorus]
-Simple moments, peaceful days
-In this quiet space, my heart stays
-Finding beauty in the ordinary
-Living life extraordinary""",
-]
+def _format_template(tpl: str, mapping: dict[str, Any]) -> str:
+    out = str(tpl)
+    for k, v in mapping.items():
+        out = out.replace("{" + str(k) + "}", str(v))
+    return out
+
+
+def generate_random_prompt() -> str:
+    """Generate a richer prompt by combining smaller building blocks.
+
+    Source content lives in `backend/random_content/prompt_parts.v1.json`.
+    """
+    pack = _load_json(_repo_root() / "backend" / "random_content" / "prompt_parts.v1.json") or {}
+    templates = pack.get("templates") if isinstance(pack.get("templates"), list) else []
+
+    mapping = {
+        "genre": _pick(pack.get("genres", [])),
+        "subgenre": _pick(pack.get("subgenres", [])),
+        "mood": _pick(pack.get("moods", [])),
+        "vibe": _pick(pack.get("vibes", [])),
+        "era": _pick(pack.get("eras", [])),
+        "tempo": _pick(pack.get("tempos", [])),
+        "time_signature": _pick(pack.get("time_signatures", [])),
+        "key_scale": _pick(pack.get("key_scales", [])),
+        "vocals_hint": _pick(pack.get("vocals_hints", [])),
+        "arrangement": _pick(pack.get("arrangements", [])),
+        "structure": _pick(pack.get("structures", [])),
+        "lead_instruments": _pick(pack.get("lead_instruments", [])),
+        "support_instruments": _pick(pack.get("support_instruments", [])),
+        "sound_design": _pick(pack.get("sound_design", [])),
+        "mixing": _pick(pack.get("mixing", [])),
+        "focus": _pick(pack.get("focus", [])),
+    }
+
+    tpl = _pick(templates) if templates else "{genre}，{mood}，{vibe}。{vocals_hint}"
+    text = _format_template(str(tpl), mapping)
+    return " ".join(text.split()).strip()
+
+
+def generate_random_lyrics() -> str:
+    """Generate lyrics from templates and placeholder vocabularies.
+
+    Source content lives in `backend/random_content/lyrics_templates.v1.json`.
+    """
+    pack = _load_json(_repo_root() / "backend" / "random_content" / "lyrics_templates.v1.json") or {}
+    placeholders = pack.get("placeholders") if isinstance(pack.get("placeholders"), dict) else {}
+    templates = pack.get("templates") if isinstance(pack.get("templates"), list) else []
+    if not templates:
+        return ""
+
+    tpl_obj = _pick(templates)
+    if not isinstance(tpl_obj, dict):
+        return ""
+    text = str(tpl_obj.get("text") or "").strip()
+    lang = str(tpl_obj.get("lang") or "zh").strip().lower()
+
+    mapping: dict[str, Any] = {}
+    if lang == "en":
+        mapping["theme"] = _pick(placeholders.get("themes_en", []))
+        mapping["scene"] = _pick(placeholders.get("scenes_en", []))
+        mapping["emotion"] = _pick(placeholders.get("emotions_en", []))
+        mapping["hook"] = _pick(placeholders.get("hooks_en", []))
+    else:
+        mapping["theme"] = _pick(placeholders.get("themes_zh", []))
+        mapping["scene"] = _pick(placeholders.get("scenes_zh", []))
+        mapping["emotion"] = _pick(placeholders.get("emotions_zh", []))
+        mapping["hook"] = _pick(placeholders.get("hooks_zh", []))
+
+    return _format_template(text, mapping).strip()
+
+
+def generate_random_duration_sec() -> int:
+    # Keep durations short-ish for iteration speed; UI clamps anyway.
+    return int(_pick([25, 30, 35, 45, 60, 75, 90, 120, 150, 180]))
+
+
+def generate_random_bpm() -> int:
+    return int(_pick([60, 70, 80, 90, 100, 110, 120, 128, 136, 140, 150, 160, 174]))
+
+
+def generate_random_key_scale() -> str:
+    v = str(_pick(["C major", "G major", "D major", "A minor", "E minor", "F major"])).strip()
+    return v or "C major"
+
+
+# Backwards-compat exports. Call sites that used to do random.choice on these lists
+# still work, but the lists are now generated from the external packs above.
+RANDOM_PROMPTS: list[str] = [generate_random_prompt() for _ in range(24)]
+RANDOM_LYRICS_TEMPLATES: list[str] = [generate_random_lyrics() for _ in range(12)]
 
 
 # ========================================
 # Prompt building (shared)
 # ========================================
+
 
 def build_prompt(*, base_prompt: str, lyrics: str | None, vocals: bool) -> str:
     """Build the full prompt string sent to music generation providers."""
@@ -106,6 +144,7 @@ def build_prompt(*, base_prompt: str, lyrics: str | None, vocals: bool) -> str:
 # ========================================
 # Job serialization helpers (shared)
 # ========================================
+
 
 def serialize_job_dict(
     *,
