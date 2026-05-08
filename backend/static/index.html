@@ -2137,6 +2137,99 @@
         return data;
       }
 
+      // ========================================
+      // Realtime Sync (SSE over fetch stream)
+      // ========================================
+      let eventAbort = null;
+      let eventStreamRunning = false;
+      let historyRefreshTimer = null;
+
+      function scheduleHistoryRefresh() {
+        if (historyRefreshTimer) return;
+        historyRefreshTimer = setTimeout(() => {
+          historyRefreshTimer = null;
+          loadHistoryPage(historyOffset).catch(() => {});
+        }, 600);
+      }
+
+      function stopEventStream() {
+        if (eventAbort) {
+          try { eventAbort.abort(); } catch { /* ignore */ }
+        }
+        eventAbort = null;
+        eventStreamRunning = false;
+      }
+
+      function startEventStream() {
+        if (localMode) {
+          stopEventStream();
+          return;
+        }
+        if (!authToken) {
+          stopEventStream();
+          return;
+        }
+        if (eventStreamRunning) return;
+        eventAbort = new AbortController();
+        eventStreamRunning = true;
+        runEventStream(authToken, eventAbort.signal).catch(() => {
+          // If the stream breaks (network/sleep), retry later.
+          stopEventStream();
+          setTimeout(() => {
+            if (!localMode && authToken) startEventStream();
+          }, 1500);
+        });
+      }
+
+      function _handleRealtimeEvent(evtType, payload) {
+        if (!payload || typeof payload !== "object") return;
+        if (evtType === "job_created" || evtType === "job_updated") {
+          scheduleHistoryRefresh();
+          const jid = payload.job_id;
+          if (jid && Array.isArray(currentJobs) && currentJobs.includes(jid)) {
+            refreshJobs(currentJobs).catch(() => {});
+          }
+        }
+      }
+
+      async function runEventStream(token, signal) {
+        const res = await fetch("/api/events", {
+          method: "GET",
+          headers: { "Accept": "text/event-stream", "Authorization": `Bearer ${token}` },
+          signal
+        });
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          throw new Error(text || `HTTP ${res.status}`);
+        }
+        if (!res.body) return;
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder("utf-8");
+        let buf = "";
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buf += decoder.decode(value, { stream: true });
+          while (true) {
+            const idx = buf.indexOf("\n\n");
+            if (idx < 0) break;
+            const chunk = buf.slice(0, idx);
+            buf = buf.slice(idx + 2);
+
+            let evtType = "message";
+            let dataStr = "";
+            for (const line of chunk.split("\n")) {
+              if (line.startsWith("event:")) evtType = line.slice(6).trim() || "message";
+              if (line.startsWith("data:")) dataStr += line.slice(5).trim();
+            }
+            if (!dataStr) continue;
+            let payload = null;
+            try { payload = JSON.parse(dataStr); } catch { payload = null; }
+            _handleRealtimeEvent(evtType, payload);
+          }
+        }
+      }
+
       async function getAuthenticatedAudioUrl(url) {
         if (!url || !authToken) return url;
         if (audioBlobUrlsByUrl.has(url)) return audioBlobUrlsByUrl.get(url);
@@ -2321,8 +2414,10 @@
             setSession("", { username: "本地模式", role: "user", must_change_password: false, quota: null });
             await initProviders();
             await loadHistoryPage(0);
+            stopEventStream();
           } else {
             setSession("", null);
+            stopEventStream();
           }
           return;
         }
@@ -2332,6 +2427,7 @@
           setSession(authToken, data.user);
           await initProviders();
           await loadHistoryPage(0);
+          startEventStream();
         } catch (e) {
           localMode = await detectLocalMode();
           if (localMode) {
@@ -2339,10 +2435,12 @@
             setSession("", { username: "本地模式", role: "user", must_change_password: false, quota: null });
             await initProviders();
             await loadHistoryPage(0);
+            stopEventStream();
             return;
           }
           setSession("", null);
           setAuthError("登录已过期，请重新登录。");
+          stopEventStream();
         }
       }
 
@@ -2358,6 +2456,7 @@
         setSession(data.token, data.user);
         await initProviders();
         await loadHistoryPage(0);
+        startEventStream();
       }
 
       async function registerAccount() {
@@ -2373,6 +2472,7 @@
         setSession(data.token, data.user);
         await initProviders();
         await loadHistoryPage(0);
+        startEventStream();
       }
 
       async function loadCommunity() {
@@ -4336,6 +4436,7 @@
       showRegisterBtn.addEventListener("click", () => showAuthMode("register"));
       document.getElementById("logoutBtn").addEventListener("click", () => {
         setSession("", null);
+        stopEventStream();
         providersMeta = null;
         historyJobs = [];
         listEl.innerHTML = "";

@@ -12,6 +12,7 @@ import httpx
 from auth import hash_password
 from concurrency import ProviderQueue, TokenBucket
 from config import Settings, load_settings
+from events_hub import UserEventHub
 from storage import JobStore
 from user_store import UserStore
 
@@ -44,6 +45,7 @@ class AppState:
     http_clients: dict[str, httpx.AsyncClient] = field(default_factory=dict)
     provider_execution_locks: dict[str, asyncio.Lock] = field(default_factory=dict)
     provider_last_finished_at: dict[str, float] = field(default_factory=dict)
+    event_hub: UserEventHub = field(default_factory=UserEventHub)
 
     @classmethod
     def create(cls) -> "AppState":
@@ -103,6 +105,7 @@ class AppState:
             http_clients=http_clients,
             provider_execution_locks=provider_execution_locks,
             provider_last_finished_at=provider_last_finished_at,
+            event_hub=UserEventHub(),
         )
         st.apply_proxy_env()
         return st

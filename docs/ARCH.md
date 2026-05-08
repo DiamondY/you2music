@@ -86,3 +86,11 @@ provider 客户端实现：
 4. worker 将 job 状态置为 `running`，调用 provider API
 5. 成功：写文件，状态置为 `succeeded`，提供 `/api/audio/{job_id}` 播放
 6. 失败：状态置为 `failed`，错误信息写入 `error`
+
+---
+
+## 4. 多端同步（FastAPI）
+
+FastAPI 模式提供 `GET /api/events`（SSE，`text/event-stream`）用于同一账号在多端/多标签页之间同步任务状态。
+
+前端通过 `fetch()` 建立带 `Authorization: Bearer <JWT>` 的流式连接接收事件，并按需刷新历史列表与当前任务状态。

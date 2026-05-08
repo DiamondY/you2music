@@ -12,7 +12,7 @@ from typing import Any, Callable
 import httpx
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi import Query
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -179,6 +179,36 @@ def auth_update_password(req: PasswordUpdateRequest, current_user: UserRecord = 
 @app.get("/api/providers")
 def get_providers(current_user: UserRecord = Depends(get_current_user)) -> dict[str, Any]:
     return providers_payload(STATE.settings)
+
+
+def _sse_format(event: str, data: dict[str, Any]) -> bytes:
+    # Minimal SSE format (UTF-8).
+    # data must be one line; we JSON-dump to keep it compact.
+    payload = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
+    return f"event: {event}\ndata: {payload}\n\n".encode("utf-8")
+
+
+@app.get("/api/events")
+async def events(current_user: UserRecord = Depends(get_current_user)) -> StreamingResponse:
+    """Realtime event stream for multi-device/tab sync (FastAPI mode only)."""
+    user_id = int(current_user.id)
+    q = await STATE.event_hub.subscribe(user_id)
+
+    async def gen():
+        # Initial hello so client can mark stream as live.
+        yield _sse_format("hello", {"ts_ms": int(time.time() * 1000)})
+        try:
+            while True:
+                try:
+                    item = await asyncio.wait_for(q.get(), timeout=15.0)
+                    evt = str(item.get("type") or "message")
+                    yield _sse_format(evt, item)
+                except asyncio.TimeoutError:
+                    yield _sse_format("ping", {"ts_ms": int(time.time() * 1000)})
+        finally:
+            await STATE.event_hub.unsubscribe(user_id, q)
+
+    return StreamingResponse(gen(), media_type="text/event-stream")
 
 
 class AdminConfigRequest(BaseModel):
@@ -494,6 +524,11 @@ def admin_cancel_job(
     if pq:
         cancelled_from_queue = pq.cancel(job_id)
     STATE.store.set_status(job_id, status="failed", error="管理员取消排队")
+    if rec.user_id is not None:
+        # Push realtime update to the owner.
+        asyncio.create_task(
+            STATE.event_hub.publish(int(rec.user_id), {"type": "job_updated", "job_id": job_id, "status": "failed"})
+        )
     return {"ok": True, "cancelled_from_queue": cancelled_from_queue}
 
 
@@ -562,6 +597,11 @@ async def generate(req: GenerateRequest, current_user: UserRecord = Depends(get_
         user_id=current_user.id,
     )
 
+    await STATE.event_hub.publish(
+        int(current_user.id),
+        {"type": "job_created", "job_id": job_id, "status": "queued", "provider": provider_name},
+    )
+
     # Submit to provider queue (job starts in "queued" status, worker picks it up)
     await STATE.provider_queues[provider_name].submit(job_id)
     return {"job_id": job_id, "quota": quota}
@@ -615,6 +655,10 @@ async def generate_many(req: GenerateManyRequest, current_user: UserRecord = Dep
             user_id=current_user.id,
         )
         job_ids.append(job_id)
+        await STATE.event_hub.publish(
+            int(current_user.id),
+            {"type": "job_created", "job_id": job_id, "status": "queued", "provider": provider_name},
+        )
         # Submit to provider queue (job starts in "queued" status, worker picks it up)
         await STATE.provider_queues[provider_name].submit(job_id)
 
@@ -655,7 +699,10 @@ async def extend(req: ExtendRequest, current_user: UserRecord = Depends(get_curr
     try:
         quota = STATE.user_store.consume_quota(user_id=current_user.id, amount=1, daily_quota=current_user.daily_quota)
     except ValueError as e:
-        raise HTTPException(status_code=429, detail=str(e)) from e
+        msg = str(e)
+        if msg == "daily quota exhausted":
+            msg = "今日配额已用完"
+        raise HTTPException(status_code=429, detail=msg) from e
 
     job_id = STATE.store.create_job(
         provider=str(new_params.get("provider") or parent.provider),
@@ -668,6 +715,10 @@ async def extend(req: ExtendRequest, current_user: UserRecord = Depends(get_curr
 
     # Submit to provider queue (job starts in "queued" status, worker picks it up)
     provider_name = str(new_params.get("provider") or parent.provider)
+    await STATE.event_hub.publish(
+        int(current_user.id),
+        {"type": "job_created", "job_id": job_id, "status": "queued", "provider": provider_name},
+    )
     await STATE.provider_queues[provider_name].submit(job_id)
     return {"job_id": job_id, "parent_job_id": parent.job_id, "quota": quota}
 
@@ -756,6 +807,10 @@ def cancel_job(job_id: str, current_user: UserRecord = Depends(get_current_user)
 
     # Mark as failed in store
     STATE.store.set_status(job_id, status="failed", error="用户取消排队")
+    if rec.user_id is not None:
+        asyncio.create_task(
+            STATE.event_hub.publish(int(rec.user_id), {"type": "job_updated", "job_id": job_id, "status": "failed"})
+        )
     return {"ok": True, "cancelled_from_queue": cancelled_from_queue}
 
 

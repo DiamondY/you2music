@@ -20,6 +20,24 @@ from state import STATE
 logger = logging.getLogger(__name__)
 
 
+async def _publish_job_status(
+    *,
+    user_id: int | None,
+    job_id: str,
+    status: str,
+    provider: str | None = None,
+    error: str | None = None,
+) -> None:
+    if user_id is None:
+        return
+    payload: dict[str, Any] = {"type": "job_updated", "job_id": job_id, "status": status}
+    if provider:
+        payload["provider"] = provider
+    if error:
+        payload["error"] = error
+    await STATE.event_hub.publish(int(user_id), payload)
+
+
 async def _job_worker_handler(job_id: str) -> None:
     """Worker handler: called by ProviderQueue workers for each job.
 
@@ -75,11 +93,24 @@ async def _execute_queued_job(*, job_id: str, rec: Any, params: dict[str, Any]) 
                 status="failed",
                 error=f"排队超时：等待了 {elapsed_sec:.0f} 秒，超过上限 {queue_timeout_sec:.0f} 秒",
             )
+            await _publish_job_status(
+                user_id=getattr(rec, "user_id", None),
+                job_id=job_id,
+                status="failed",
+                provider=provider_name,
+                error="排队超时",
+            )
             logger.warning("Job %s queue timeout: waited %.0fs (limit %ds)", job_id, elapsed_sec, int(queue_timeout_sec))
             return
 
     # Set status to running only when a real provider execution slot is available.
     STATE.store.set_status(job_id, status="running")
+    await _publish_job_status(
+        user_id=getattr(rec, "user_id", None),
+        job_id=job_id,
+        status="running",
+        provider=provider_name,
+    )
 
     # Execute with retry
     retry_cfg = STATE.settings.concurrency_config.get("retry", {}) if isinstance(STATE.settings.concurrency_config.get("retry"), dict) else {}
@@ -98,10 +129,24 @@ async def _execute_queued_job(*, job_id: str, rec: Any, params: dict[str, Any]) 
     except asyncio.CancelledError:
         # Shutdown: mark job as failed so it doesn't stay "running" forever.
         STATE.store.set_status(job_id, status="failed", error="cancelled")
+        await _publish_job_status(
+            user_id=getattr(rec, "user_id", None),
+            job_id=job_id,
+            status="failed",
+            provider=provider_name,
+            error="cancelled",
+        )
         raise
     except Exception as e:
         # run_with_retry exhausted retries or non-retryable error
         STATE.store.set_status(job_id, status="failed", error=str(e))
+        await _publish_job_status(
+            user_id=getattr(rec, "user_id", None),
+            job_id=job_id,
+            status="failed",
+            provider=provider_name,
+            error=str(e),
+        )
     finally:
         if _provider_cooldown_seconds(provider_name) > 0:
             STATE.provider_last_finished_at[provider_name] = time.monotonic()
@@ -230,7 +275,22 @@ async def _run_job(*, job_id: str, prompt: str, params: dict[str, Any]) -> None:
         out_path = STATE.audio_dir / f"{job_id}.{out_ext}"
         out_path.write_bytes(out_bytes)
         STATE.store.set_status(job_id, status="succeeded", output_path=str(out_path), song_id=song_id)
+        rec = STATE.store.get(job_id)
+        await _publish_job_status(
+            user_id=(rec.user_id if rec else None),
+            job_id=job_id,
+            status="succeeded",
+            provider=str(params.get("provider") or "minimax"),
+        )
     except asyncio.CancelledError:
         # Shutdown/dev stop: treat as a controlled failure to avoid leaving jobs "running".
         STATE.store.set_status(job_id, status="failed", error="cancelled")
+        rec = STATE.store.get(job_id)
+        await _publish_job_status(
+            user_id=(rec.user_id if rec else None),
+            job_id=job_id,
+            status="failed",
+            provider=str(params.get("provider") or "minimax"),
+            error="cancelled",
+        )
         raise
