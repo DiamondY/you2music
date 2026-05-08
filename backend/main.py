@@ -71,6 +71,7 @@ class AdminUserUpdateRequest(BaseModel):
     role: UserRole | None = None
     daily_quota: int | None = Field(default=None, ge=0, le=100000)
     disabled: bool | None = None
+    reset_password: str | None = Field(default=None, min_length=6, max_length=72)
 
 
 class PublishRequest(BaseModel):
@@ -139,6 +140,7 @@ def _public_user(user: UserRecord) -> dict[str, Any]:
         "avatar_path": user.avatar_path,
         "daily_quota": user.daily_quota,
         "disabled": user.disabled,
+        "must_change_password": user.must_change_password,
         "created_at_ms": user.created_at_ms,
         "quota": STATE.user_store.quota_status(user_id=user.id, daily_quota=user.daily_quota),
     }
@@ -710,6 +712,11 @@ def admin_update_user(
     req: AdminUserUpdateRequest,
     current_user: UserRecord = Depends(require_admin),
 ) -> dict[str, Any]:
+    # Handle password reset first (sets must_change_password flag)
+    if req.reset_password:
+        new_hash = hash_password(req.reset_password)
+        STATE.user_store.update_password(user_id, password_hash=new_hash)
+        STATE.user_store.set_must_change_password(user_id, True)
     try:
         user = STATE.user_store.update_user(
             user_id,

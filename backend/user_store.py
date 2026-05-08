@@ -22,6 +22,7 @@ class UserRecord:
     avatar_path: str | None
     daily_quota: int
     disabled: bool
+    must_change_password: bool
     created_at_ms: int
 
 
@@ -163,7 +164,7 @@ class UserStore:
             with self._connect() as conn:
                 row = conn.execute(
                     """
-                    SELECT id, username, password_hash, role, avatar_path, daily_quota, disabled, created_at_ms
+                    SELECT id, username, password_hash, role, avatar_path, daily_quota, disabled, must_change_password, created_at_ms
                     FROM users WHERE id = ?
                     """,
                     (int(user_id),),
@@ -175,7 +176,7 @@ class UserStore:
             with self._connect() as conn:
                 row = conn.execute(
                     """
-                    SELECT id, username, password_hash, role, avatar_path, daily_quota, disabled, created_at_ms
+                    SELECT id, username, password_hash, role, avatar_path, daily_quota, disabled, must_change_password, created_at_ms
                     FROM users WHERE username = ?
                     """,
                     (username.strip(),),
@@ -187,7 +188,7 @@ class UserStore:
             with self._connect() as conn:
                 rows = conn.execute(
                     """
-                    SELECT id, username, password_hash, role, avatar_path, daily_quota, disabled, created_at_ms
+                    SELECT id, username, password_hash, role, avatar_path, daily_quota, disabled, must_change_password, created_at_ms
                     FROM users ORDER BY created_at_ms DESC
                     """
                 ).fetchall()
@@ -233,8 +234,18 @@ class UserStore:
         with self._lock:
             with self._connect() as conn:
                 cursor = conn.execute(
-                    "UPDATE users SET password_hash = ? WHERE id = ?",
+                    "UPDATE users SET password_hash = ?, must_change_password = 0 WHERE id = ?",
                     (password_hash, int(user_id)),
+                )
+                conn.commit()
+                return cursor.rowcount > 0
+
+    def set_must_change_password(self, user_id: int, flag: bool) -> bool:
+        with self._lock:
+            with self._connect() as conn:
+                cursor = conn.execute(
+                    "UPDATE users SET must_change_password = ? WHERE id = ?",
+                    (1 if flag else 0, int(user_id)),
                 )
                 conn.commit()
                 return cursor.rowcount > 0
@@ -328,6 +339,8 @@ class UserStore:
             conn.execute("ALTER TABLE users ADD COLUMN disabled INTEGER NOT NULL DEFAULT 0")
         if "avatar_path" not in user_cols:
             conn.execute("ALTER TABLE users ADD COLUMN avatar_path TEXT")
+        if "must_change_password" not in user_cols:
+            conn.execute("ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0")
 
 
 def today_key() -> str:
@@ -349,7 +362,8 @@ def _row_to_user(row: sqlite3.Row | tuple[object, ...] | None) -> UserRecord | N
         avatar_path=str(row[4]) if row[4] is not None else None,
         daily_quota=int(row[5]),
         disabled=bool(row[6]),
-        created_at_ms=int(row[7]),
+        must_change_password=bool(row[7]),
+        created_at_ms=int(row[8]),
     )
 
 

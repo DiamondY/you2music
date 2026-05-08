@@ -259,10 +259,16 @@
 
       .nav-item .icon { width: 18px; height: 18px; }
 
+      .sidebar-divider {
+        height: 1px;
+        background: var(--color-border);
+        margin: var(--space-sm) var(--space-lg);
+      }
+
       .sidebar-footer {
         padding: var(--space-md) var(--space-lg);
         border-top: 1px solid var(--color-border);
-        margin-top: var(--space-md);
+        margin-top: auto;
       }
 
       .sidebar-user {
@@ -480,6 +486,16 @@
 
       .btn-danger:hover {
         background: var(--color-error-a10);
+      }
+
+      .btn-warning {
+        color: #d97706;
+        border: 1px solid #d97706;
+        background: transparent;
+      }
+
+      .btn-warning:hover {
+        background: rgba(217, 119, 6, 0.1);
       }
 
       .btn-ghost {
@@ -1041,6 +1057,13 @@
           </button>
         </nav>
 
+        <div class="sidebar-divider"></div>
+
+        <a href="/" class="nav-item" style="text-decoration:none;">
+          <svg class="icon" viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+          返回首页
+        </a>
+
         <div class="sidebar-footer">
           <div class="sidebar-user">
             <div class="sidebar-avatar" id="sidebarAvatar">A</div>
@@ -1366,6 +1389,7 @@
             <td data-label="禁用"><input type="checkbox" data-field="disabled" ${u.disabled ? "checked" : ""}></td>
             <td data-label="操作" class="cell-actions">
               <button class="btn btn-sm btn-outline" data-action="save">保存</button>
+              <button class="btn btn-sm btn-warning" data-action="reset-password">重置密码</button>
               <button class="btn btn-sm btn-danger" data-action="delete">删除</button>
             </td>
           </tr>`;
@@ -1390,6 +1414,21 @@
         const userId = row.getAttribute("data-user-id");
         if (!window.confirm("确定删除该用户？")) return;
         await fetchJson(`/api/admin/users/${userId}`, { method: "DELETE" });
+        await loadUsers();
+      }
+
+      async function resetPassword(row) {
+        const userId = row.getAttribute("data-user-id");
+        const username = row.querySelector(".cell-username").textContent;
+        const newPwd = prompt(`为用户 ${username} 设置新密码（至少6位）：`);
+        if (!newPwd) return;
+        if (newPwd.length < 6) { alert("密码长度至少6位"); return; }
+        await fetchJson(`/api/admin/users/${userId}`, {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ reset_password: newPwd })
+        });
+        alert("密码已重置，用户下次登录需修改密码");
         await loadUsers();
       }
 
@@ -1519,6 +1558,7 @@
         if (!action) return;
         const row = e.target.closest("tr");
         if (action === "save") saveUser(row).catch(err => alert(String(err)));
+        if (action === "reset-password") resetPassword(row).catch(err => alert(String(err)));
         if (action === "delete") deleteUser(row).catch(err => alert(String(err)));
       });
 

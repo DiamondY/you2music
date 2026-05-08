@@ -1533,6 +1533,7 @@
           <div>
             <strong id="accountName">-</strong>
             <span id="accountRole" class="quota-pill">user</span>
+            <a id="adminLink" href="/admin" class="btn btn-secondary btn-sm" style="display:none;margin-left:8px;">管理后台</a>
           </div>
           <div class="quota-pill" id="quotaInfo">今日配额：-</div>
           <button id="logoutBtn" class="btn btn-secondary btn-sm">退出</button>
@@ -1873,6 +1874,28 @@
       </div>
     </div>
 
+    <!-- Force Change Password Modal -->
+    <div id="forceChangePwdOverlay" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.6);align-items:center;justify-content:center;">
+      <div style="background:var(--color-bg-card);border-radius:12px;padding:32px;max-width:380px;width:90%;box-shadow:var(--shadow-modal),0 0 0 1px var(--color-border);">
+        <h3 style="margin:0 0 8px;color:var(--color-text-primary);">修改密码</h3>
+        <p style="margin:0 0 16px;color:var(--color-text-secondary);font-size:14px;">管理员已重置您的密码，首次登录需修改密码后继续使用。</p>
+        <div style="margin-bottom:12px;">
+          <label style="font-size:13px;color:var(--color-text-secondary);display:block;margin-bottom:4px;">当前密码</label>
+          <input type="password" id="fcpOldPwd" style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid var(--color-border-hover);background:var(--color-bg-surface);color:var(--color-text-primary);box-sizing:border-box;" autocomplete="current-password">
+        </div>
+        <div style="margin-bottom:12px;">
+          <label style="font-size:13px;color:var(--color-text-secondary);display:block;margin-bottom:4px;">新密码（至少8位）</label>
+          <input type="password" id="fcpNewPwd" style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid var(--color-border-hover);background:var(--color-bg-surface);color:var(--color-text-primary);box-sizing:border-box;" autocomplete="new-password">
+        </div>
+        <div style="margin-bottom:16px;">
+          <label style="font-size:13px;color:var(--color-text-secondary);display:block;margin-bottom:4px;">确认新密码</label>
+          <input type="password" id="fcpConfirmPwd" style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid var(--color-border-hover);background:var(--color-bg-surface);color:var(--color-text-primary);box-sizing:border-box;" autocomplete="new-password">
+        </div>
+        <div id="fcpError" style="color:var(--color-error);font-size:13px;margin-bottom:12px;display:none;"></div>
+        <button id="fcpSubmitBtn" class="btn btn-primary" style="width:100%;">确认修改</button>
+      </div>
+    </div>
+
     <script>
       // ========================================
       // SVG Icon Helper
@@ -2193,16 +2216,71 @@
         authCard.classList.toggle("hidden", loggedIn);
         accountBar.classList.toggle("hidden", !loggedIn);
         tabCreateBtn.disabled = !loggedIn;
+        // Admin link
+        const adminLink = document.getElementById("adminLink");
+        adminLink.style.display = (loggedIn && currentUser.role === "admin") ? "inline-block" : "none";
         if (loggedIn) {
           accountNameEl.textContent = currentUser.username || "-";
           accountRoleEl.textContent = currentUser.role || "user";
           updateQuotaDisplay(currentUser);
-          showTab("create");
+          // Force change password check
+          if (currentUser.must_change_password) {
+            showForceChangePwd();
+          } else {
+            showTab("create");
+          }
         } else {
           accountNameEl.textContent = "-";
           accountRoleEl.textContent = "user";
           updateQuotaDisplay(null);
           showTab("discover");
+        }
+      }
+
+      function showForceChangePwd() {
+        const overlay = document.getElementById("forceChangePwdOverlay");
+        overlay.style.display = "flex";
+        document.getElementById("fcpOldPwd").value = "";
+        document.getElementById("fcpNewPwd").value = "";
+        document.getElementById("fcpConfirmPwd").value = "";
+        document.getElementById("fcpError").style.display = "none";
+      }
+
+      async function submitForceChangePwd() {
+        const oldPwd = document.getElementById("fcpOldPwd").value;
+        const newPwd = document.getElementById("fcpNewPwd").value;
+        const confirmPwd = document.getElementById("fcpConfirmPwd").value;
+        const errEl = document.getElementById("fcpError");
+        errEl.style.display = "none";
+        if (!oldPwd || !newPwd) {
+          errEl.textContent = "请填写所有字段";
+          errEl.style.display = "block";
+          return;
+        }
+        if (newPwd.length < 8) {
+          errEl.textContent = "新密码至少8位";
+          errEl.style.display = "block";
+          return;
+        }
+        if (newPwd !== confirmPwd) {
+          errEl.textContent = "两次输入的新密码不一致";
+          errEl.style.display = "block";
+          return;
+        }
+        try {
+          await fetchJson("/api/auth/password", {
+            method: "PUT",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ old_password: oldPwd, new_password: newPwd })
+          });
+          document.getElementById("forceChangePwdOverlay").style.display = "none";
+          // Refresh user info to clear must_change_password flag
+          const me = await fetchJson("/api/auth/me");
+          currentUser = me.user;
+          showTab("create");
+        } catch (e) {
+          errEl.textContent = errorMessage(e);
+          errEl.style.display = "block";
         }
       }
 
@@ -4167,6 +4245,10 @@
         revokeAudioBlobUrls();
         setMainPlayerAudio(null);
       });
+      document.getElementById("fcpSubmitBtn").addEventListener("click", () => submitForceChangePwd().catch(e => {
+        document.getElementById("fcpError").textContent = errorMessage(e);
+        document.getElementById("fcpError").style.display = "block";
+      }));
       tabCreateBtn.addEventListener("click", () => showTab("create"));
       tabDiscoverBtn.addEventListener("click", () => showTab("discover"));
       document.getElementById("refreshCommunityBtn").addEventListener("click", () => {
@@ -4211,5 +4293,6 @@
         });
       });
     </script>
+
   </body>
 </html>
