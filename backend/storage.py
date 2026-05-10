@@ -416,6 +416,8 @@ class ApiLogStore:
         provider: str | None = None,
         job_id: str | None = None,
         http_status: int | None = None,
+        http_status_min: int | None = None,
+        http_status_max: int | None = None,
     ) -> list[dict[str, Any]]:
         off = max(0, int(offset))
         lim = min(200, max(1, int(limit)))
@@ -431,6 +433,13 @@ class ApiLogStore:
         if http_status is not None:
             conditions.append("http_status = ?")
             params.append(http_status)
+        else:
+            if http_status_min is not None:
+                conditions.append("http_status >= ?")
+                params.append(int(http_status_min))
+            if http_status_max is not None:
+                conditions.append("http_status <= ?")
+                params.append(int(http_status_max))
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 
         params.extend([lim, off])
@@ -456,6 +465,8 @@ class ApiLogStore:
         provider: str | None = None,
         job_id: str | None = None,
         http_status: int | None = None,
+        http_status_min: int | None = None,
+        http_status_max: int | None = None,
     ) -> int:
         conditions: list[str] = []
         params: list[object] = []
@@ -468,6 +479,13 @@ class ApiLogStore:
         if http_status is not None:
             conditions.append("http_status = ?")
             params.append(http_status)
+        else:
+            if http_status_min is not None:
+                conditions.append("http_status >= ?")
+                params.append(int(http_status_min))
+            if http_status_max is not None:
+                conditions.append("http_status <= ?")
+                params.append(int(http_status_max))
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         with self._lock:
             with self._connect() as conn:

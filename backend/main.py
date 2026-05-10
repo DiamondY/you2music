@@ -522,15 +522,29 @@ def admin_get_api_logs(
     limit: int = Query(default=20, ge=1, le=200),
     provider: str | None = Query(default=None),
     http_status: int | None = Query(default=None),
+    http_status_family: int | None = Query(default=None, ge=1, le=9),
     current_user: UserRecord = Depends(require_admin),
 ) -> dict[str, Any]:
+    http_status_min: int | None = None
+    http_status_max: int | None = None
+    if http_status is None and http_status_family is not None:
+        # Typical families: 2xx / 4xx / 5xx
+        http_status_min = int(http_status_family) * 100
+        http_status_max = int(http_status_family) * 100 + 99
     logs = STATE.log_store.list_page(
         offset=offset,
         limit=limit,
         provider=provider,
         http_status=http_status,
+        http_status_min=http_status_min,
+        http_status_max=http_status_max,
     )
-    total = STATE.log_store.count(provider=provider, http_status=http_status)
+    total = STATE.log_store.count(
+        provider=provider,
+        http_status=http_status,
+        http_status_min=http_status_min,
+        http_status_max=http_status_max,
+    )
     return {"logs": logs, "total": total, "offset": offset, "limit": limit}
 
 

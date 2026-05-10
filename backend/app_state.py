@@ -218,6 +218,9 @@ class AppState:
                 self.db_path = new_db_path
                 self.store = JobStore(self.db_path)
                 self.store.init()
+                # Keep API logging consistent with the active db path.
+                self.log_store = ApiLogStore(self.db_path)
+                self.log_store.init()
             if new_users_db_path != self.users_db_path:
                 self.users_db_path = new_users_db_path
                 self.user_store = UserStore(self.users_db_path)

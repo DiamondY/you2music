@@ -11,20 +11,22 @@ import json
 import logging
 import time
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, AsyncIterator
 
 from concurrency import run_with_retry
 from providers.minimax import MiniMaxMusicClient
 from providers.acestep import ACEStepClient
 from state import STATE
 
+
+@asynccontextmanager
 async def _log_api_call(
     job_id: str | None,
     provider: str,
     endpoint: str,
     request_body: str,
     api_key_hint: str | None,
-) -> dict[str, Any]:
+) -> AsyncIterator[dict[str, Any]]:
     """Context manager that times an API call and records it to the log store.
 
     After the block completes (success or failure), caller should populate
@@ -321,7 +323,7 @@ async def _run_job(*, job_id: str, prompt: str, params: dict[str, Any]) -> None:
                             raise RuntimeError("MiniMax response missing audio_url")
                         out_bytes = await client.download_audio(result.audio_url)
                     out_ext = audio_format
-                except RuntimeError as e:
+                except Exception as e:
                     log_info["http_status"] = _extract_http_status(str(e))
                     log_info["error"] = str(e)
                     raise
@@ -370,7 +372,7 @@ async def _run_job(*, job_id: str, prompt: str, params: dict[str, Any]) -> None:
                     }, ensure_ascii=False) if result else None
                     out_bytes = result.audio_bytes
                     out_ext = audio_format
-                except RuntimeError as e:
+                except Exception as e:
                     log_info["http_status"] = _extract_http_status(str(e))
                     log_info["error"] = str(e)
                     raise

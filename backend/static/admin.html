@@ -1760,15 +1760,17 @@
       async function loadApiLogs() {
         const provider = apiLogProviderFilter.value || "";
         let httpStatus = null;
+        let httpStatusFamily = null;
         const statusVal = apiLogStatusFilter.value || "";
-        if (statusVal === "2xx") httpStatus = 200;
+        if (statusVal === "2xx") httpStatusFamily = 2;
         else if (statusVal === "429") httpStatus = 429;
-        else if (statusVal === "4xx") httpStatus = 400;
-        else if (statusVal === "5xx") httpStatus = 500;
+        else if (statusVal === "4xx") httpStatusFamily = 4;
+        else if (statusVal === "5xx") httpStatusFamily = 5;
 
         const params = new URLSearchParams({ offset: String(apiLogOffset), limit: String(apiLogLimit) });
         if (provider) params.set("provider", provider);
         if (httpStatus !== null) params.set("http_status", String(httpStatus));
+        if (httpStatusFamily !== null) params.set("http_status_family", String(httpStatusFamily));
         const data = await fetchJson(`/api/admin/api-logs?${params}`);
         const logs = data.logs || [];
         const total = data.total || 0;
@@ -1808,7 +1810,12 @@
       function renderApiLogDetail(log) {
         const pretty = (raw) => {
           if (!raw) return "<em style='color:var(--color-text-muted)'>（无）</em>";
-          try { return JSON.stringify(JSON.parse(raw), null, 2); } catch { return escapeHtml(raw); }
+          try {
+            // Always escape HTML, even for JSON, because this will be inserted via innerHTML.
+            return escapeHtml(JSON.stringify(JSON.parse(raw), null, 2));
+          } catch {
+            return escapeHtml(raw);
+          }
         };
         return `
         <div id="apiLogModal" style="position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.5);">
