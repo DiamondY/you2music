@@ -10,6 +10,7 @@ import asyncio
 import json
 import logging
 import time
+from contextlib import asynccontextmanager
 from typing import Any
 
 from concurrency import run_with_retry
@@ -17,7 +18,46 @@ from providers.minimax import MiniMaxMusicClient
 from providers.acestep import ACEStepClient
 from state import STATE
 
-logger = logging.getLogger(__name__)
+async def _log_api_call(
+    job_id: str | None,
+    provider: str,
+    endpoint: str,
+    request_body: str,
+    api_key_hint: str | None,
+) -> dict[str, Any]:
+    """Context manager that times an API call and records it to the log store.
+
+    After the block completes (success or failure), caller should populate
+    the returned dict with 'http_status', 'response_body', and 'error' if
+    applicable.  The dict is then written to the db.
+    """
+    t0 = time.monotonic()
+    info: dict[str, Any] = {
+        "job_id": job_id,
+        "provider": provider,
+        "endpoint": endpoint,
+        "request_body": request_body,
+        "api_key_hint": api_key_hint,
+        "http_status": None,
+        "response_body": None,
+        "error": None,
+    }
+    try:
+        yield info
+    finally:
+        elapsed_ms = int((time.monotonic() - t0) * 1000)
+        STATE.log_store.log(
+            job_id=info["job_id"],
+            provider=info["provider"],
+            method="POST",
+            endpoint=info["endpoint"],
+            request_body=info["request_body"],
+            response_body=info.get("response_body"),
+            http_status=info.get("http_status"),
+            elapsed_ms=elapsed_ms,
+            api_key_hint=info.get("api_key_hint"),
+            error=info.get("error"),
+        )
 
 
 def _extract_http_status(error_message: str) -> int | None:
@@ -201,15 +241,17 @@ async def _run_job(*, job_id: str, prompt: str, params: dict[str, Any]) -> None:
         # Acquire a key from the pool (or fall back to the single-key setting).
         if key_pool:
             api_key = await key_pool.acquire()
+            key_hint = key_pool.last_hint
         else:
             api_key = STATE.settings.minimax_api_key if provider_name == "minimax" else STATE.settings.acestep_api_key
+            key_hint = None
 
         out_bytes: bytes
         out_ext = "mp3"
         song_id: str | None = None
 
         if provider_name == "minimax":
-            # MiniMax official API (music-2.6)
+            endpoint = "/v1/music_generation"
             shared_client = STATE.http_clients.get("minimax")
             client = MiniMaxMusicClient(
                 api_key=api_key,
@@ -220,13 +262,10 @@ async def _run_job(*, job_id: str, prompt: str, params: dict[str, Any]) -> None:
             model = str(provider_params.get("model") or "music-2.6")
             lyrics_raw = params.get("lyrics") or provider_params.get("lyrics")
             lyrics_text = str(lyrics_raw).strip() if lyrics_raw is not None else ""
+            audio_format = str(provider_params.get("format") or "mp3")
             sample_rate = int(provider_params.get("sample_rate") or 44100)
             bitrate = int(provider_params.get("bitrate") or 256000)
-            audio_format = str(provider_params.get("format") or "mp3")
 
-            # MiniMax requires lyrics unless:
-            # - is_instrumental=true, or
-            # - lyrics_optimizer=true with empty lyrics (auto-generate lyrics)
             lyrics_optimizer_val = provider_params.get("lyrics_optimizer")
             lyrics_optimizer = (
                 bool(lyrics_optimizer_val)
@@ -234,9 +273,8 @@ async def _run_job(*, job_id: str, prompt: str, params: dict[str, Any]) -> None:
                 else (True if vocals and not lyrics_text else False)
             )
             is_instrumental = not vocals
-            lyrics_to_send: str | None
             if is_instrumental:
-                lyrics_to_send = None
+                lyrics_to_send: str | None = None
                 lyrics_optimizer = False
             elif lyrics_text:
                 lyrics_to_send = lyrics_text
@@ -244,25 +282,52 @@ async def _run_job(*, job_id: str, prompt: str, params: dict[str, Any]) -> None:
                 lyrics_to_send = ""
                 lyrics_optimizer = True
 
-            result = await client.generate(
-                prompt=prompt,
-                lyrics=lyrics_to_send,
-                model=model,
-                sample_rate=sample_rate,
-                bitrate=bitrate,
-                format=audio_format,
-                lyrics_optimizer=lyrics_optimizer,
-                is_instrumental=is_instrumental,
-            )
-            if result.audio_bytes is not None:
-                out_bytes = result.audio_bytes
-            else:
-                if not result.audio_url:
-                    raise RuntimeError("MiniMax response missing audio_url")
-                out_bytes = await client.download_audio(result.audio_url)
-            out_ext = audio_format
+            req_body = json.dumps({
+                "model": model,
+                "prompt": prompt,
+                "audio_setting": {
+                    "sample_rate": sample_rate,
+                    "bitrate": bitrate,
+                    "format": audio_format,
+                },
+            }, ensure_ascii=False)
+            async with _log_api_call(
+                job_id=job_id,
+                provider=provider_name,
+                endpoint=endpoint,
+                request_body=req_body,
+                api_key_hint=key_hint,
+            ) as log_info:
+                try:
+                    result = await client.generate(
+                        prompt=prompt,
+                        lyrics=lyrics_to_send,
+                        model=model,
+                        sample_rate=sample_rate,
+                        bitrate=bitrate,
+                        format=audio_format,
+                        lyrics_optimizer=lyrics_optimizer,
+                        is_instrumental=is_instrumental,
+                    )
+                    log_info["http_status"] = 200
+                    log_info["response_body"] = json.dumps({
+                        "audio_url": result.audio_url,
+                        "task_id": result.task_id,
+                    }, ensure_ascii=False) if result else None
+                    if result.audio_bytes is not None:
+                        out_bytes = result.audio_bytes
+                    else:
+                        if not result.audio_url:
+                            raise RuntimeError("MiniMax response missing audio_url")
+                        out_bytes = await client.download_audio(result.audio_url)
+                    out_ext = audio_format
+                except RuntimeError as e:
+                    log_info["http_status"] = _extract_http_status(str(e))
+                    log_info["error"] = str(e)
+                    raise
+
         elif provider_name == "acestep":
-            # ACE-Step 1.5 via acemusic.ai (OpenAI-compatible API)
+            endpoint = "/v1/chat/completions"
             shared_client = STATE.http_clients.get("acestep")
             client = ACEStepClient(
                 api_key=api_key,
@@ -277,16 +342,38 @@ async def _run_job(*, job_id: str, prompt: str, params: dict[str, Any]) -> None:
                 audio_duration = float(params["duration_sec"])
             audio_format = str(provider_params.get("audio_format") or "mp3")
 
-            result = await client.generate(
-                prompt=prompt,
-                lyrics=str(lyrics).strip() if lyrics else None,
-                model=model,
-                audio_duration=audio_duration,
-                audio_format=audio_format,
-            )
-
-            out_bytes = result.audio_bytes
-            out_ext = audio_format
+            content = prompt
+            if lyrics:
+                content = f"{prompt}\n\nLyrics:\n{lyrics}"
+            req_body = json.dumps({
+                "model": model,
+                "messages": [{"role": "user", "content": content}],
+            }, ensure_ascii=False)
+            async with _log_api_call(
+                job_id=job_id,
+                provider=provider_name,
+                endpoint=endpoint,
+                request_body=req_body,
+                api_key_hint=key_hint,
+            ) as log_info:
+                try:
+                    result = await client.generate(
+                        prompt=prompt,
+                        lyrics=str(lyrics).strip() if lyrics else None,
+                        model=model,
+                        audio_duration=audio_duration,
+                        audio_format=audio_format,
+                    )
+                    log_info["http_status"] = 200
+                    log_info["response_body"] = json.dumps({
+                        "task_id": result.task_id,
+                    }, ensure_ascii=False) if result else None
+                    out_bytes = result.audio_bytes
+                    out_ext = audio_format
+                except RuntimeError as e:
+                    log_info["http_status"] = _extract_http_status(str(e))
+                    log_info["error"] = str(e)
+                    raise
         else:
             raise RuntimeError(f"unknown provider: {provider_name}")
 

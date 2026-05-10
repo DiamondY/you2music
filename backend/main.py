@@ -516,6 +516,24 @@ def admin_list_jobs(
     return {"jobs": jobs, "total": total, "offset": offset, "limit": limit}
 
 
+@app.get("/api/admin/api-logs")
+def admin_get_api_logs(
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=20, ge=1, le=200),
+    provider: str | None = Query(default=None),
+    http_status: int | None = Query(default=None),
+    current_user: UserRecord = Depends(require_admin),
+) -> dict[str, Any]:
+    logs = STATE.log_store.list_page(
+        offset=offset,
+        limit=limit,
+        provider=provider,
+        http_status=http_status,
+    )
+    total = STATE.log_store.count(provider=provider, http_status=http_status)
+    return {"logs": logs, "total": total, "offset": offset, "limit": limit}
+
+
 @app.post("/api/admin/jobs/{job_id}/cancel")
 def admin_cancel_job(
     job_id: str,

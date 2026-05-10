@@ -14,7 +14,7 @@ from concurrency import ProviderQueue, TokenBucket
 from config import Settings, load_settings
 from events_hub import UserEventHub
 from key_pool import KeyPool
-from storage import JobStore
+from storage import ApiLogStore, JobStore
 from user_store import UserStore
 
 logger = logging.getLogger(__name__)
@@ -38,6 +38,7 @@ class AppState:
     db_path: Path
     users_db_path: Path
     store: JobStore
+    log_store: ApiLogStore
     user_store: UserStore
     _lock: threading.Lock
     # Concurrency control
@@ -58,6 +59,8 @@ class AppState:
         users_db_path = data_dir / "users.db"
         store = JobStore(db_path)
         store.init()
+        log_store = ApiLogStore(db_path)
+        log_store.init()
         user_store = UserStore(users_db_path)
         user_store.init()
         if settings.admin_username and settings.admin_password:
@@ -109,6 +112,7 @@ class AppState:
             db_path=db_path,
             users_db_path=users_db_path,
             store=store,
+            log_store=log_store,
             user_store=user_store,
             _lock=threading.Lock(),
             provider_queues=provider_queues,

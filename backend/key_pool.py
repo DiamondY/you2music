@@ -45,6 +45,7 @@ class KeyPool:
         self._max_failures = max_failures
         self._index: int = 0
         self._lock = asyncio.Lock()
+        self._last_hint: str | None = None  # label of most recently returned key
 
     # ------------------------------------------------------------------
     # public
@@ -69,6 +70,7 @@ class KeyPool:
                         if not candidate.disabled and candidate.cooldown_until <= now:
                             self._index = (self._index + offset + 1) % len(self._entries)
                             candidate.total_uses += 1
+                            self._last_hint = candidate.label
                             return candidate.key
 
                 # No key is available - compute the soonest cooldown expiry.
@@ -132,6 +134,11 @@ class KeyPool:
     @property
     def total_count(self) -> int:
         return len(self._entries)
+
+    @property
+    def last_hint(self) -> str | None:
+        """Label of the key most recently returned by acquire()."""
+        return self._last_hint
 
     def status(self) -> dict:
         """Return a summary for admin/monitoring."""

@@ -327,3 +327,172 @@ def _row_to_job(row: sqlite3.Row | tuple[object, ...]) -> JobRecord:
         visibility=str(row[11]) if len(row) > 11 and row[11] is not None else "private",  # type: ignore[arg-type]
         share_permission=str(row[12]) if len(row) > 12 and row[12] is not None else "listen_only",  # type: ignore[arg-type]
     )
+
+
+# ---------------------------------------------------------------------------
+# ApiLogStore - HTTP API call log (for debugging / admin inspection)
+# ---------------------------------------------------------------------------
+
+_MAX_REQUEST_BODY_LEN = 2000
+_MAX_RESPONSE_BODY_LEN = 4000
+
+
+class ApiLogStore:
+    def __init__(self, db_path: Path) -> None:
+        self._db_path = db_path
+        self._lock = threading.Lock()
+
+    def init(self) -> None:
+        self._db_path.parent.mkdir(parents=True, exist_ok=True)
+        with self._connect() as conn:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS api_logs (
+                    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                    job_id           TEXT,
+                    provider         TEXT NOT NULL,
+                    method           TEXT,
+                    endpoint         TEXT,
+                    request_body     TEXT,
+                    response_body    TEXT,
+                    http_status      INTEGER,
+                    elapsed_ms       INTEGER,
+                    api_key_hint     TEXT,
+                    error            TEXT,
+                    created_at_ms    INTEGER NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_api_logs_job_id "
+                "ON api_logs(job_id)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_api_logs_created "
+                "ON api_logs(created_at_ms DESC)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_api_logs_provider_created "
+                "ON api_logs(provider, created_at_ms DESC)"
+            )
+            conn.commit()
+
+    def log(
+        self,
+        *,
+        job_id: str | None,
+        provider: str,
+        method: str,
+        endpoint: str,
+        request_body: str | None,
+        response_body: str | None,
+        http_status: int | None,
+        elapsed_ms: int,
+        api_key_hint: str | None,
+        error: str | None,
+    ) -> None:
+        now = int(time.time() * 1000)
+        req = (request_body or "")[:_MAX_REQUEST_BODY_LEN]
+        resp = (response_body or "")[:_MAX_RESPONSE_BODY_LEN]
+        with self._lock:
+            with self._connect() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO api_logs
+                    (job_id, provider, method, endpoint, request_body, response_body,
+                     http_status, elapsed_ms, api_key_hint, error, created_at_ms)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (job_id, provider, method, endpoint, req, resp,
+                     http_status, elapsed_ms, api_key_hint, error, now),
+                )
+                conn.commit()
+
+    def list_page(
+        self,
+        *,
+        offset: int = 0,
+        limit: int = 20,
+        provider: str | None = None,
+        job_id: str | None = None,
+        http_status: int | None = None,
+    ) -> list[dict[str, Any]]:
+        off = max(0, int(offset))
+        lim = min(200, max(1, int(limit)))
+
+        conditions: list[str] = []
+        params: list[object] = []
+        if provider:
+            conditions.append("provider = ?")
+            params.append(provider)
+        if job_id:
+            conditions.append("job_id = ?")
+            params.append(job_id)
+        if http_status is not None:
+            conditions.append("http_status = ?")
+            params.append(http_status)
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+
+        params.extend([lim, off])
+        with self._lock:
+            with self._connect() as conn:
+                rows = conn.execute(
+                    f"""
+                    SELECT id, job_id, provider, method, endpoint,
+                           request_body, response_body, http_status,
+                           elapsed_ms, api_key_hint, error, created_at_ms
+                    FROM api_logs
+                    {where}
+                    ORDER BY created_at_ms DESC
+                    LIMIT ? OFFSET ?
+                    """,
+                    params,
+                ).fetchall()
+        return [_row_to_api_log(row) for row in rows]
+
+    def count(
+        self,
+        *,
+        provider: str | None = None,
+        job_id: str | None = None,
+        http_status: int | None = None,
+    ) -> int:
+        conditions: list[str] = []
+        params: list[object] = []
+        if provider:
+            conditions.append("provider = ?")
+            params.append(provider)
+        if job_id:
+            conditions.append("job_id = ?")
+            params.append(job_id)
+        if http_status is not None:
+            conditions.append("http_status = ?")
+            params.append(http_status)
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        with self._lock:
+            with self._connect() as conn:
+                row = conn.execute(f"SELECT COUNT(*) FROM api_logs {where}", params).fetchone()
+        return int(row[0] or 0) if row else 0
+
+    def _connect(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(str(self._db_path))
+        conn.execute("PRAGMA journal_mode=WAL;")
+        conn.execute("PRAGMA synchronous=NORMAL;")
+        return conn
+
+
+def _row_to_api_log(row: sqlite3.Row | tuple[object, ...]) -> dict[str, Any]:
+    return {
+        "id": int(row[0]),
+        "job_id": str(row[1]) if row[1] is not None else None,
+        "provider": str(row[2]),
+        "method": str(row[3]) if row[3] is not None else None,
+        "endpoint": str(row[4]) if row[4] is not None else None,
+        "request_body": str(row[5]) if row[5] is not None else None,
+        "response_body": str(row[6]) if row[6] is not None else None,
+        "http_status": int(row[7]) if row[7] is not None else None,
+        "elapsed_ms": int(row[8]) if row[8] is not None else None,
+        "api_key_hint": str(row[9]) if row[9] is not None else None,
+        "error": str(row[10]) if row[10] is not None else None,
+        "created_at_ms": int(row[11]),
+    }

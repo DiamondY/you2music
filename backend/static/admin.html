@@ -1064,6 +1064,10 @@
             <svg class="icon" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
             任务管理
           </button>
+          <button class="nav-item" data-section="api-logs">
+            <svg class="icon" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+            API 日志
+          </button>
         </nav>
 
         <div class="sidebar-divider"></div>
@@ -1217,6 +1221,44 @@
           </div>
         </div>
 
+        <!-- ===== API Logs Section ===== -->
+        <div class="section-panel" id="section-api-logs">
+          <div class="page-header">
+            <div class="page-title">
+              <svg class="icon" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+              API 日志
+            </div>
+            <div class="page-desc">查看后端与 AI 服务商的 HTTP 请求/响应记录</div>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title">调用日志</div>
+              <div class="card-actions">
+                <select id="apiLogProviderFilter" style="width:auto;min-height:36px;padding:4px 12px;font-size:13px;">
+                  <option value="">全部 Provider</option>
+                  <option value="minimax">MiniMax</option>
+                  <option value="acestep">ACEStep</option>
+                </select>
+                <select id="apiLogStatusFilter" style="width:auto;min-height:36px;padding:4px 12px;font-size:13px;">
+                  <option value="">全部状态</option>
+                  <option value="2xx">2xx 成功</option>
+                  <option value="429">429 限流</option>
+                  <option value="4xx">4xx 错误</option>
+                  <option value="5xx">5xx 错误</option>
+                </select>
+                <button class="btn btn-secondary" id="reloadApiLogsBtn">
+                  <svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                  刷新
+                </button>
+              </div>
+            </div>
+            <div id="apiLogsOut">
+              <div class="empty-state"><div>加载中…</div></div>
+            </div>
+            <div id="apiLogsPagination" style="display:flex;align-items:center;justify-content:space-between;margin-top:var(--space-md);font-size:13px;color:var(--color-text-secondary);"></div>
+          </div>
+        </div>
+
       </main>
     </div>
 
@@ -1229,6 +1271,10 @@
       let taskOffset = 0;
       const taskLimit = 20;
       let taskRefreshTimer = null;
+      let apiLogOffset = 0;
+      const apiLogLimit = 20;
+      let apiLogRefreshTimer = null;
+      let _lastApiLogs = [];
 
       /* ========================================
          Theme Management
@@ -1259,6 +1305,11 @@
       const tasksPagination = document.getElementById("tasksPagination");
       const taskStatusFilter = document.getElementById("taskStatusFilter");
       const reloadTasksBtn = document.getElementById("reloadTasksBtn");
+      const apiLogsOut = document.getElementById("apiLogsOut");
+      const apiLogsPagination = document.getElementById("apiLogsPagination");
+      const apiLogProviderFilter = document.getElementById("apiLogProviderFilter");
+      const apiLogStatusFilter = document.getElementById("apiLogStatusFilter");
+      const reloadApiLogsBtn = document.getElementById("reloadApiLogsBtn");
 
       /* ========================================
          API Helper
@@ -1391,6 +1442,12 @@
         document.getElementById("sidebarOverlay").classList.remove("visible");
         // Auto-load tasks when switching to tasks section
         if (sectionId === "tasks") loadTasks();
+        // Auto-load API logs when switching to api-logs section
+        if (sectionId === "api-logs") loadApiLogs();
+        // Clean up API log refresh timer when leaving api-logs section
+        if (prevSection && prevSection.id === "section-api-logs" && sectionId !== "api-logs") {
+          if (apiLogRefreshTimer) { clearTimeout(apiLogRefreshTimer); apiLogRefreshTimer = null; }
+        }
       }
 
       document.querySelectorAll(".nav-item[data-section]").forEach(btn => {
@@ -1669,6 +1726,149 @@
       // Task filter & refresh
       taskStatusFilter.addEventListener("change", () => { taskOffset = 0; loadTasks(); });
       reloadTasksBtn.addEventListener("click", () => loadTasks());
+
+      /* ========================================
+         API Logs Management
+         ======================================== */
+      function httpStatusLabel(status) {
+        if (!status) return "-";
+        if (status >= 200 && status < 300) return `<span style="color:var(--color-success)">${status}</span>`;
+        if (status === 429) return `<span style="color:var(--color-warning)">${status} 限流</span>`;
+        if (status >= 400 && status < 500) return `<span style="color:var(--color-error)">${status} 错误</span>`;
+        if (status >= 500) return `<span style="color:var(--color-error)">${status} 服务器错误</span>`;
+        return String(status);
+      }
+
+      function renderApiLogPagination(total) {
+        const start = total === 0 ? 0 : apiLogOffset + 1;
+        const end = Math.min(apiLogOffset + apiLogLimit, total);
+        let html = `<span>第 ${start}-${end} 条 / 共 ${total} 条</span><span>`;
+        if (apiLogOffset > 0) html += `<button class="btn btn-secondary" data-action="prev-page" style="min-height:32px;padding:2px 12px;font-size:12px;">上一页</button> `;
+        if (end < total) html += `<button class="btn btn-secondary" data-action="next-page" style="min-height:32px;padding:2px 12px;font-size:12px;">下一页</button>`;
+        html += "</span>";
+        apiLogsPagination.innerHTML = html;
+      }
+
+      function scheduleApiLogRefresh(jobs) {
+        if (apiLogRefreshTimer) { clearTimeout(apiLogRefreshTimer); apiLogRefreshTimer = null; }
+        const hasActive = jobs && jobs.some(j => j.status === "queued" || j.status === "running");
+        if (hasActive) {
+          apiLogRefreshTimer = setTimeout(() => loadApiLogs(), 8000);
+        }
+      }
+
+      async function loadApiLogs() {
+        const provider = apiLogProviderFilter.value || "";
+        let httpStatus = null;
+        const statusVal = apiLogStatusFilter.value || "";
+        if (statusVal === "2xx") httpStatus = 200;
+        else if (statusVal === "429") httpStatus = 429;
+        else if (statusVal === "4xx") httpStatus = 400;
+        else if (statusVal === "5xx") httpStatus = 500;
+
+        const params = new URLSearchParams({ offset: String(apiLogOffset), limit: String(apiLogLimit) });
+        if (provider) params.set("provider", provider);
+        if (httpStatus !== null) params.set("http_status", String(httpStatus));
+        const data = await fetchJson(`/api/admin/api-logs?${params}`);
+        const logs = data.logs || [];
+        const total = data.total || 0;
+        if (!logs.length) {
+          apiLogsOut.innerHTML = '<div class="empty-state"><svg class="icon" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg><div>暂无日志记录</div></div>';
+          renderApiLogPagination(0);
+          _lastApiLogs = [];
+          return;
+        }
+        const isMobile = window.innerWidth < 768;
+        let html = '<div class="table-wrap"><table><thead><tr>'
+          + '<th>时间</th><th>Provider</th><th>任务ID</th><th>端点</th><th>状态</th><th>耗时</th><th>Key</th><th>操作</th></tr></thead><tbody>';
+        for (const log of logs) {
+          const shortJobId = log.job_id ? log.job_id.substring(0, 8) : "-";
+          const elapsed = log.elapsed_ms != null ? `${log.elapsed_ms}ms` : "-";
+          const keyHint = log.api_key_hint || "-";
+          const shortEndpoint = log.endpoint || "-";
+          const statusBadge = httpStatusLabel(log.http_status);
+          const detailBtn = `<button class="btn btn-secondary" data-action="detail" data-id="${log.id}" style="min-height:28px;padding:2px 8px;font-size:12px;">查看详情</button>`;
+          html += `<tr>`
+            + `<td data-label="时间">${formatTime(log.created_at_ms)}</td>`
+            + `<td data-label="Provider">${escapeHtml(log.provider || "-")}</td>`
+            + `<td data-label="任务ID" title="${escapeHtml(log.job_id || "")}">${escapeHtml(shortJobId)}</td>`
+            + `<td data-label="端点" title="${escapeHtml(shortEndpoint)}">${escapeHtml(shortEndpoint)}</td>`
+            + `<td data-label="状态">${statusBadge}</td>`
+            + `<td data-label="耗时">${escapeHtml(elapsed)}</td>`
+            + `<td data-label="Key">${escapeHtml(keyHint)}</td>`
+            + `<td data-label="操作">${detailBtn}</td>`
+            + `</tr>`;
+        }
+        html += '</tbody></table></div>';
+        apiLogsOut.innerHTML = html;
+        renderApiLogPagination(total);
+        _lastApiLogs = logs;
+      }
+
+      function renderApiLogDetail(log) {
+        const pretty = (raw) => {
+          if (!raw) return "<em style='color:var(--color-text-muted)'>（无）</em>";
+          try { return JSON.stringify(JSON.parse(raw), null, 2); } catch { return escapeHtml(raw); }
+        };
+        return `
+        <div id="apiLogModal" style="position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.5);">
+          <div style="background:var(--color-bg-card);border-radius:var(--radius-lg);padding:var(--space-xl);width:min(700px,90vw);max-height:90vh;overflow-y:auto;box-shadow:var(--shadow-elevated);">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-lg);">
+              <div style="font-size:16px;font-weight:600;">API 日志详情</div>
+              <button id="closeApiLogModal" style="background:none;border:none;cursor:pointer;color:var(--color-text-secondary);font-size:20px;line-height:1;">&times;</button>
+            </div>
+            <table style="width:100%;font-size:13px;border-collapse:collapse;">
+              <tr><td style="padding:6px 8px;color:var(--color-text-muted);white-space:nowrap;">时间</td><td style="padding:6px 8px;">${formatTime(log.created_at_ms)}</td></tr>
+              <tr><td style="padding:6px 8px;color:var(--color-text-muted);">Provider</td><td style="padding:6px 8px;">${escapeHtml(log.provider || "-")}</td></tr>
+              <tr><td style="padding:6px 8px;color:var(--color-text-muted);">任务ID</td><td style="padding:6px 8px;font-family:var(--font-mono);font-size:12px;word-break:break-all;">${escapeHtml(log.job_id || "-")}</td></tr>
+              <tr><td style="padding:6px 8px;color:var(--color-text-muted);">端点</td><td style="padding:6px 8px;font-family:var(--font-mono);font-size:12px;">${escapeHtml(log.endpoint || "-")}</td></tr>
+              <tr><td style="padding:6px 8px;color:var(--color-text-muted);">方法</td><td style="padding:6px 8px;">${escapeHtml(log.method || "-")}</td></tr>
+              <tr><td style="padding:6px 8px;color:var(--color-text-muted);">Key</td><td style="padding:6px 8px;">${escapeHtml(log.api_key_hint || "-")}</td></tr>
+              <tr><td style="padding:6px 8px;color:var(--color-text-muted);">耗时</td><td style="padding:6px 8px;">${escapeHtml(log.elapsed_ms != null ? log.elapsed_ms + "ms" : "-")}</td></tr>
+              <tr><td style="padding:6px 8px;color:var(--color-text-muted);">HTTP 状态</td><td style="padding:6px 8px;">${httpStatusLabel(log.http_status)}</td></tr>
+              <tr><td style="padding:6px 8px;color:var(--color-text-muted);">错误</td><td style="padding:6px 8px;color:var(--color-error);font-size:12px;">${escapeHtml(log.error || "（无）")}</td></tr>
+            </table>
+            <div style="margin-top:var(--space-lg);">
+              <div style="font-size:12px;font-weight:600;color:var(--color-text-muted);margin-bottom:var(--space-xs);">请求内容</div>
+              <pre style="background:var(--color-bg-surface);border-radius:var(--radius-md);padding:var(--space-md);font-family:var(--font-mono);font-size:12px;white-space:pre-wrap;word-break:break-all;max-height:200px;overflow-y:auto;margin:0;">${pretty(log.request_body)}</pre>
+            </div>
+            <div style="margin-top:var(--space-lg);">
+              <div style="font-size:12px;font-weight:600;color:var(--color-text-muted);margin-bottom:var(--space-xs);">响应内容</div>
+              <pre style="background:var(--color-bg-surface);border-radius:var(--radius-md);padding:var(--space-md);font-family:var(--font-mono);font-size:12px;white-space:pre-wrap;word-break:break-all;max-height:200px;overflow-y:auto;margin:0;">${pretty(log.response_body)}</pre>
+            </div>
+          </div>
+        </div>`;
+      }
+
+      // API log table action delegation
+      apiLogsOut.addEventListener("click", e => {
+        const btn = e.target.closest("[data-action]");
+        if (!btn) return;
+        const action = btn.getAttribute("data-action");
+        if (action === "detail") {
+          const logId = parseInt(btn.getAttribute("data-id"), 10);
+          const log = _lastApiLogs.find(l => l.id === logId);
+          if (log) {
+            const overlay = document.createElement("div");
+            overlay.innerHTML = renderApiLogDetail(log);
+            document.body.appendChild(overlay);
+            document.getElementById("closeApiLogModal").addEventListener("click", () => overlay.remove());
+            overlay.addEventListener("click", e => { if (e.target === overlay) overlay.remove(); });
+          }
+        }
+      });
+
+      // API log pagination
+      apiLogsPagination.addEventListener("click", e => {
+        const action = e.target.getAttribute("data-action");
+        if (action === "prev-page") { apiLogOffset = Math.max(0, apiLogOffset - apiLogLimit); loadApiLogs(); }
+        if (action === "next-page") { apiLogOffset += apiLogLimit; loadApiLogs(); }
+      });
+
+      // API log filter & refresh
+      apiLogProviderFilter.addEventListener("change", () => { apiLogOffset = 0; loadApiLogs(); });
+      apiLogStatusFilter.addEventListener("change", () => { apiLogOffset = 0; loadApiLogs(); });
+      reloadApiLogsBtn.addEventListener("click", () => loadApiLogs());
 
       /* ========================================
          Event Listeners
