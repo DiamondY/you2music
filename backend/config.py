@@ -12,8 +12,10 @@ from urllib.parse import urlsplit
 class Settings:
     default_provider: str
     minimax_api_key: str
+    minimax_api_keys: list[str]
     minimax_base_url: str
     acestep_api_key: str
+    acestep_api_keys: list[str]
     acestep_base_url: str
     enabled_providers: list[str] | None
     provider_ui_defaults: dict[str, dict[str, Any]]
@@ -34,6 +36,40 @@ class Settings:
 
 MINIMAX_BASE_URL_DEFAULT = "https://api.minimaxi.com"
 ACESTEP_BASE_URL_DEFAULT = "https://api.acemusic.ai"
+
+
+def _parse_keys(raw: Any) -> list[str]:
+    """Parse API keys from a string or array of strings/objects.
+
+    Backward-compatible: a single string becomes a one-element list.
+    Arrays may contain plain strings or dicts with a ``key`` field.
+    """
+    if isinstance(raw, str) and raw.strip():
+        return [raw.strip()]
+    if isinstance(raw, list):
+        keys: list[str] = []
+        for item in raw:
+            if isinstance(item, str) and item.strip():
+                keys.append(item.strip())
+            elif isinstance(item, dict):
+                k = str(item.get("key") or "").strip()
+                if k:
+                    keys.append(k)
+        return keys
+    return []
+
+
+def _parse_key_single(raw: Any) -> str:
+    """Extract the first key from a string or array for backward compat."""
+    if isinstance(raw, str):
+        return raw.strip()
+    if isinstance(raw, list) and raw:
+        first = raw[0]
+        if isinstance(first, str):
+            return first.strip()
+        if isinstance(first, dict):
+            return str(first.get("key") or "").strip()
+    return ""
 
 
 def _read_json_if_exists(path: Path) -> dict[str, Any] | None:
@@ -72,6 +108,8 @@ def load_settings() -> Settings:
     timeout_s = float(os.getenv("AI_MUSIC_REQUEST_TIMEOUT_S", "120"))
 
     # Apply JSON config values as defaults (env vars override)
+    minimax_api_keys_raw: Any = None
+    acestep_api_keys_raw: Any = None
     if isinstance(cfg, dict):
         secrets = cfg.get("secrets") if isinstance(cfg.get("secrets"), dict) else {}
         endpoints = cfg.get("endpoints") if isinstance(cfg.get("endpoints"), dict) else {}
@@ -80,12 +118,20 @@ def load_settings() -> Settings:
         admin_cfg = cfg.get("admin") if isinstance(cfg.get("admin"), dict) else {}
 
         if not minimax_api_key:
-            minimax_api_key = str(secrets.get("minimax_api_key") or "").strip()
+            raw = secrets.get("minimax_api_key")
+            minimax_api_keys_raw = raw
+            minimax_api_key = _parse_key_single(raw)
+        else:
+            minimax_api_keys_raw = minimax_api_key
         if minimax_base_url == MINIMAX_BASE_URL_DEFAULT:
             minimax_base_url = str(endpoints.get("minimax_base_url") or minimax_base_url).strip().rstrip("/")
 
         if not acestep_api_key:
-            acestep_api_key = str(secrets.get("acestep_api_key") or "").strip()
+            raw = secrets.get("acestep_api_key")
+            acestep_api_keys_raw = raw
+            acestep_api_key = _parse_key_single(raw)
+        else:
+            acestep_api_keys_raw = acestep_api_key
         if acestep_base_url == ACESTEP_BASE_URL_DEFAULT:
             acestep_base_url = str(endpoints.get("acestep_base_url") or acestep_base_url).strip().rstrip("/")
 
@@ -195,11 +241,23 @@ def load_settings() -> Settings:
     concurrency_raw = cfg.get("concurrency") if isinstance(cfg, dict) else None
     concurrency_config = _merge_concurrency(concurrency_raw if isinstance(concurrency_raw, dict) else None)
 
+    # Resolve multi-key lists from the raw config values.
+    minimax_api_keys = _parse_keys(minimax_api_keys_raw)
+    acestep_api_keys = _parse_keys(acestep_api_keys_raw)
+    # Ensure the single-key fallback has something if the list is populated but
+    # the single didn't get parsed (e.g. env var was empty, config had an array).
+    if not minimax_api_key and minimax_api_keys:
+        minimax_api_key = minimax_api_keys[0]
+    if not acestep_api_key and acestep_api_keys:
+        acestep_api_key = acestep_api_keys[0]
+
     return Settings(
         default_provider=default_provider,
         minimax_api_key=minimax_api_key,
+        minimax_api_keys=minimax_api_keys,
         minimax_base_url=minimax_base_url,
         acestep_api_key=acestep_api_key,
+        acestep_api_keys=acestep_api_keys,
         acestep_base_url=acestep_base_url,
         enabled_providers=enabled_providers,
         provider_ui_defaults=provider_ui_defaults,

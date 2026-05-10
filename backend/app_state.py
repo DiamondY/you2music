@@ -13,6 +13,7 @@ from auth import hash_password
 from concurrency import ProviderQueue, TokenBucket
 from config import Settings, load_settings
 from events_hub import UserEventHub
+from key_pool import KeyPool
 from storage import JobStore
 from user_store import UserStore
 
@@ -45,6 +46,7 @@ class AppState:
     http_clients: dict[str, httpx.AsyncClient] = field(default_factory=dict)
     provider_execution_locks: dict[str, asyncio.Lock] = field(default_factory=dict)
     provider_last_finished_at: dict[str, float] = field(default_factory=dict)
+    key_pools: dict[str, KeyPool] = field(default_factory=dict)
     event_hub: UserEventHub = field(default_factory=UserEventHub)
 
     @classmethod
@@ -71,6 +73,7 @@ class AppState:
         http_clients: dict[str, httpx.AsyncClient] = {}
         provider_execution_locks: dict[str, asyncio.Lock] = {}
         provider_last_finished_at: dict[str, float] = {}
+        key_pools: dict[str, KeyPool] = {}
 
         cc = settings.concurrency_config
         for provider in ("minimax", "acestep"):
@@ -87,6 +90,14 @@ class AppState:
                 ),
                 follow_redirects=True,
             )
+            # Create KeyPool for this provider (handles single or multiple keys).
+            provider_keys = settings.minimax_api_keys if provider == "minimax" else settings.acestep_api_keys
+            if provider_keys:
+                key_pools[provider] = KeyPool(
+                    keys=provider_keys,
+                    cooldown_sec=float(pcfg.get("cooldown_sec", 60.0)),
+                    max_failures=int(pcfg.get("max_failures", 3)),
+                )
             if provider == "acestep":
                 provider_execution_locks[provider] = asyncio.Lock()
                 provider_last_finished_at[provider] = 0.0
@@ -105,6 +116,7 @@ class AppState:
             http_clients=http_clients,
             provider_execution_locks=provider_execution_locks,
             provider_last_finished_at=provider_last_finished_at,
+            key_pools=key_pools,
             event_hub=UserEventHub(),
         )
         st.apply_proxy_env()
@@ -176,6 +188,25 @@ class AppState:
 
             self.settings = new_settings
             self.apply_proxy_env()
+
+            # Key pools are derived from settings and are safe to rebuild on reload.
+            # This allows updating keys without a full process restart.
+            new_key_pools: dict[str, KeyPool] = {}
+            cc = new_settings.concurrency_config
+            for provider in ("minimax", "acestep"):
+                pcfg = cc.get(provider, {}) if isinstance(cc.get(provider), dict) else {}
+                provider_keys = (
+                    new_settings.minimax_api_keys
+                    if provider == "minimax"
+                    else new_settings.acestep_api_keys
+                )
+                if provider_keys:
+                    new_key_pools[provider] = KeyPool(
+                        keys=provider_keys,
+                        cooldown_sec=float(pcfg.get("cooldown_sec", 60.0)),
+                        max_failures=int(pcfg.get("max_failures", 3)),
+                    )
+            self.key_pools = new_key_pools
 
             if new_db_path != self.db_path:
                 self.data_dir = new_data_dir

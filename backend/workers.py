@@ -20,6 +20,18 @@ from state import STATE
 logger = logging.getLogger(__name__)
 
 
+def _extract_http_status(error_message: str) -> int | None:
+    """Best-effort extract HTTP status code from an exception string.
+
+    We intentionally keep this lightweight: providers may raise plain RuntimeError
+    with text containing patterns like "HTTP 429", "HTTP 401", etc.
+    """
+    import re
+
+    m = re.search(r"HTTP\s+(\d{3})", error_message)
+    return int(m.group(1)) if m else None
+
+
 async def _publish_job_status(
     *,
     user_id: int | None,
@@ -176,13 +188,21 @@ async def _wait_provider_cooldown(provider_name: str) -> None:
 
 async def _run_job(*, job_id: str, prompt: str, params: dict[str, Any]) -> None:
     """Execute a single music generation job. Called by _job_worker_handler via run_with_retry."""
+    provider_name = str(params.get("provider") or "minimax")
+    key_pool = STATE.key_pools.get(provider_name)
+    api_key: str | None = None
     try:
         STATE.audio_dir.mkdir(parents=True, exist_ok=True)
 
-        provider_name = str(params.get("provider") or "minimax")
         duration_ms = int(params["duration_sec"]) * 1000
         vocals = bool(params["vocals"])
         provider_params = params.get("provider_params") or {}
+
+        # Acquire a key from the pool (or fall back to the single-key setting).
+        if key_pool:
+            api_key = await key_pool.acquire()
+        else:
+            api_key = STATE.settings.minimax_api_key if provider_name == "minimax" else STATE.settings.acestep_api_key
 
         out_bytes: bytes
         out_ext = "mp3"
@@ -190,10 +210,9 @@ async def _run_job(*, job_id: str, prompt: str, params: dict[str, Any]) -> None:
 
         if provider_name == "minimax":
             # MiniMax official API (music-2.6)
-            # Use shared httpx client for connection pooling
             shared_client = STATE.http_clients.get("minimax")
             client = MiniMaxMusicClient(
-                api_key=STATE.settings.minimax_api_key,
+                api_key=api_key,
                 base_url=STATE.settings.minimax_base_url,
                 timeout_s=STATE.settings.request_timeout_s,
                 http_client=shared_client,
@@ -244,10 +263,9 @@ async def _run_job(*, job_id: str, prompt: str, params: dict[str, Any]) -> None:
             out_ext = audio_format
         elif provider_name == "acestep":
             # ACE-Step 1.5 via acemusic.ai (OpenAI-compatible API)
-            # Use shared httpx client for connection pooling
             shared_client = STATE.http_clients.get("acestep")
             client = ACEStepClient(
-                api_key=STATE.settings.acestep_api_key,
+                api_key=api_key,
                 base_url=STATE.settings.acestep_base_url,
                 timeout_s=STATE.settings.request_timeout_s,
                 http_client=shared_client,
@@ -282,6 +300,9 @@ async def _run_job(*, job_id: str, prompt: str, params: dict[str, Any]) -> None:
             status="succeeded",
             provider=str(params.get("provider") or "minimax"),
         )
+        # Report success to key pool so health tracking resets.
+        if key_pool and api_key:
+            key_pool.report_result(api_key, success=True)
     except asyncio.CancelledError:
         # Shutdown/dev stop: treat as a controlled failure to avoid leaving jobs "running".
         STATE.store.set_status(job_id, status="failed", error="cancelled")
@@ -290,7 +311,17 @@ async def _run_job(*, job_id: str, prompt: str, params: dict[str, Any]) -> None:
             user_id=(rec.user_id if rec else None),
             job_id=job_id,
             status="failed",
-            provider=str(params.get("provider") or "minimax"),
+            provider=provider_name,
             error="cancelled",
         )
+        if key_pool and api_key:
+            key_pool.report_result(api_key, success=False)
+        raise
+    except Exception as e:
+        # Ensure failures are reported to key pool as well. This is essential for:
+        # - 429 rate-limit cooldown
+        # - 401/403 disabling a bad key
+        if key_pool and api_key:
+            http_status = _extract_http_status(str(e))
+            key_pool.report_result(api_key, success=False, http_status=http_status)
         raise

@@ -13,7 +13,8 @@
   },
   "secrets": {
     "minimax_api_key": "PASTE_MINIMAX_KEY_HERE",
-    "acestep_api_key": "PASTE_ACESTEP_KEY_HERE"
+    "acestep_api_key": "PASTE_ACESTEP_KEY_HERE",
+    "_comment_multi_key": "To use multiple keys, replace a string value with an array: [\"key1\", \"key2\"] or [{\"key\": \"...\"}]. (Note: \"label\" is currently ignored.)"
   },
   "endpoints": {
     "minimax_base_url": "https://api.minimaxi.com",
