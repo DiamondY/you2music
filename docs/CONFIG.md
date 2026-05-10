@@ -122,7 +122,7 @@ $env:AI_MUSIC_JWT_SECRET="a-long-random-secret"
 
 字段说明（仅列当前代码实际读取/使用的部分）：
 
-- `secrets.minimax_api_key` / `secrets.acestep_api_key`：provider 密钥
+- `secrets.minimax_api_key` / `secrets.acestep_api_key`：provider 密钥，支持单个字符串（向后兼容）或字符串数组（多 Key 轮询）
 - `endpoints.minimax_base_url` / `endpoints.acestep_base_url`：provider base_url
 - `default_provider`：默认 provider
 - `enabled_providers`：限制 UI 和后端允许的 provider 列表（可选）
@@ -133,3 +133,44 @@ $env:AI_MUSIC_JWT_SECRET="a-long-random-secret"
 - `admin.username` / `admin.password`：初始管理员账号（FastAPI 模式使用）
 - `admin.default_daily_quota`：新建用户默认配额（FastAPI 模式使用）
 - `concurrency`：provider 队列/限流/重试配置
+
+### 4.1 多 Key 管理（轮询 + 健康追踪）
+
+每个 provider 可以配置多个 API Key，实现自动轮询和故障切换。
+
+**配置格式：**
+
+单个 Key（向后兼容）：
+```json
+"secrets": {
+  "acestep_api_key": "key-abc-123"
+}
+```
+
+多个 Key（数组形式，字符串或对象均可）：
+```json
+"secrets": {
+  "acestep_api_key": ["key-abc-123", "key-def-456", "key-ghi-789"]
+}
+```
+
+```json
+"secrets": {
+  "acestep_api_key": [
+    {"key": "key-abc-123", "label": "主Key"},
+    {"key": "key-def-456", "label": "备用Key"}
+  ]
+}
+```
+
+**行为说明：**
+
+| 场景 | 处理方式 |
+|------|---------|
+| Key A 收到 HTTP 429（限流） | 进入冷却期（默认 60s），指数退避后恢复可用 |
+| Key A 收到 HTTP 401/403（认证失败） | 永久禁用，需重启服务或修改配置 |
+| Key A 连续失败 N 次（默认 3 次） | 进入冷却期，防止影响整体成功率 |
+| 所有 Key 均不可用 | 等待最接近恢复的 Key，返回后继续 |
+| 单个 Key 配置 | 完全向后兼容，行为与之前一致 |
+
+冷却时长可通过 `concurrency.<provider>.cooldown_sec` 配置，Key 池参数可通过 `max_failures` 调整连续失败阈值。

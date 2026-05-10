@@ -68,6 +68,14 @@ FastAPI 模式的 job 执行入口：
 - 调用 provider client（MiniMax / ACE-Step）
 - 写音频到 `data/audio/`，并更新 job 状态
 
+### `backend/key_pool.py`
+
+Key 池管理（FastAPI 模式）：
+
+- `KeyPool`：多 Key 轮询 + 健康追踪
+- 每个 provider 可配置多个 Key，失败后自动跳过（429 限流冷却、401/403 永久禁用、连续失败冷却）
+- 无 Key 池时回退到 `config.Settings.*_api_key`（向后兼容）
+
 ### `backend/providers/*`
 
 provider 客户端实现：
@@ -83,9 +91,9 @@ provider 客户端实现：
 1. 前端提交 `POST /api/generate` 或 `POST /api/generate_many`
 2. 后端创建 job（`storage.JobStore.create_job()`），状态为 `queued`
 3. 把 job_id 放入 provider 的 `ProviderQueue`
-4. worker 将 job 状态置为 `running`，调用 provider API
-5. 成功：写文件，状态置为 `succeeded`，提供 `/api/audio/{job_id}` 播放
-6. 失败：状态置为 `failed`，错误信息写入 `error`
+4. worker 从 `KeyPool`（或多 Key 配置）获取可用 Key，状态置为 `running`，调用 provider API
+5. 成功：写文件，状态置为 `succeeded`，Key 池记录健康状态，提供 `/api/audio/{job_id}` 播放
+6. 失败：状态置为 `failed`，错误信息写入 `error`，Key 池根据 HTTP 状态更新 Key 健康状态
 
 ---
 
