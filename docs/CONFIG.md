@@ -154,11 +154,12 @@ $env:AI_MUSIC_JWT_SECRET="a-long-random-secret"
 }
 ```
 
+对象数组形式（仅使用 `key` 字段；`label` 当前实现会忽略，不会出现在日志/状态输出中）：
 ```json
 "secrets": {
   "acestep_api_key": [
-    {"key": "key-abc-123", "label": "主Key"},
-    {"key": "key-def-456", "label": "备用Key"}
+    {"key": "key-abc-123"},
+    {"key": "key-def-456"}
   ]
 }
 ```
@@ -170,7 +171,10 @@ $env:AI_MUSIC_JWT_SECRET="a-long-random-secret"
 | Key A 收到 HTTP 429（限流） | 进入冷却期（默认 60s），指数退避后恢复可用 |
 | Key A 收到 HTTP 401/403（认证失败） | 永久禁用，需重启服务或修改配置 |
 | Key A 连续失败 N 次（默认 3 次） | 进入冷却期，防止影响整体成功率 |
-| 所有 Key 均不可用 | 等待最接近恢复的 Key，返回后继续 |
+| 所有 Key 均不可用（全部处于冷却期） | 等待最接近恢复的 Key，恢复后继续 |
+| 所有 Key 均不可用（全部被禁用） | 不会自动恢复；需要更新配置/替换 Key，并重启或触发 reload 后才会恢复 |
 | 单个 Key 配置 | 完全向后兼容，行为与之前一致 |
 
-冷却时长可通过 `concurrency.<provider>.cooldown_sec` 配置，Key 池参数可通过 `max_failures` 调整连续失败阈值。
+冷却时长可通过 `concurrency.<provider>.cooldown_sec` 配置。
+
+连续失败阈值可通过 `concurrency.<provider>.max_failures` 配置（例如 `concurrency.acestep.max_failures`）。
