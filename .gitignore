@@ -1,12 +1,44 @@
+# ============================================================
+# you2music .gitignore
+# ============================================================
+
+# ---- Secrets / local config (ALWAYS ignore) ----
+config/providers.local.json
 config/*.local.json
-.tmp_python/*
-data/*
-backend/data/*
-backend/__pycache__/*
-.agents/*
-.claude/*
-.codex/*
-.opencode/*
-.trellis/*
-AGENTS.md
+
+# ---- Generated runtime data (ALWAYS ignore) ----
+data/
+backend/data/
+
+# ---- Python bytecode ----
+__pycache__/
+*.py[cod]
 *.pyc
+backend/__pycache__/
+backend/tests/__pycache__/
+backend/providers/__pycache__/
+.pytest_cache/
+.tmp_python/
+
+# ---- AI dev tooling noise ----
+.agents/
+.claude/
+.codex/
+.opencode/
+.trellis/
+AGENTS.md
+
+# ---- OS / editor noise ----
+.DS_Store
+Thumbs.db
+*.log
+*.swp
+*.swo
+.vscode/
+.idea/
+*.sublime-*
+
+# ---- Build artifacts ----
+dist/
+build/
+*.egg-info/
