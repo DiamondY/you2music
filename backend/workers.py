@@ -20,6 +20,11 @@ from state import STATE
 
 logger = logging.getLogger(__name__)
 
+# Keep in sync with shared.build_prompt() vocals tags. We strip these when building
+# ACE-Step prompt because ACE-Step has separate vocals/lyrics handling.
+_VOCALS_TAG_WITH = "with vocals, singing (do not be instrumental-only)"
+_VOCALS_TAG_INSTR = "instrumental only (no vocals)"
+
 
 @asynccontextmanager
 async def _log_api_call(
@@ -347,7 +352,7 @@ async def _run_job(*, job_id: str, prompt: str, params: dict[str, Any]) -> None:
 
             # Extract base_prompt (strip vocals tag and lyrics embedded by build_prompt)
             acestep_prompt = str(params.get("base_prompt") or prompt).split("\n\nLyrics:\n")[0]
-            for _tag in ("with vocals, singing (do not be instrumental-only)", "instrumental only (no vocals)"):
+            for _tag in (_VOCALS_TAG_WITH, _VOCALS_TAG_INSTR):
                 acestep_prompt = acestep_prompt.replace("\n\n" + _tag, "").replace(_tag, "")
             acestep_prompt = acestep_prompt.strip()
 
@@ -361,8 +366,11 @@ async def _run_job(*, job_id: str, prompt: str, params: dict[str, Any]) -> None:
                     acestep_kwargs[k] = val
 
             # seed: prefer global params, fallback to provider_params
-            seed_val = params.get("seed") or provider_params.get("seed")
-            if seed_val is not None:
+            seed_val = params.get("seed")
+            if seed_val is None:
+                seed_val = provider_params.get("seed")
+            if seed_val is not None and seed_val != "":
+                # allow seed=0, reject empty string
                 acestep_kwargs["seed"] = int(seed_val)
 
             # Build log body

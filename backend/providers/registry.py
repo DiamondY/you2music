@@ -235,6 +235,15 @@ def get_providers(settings: Settings, *, include_disabled: bool = False) -> list
             default=_def("acestep", "timesteps", ""),
             help="逗号分隔值，如 0.97,0.76,... 覆盖推理步数。留空自动。",
         ),
+        ProviderField(
+            key="seed",
+            label="随机种子",
+            kind="integer",
+            required=False,
+            advanced=True,
+            default=_def("acestep", "seed", None),
+            help="固定种子（可复现结果）。留空随机。支持 0。",
+        ),
     ]
 
     providers: list[ProviderInfo] = [
