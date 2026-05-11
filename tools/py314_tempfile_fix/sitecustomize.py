@@ -22,7 +22,7 @@ import tempfile
 import shutil
 import weakref
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 
 
 def _get_base_dir() -> str:
