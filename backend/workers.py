@@ -345,13 +345,36 @@ async def _run_job(*, job_id: str, prompt: str, params: dict[str, Any]) -> None:
                 audio_duration = float(params["duration_sec"])
             audio_format = str(provider_params.get("audio_format") or "mp3")
 
-            content = prompt
-            if lyrics:
-                content = f"{prompt}\n\nLyrics:\n{lyrics}"
-            req_body = json.dumps({
+            # Extract base_prompt (strip vocals tag and lyrics embedded by build_prompt)
+            acestep_prompt = str(params.get("base_prompt") or prompt).split("\n\nLyrics:\n")[0]
+            for _tag in ("with vocals, singing (do not be instrumental-only)", "instrumental only (no vocals)"):
+                acestep_prompt = acestep_prompt.replace("\n\n" + _tag, "").replace(_tag, "")
+            acestep_prompt = acestep_prompt.strip()
+
+            # Collect all ACE-Step params from provider_params
+            acestep_kwargs: dict[str, Any] = {}
+            for k in ("bpm", "key_scale", "time_signature", "vocal_language",
+                       "thinking", "use_format", "inference_steps", "guidance_scale",
+                       "shift", "infer_method", "timesteps"):
+                val = provider_params.get(k)
+                if val is not None and val != "":
+                    acestep_kwargs[k] = val
+
+            # seed: prefer global params, fallback to provider_params
+            seed_val = params.get("seed") or provider_params.get("seed")
+            if seed_val is not None:
+                acestep_kwargs["seed"] = int(seed_val)
+
+            # Build log body
+            log_body: dict[str, Any] = {
                 "model": model,
-                "messages": [{"role": "user", "content": content}],
-            }, ensure_ascii=False)
+                "messages": [{"role": "user", "content": acestep_prompt}],
+            }
+            if lyrics:
+                log_body["lyrics"] = str(lyrics).strip()
+            log_body.update(acestep_kwargs)
+            req_body = json.dumps(log_body, ensure_ascii=False)
+
             async with _log_api_call(
                 job_id=job_id,
                 provider=provider_name,
@@ -361,11 +384,12 @@ async def _run_job(*, job_id: str, prompt: str, params: dict[str, Any]) -> None:
             ) as log_info:
                 try:
                     result = await client.generate(
-                        prompt=prompt,
+                        prompt=acestep_prompt,
                         lyrics=str(lyrics).strip() if lyrics else None,
                         model=model,
                         audio_duration=audio_duration,
                         audio_format=audio_format,
+                        **acestep_kwargs,
                     )
                     log_info["http_status"] = 200
                     log_info["response_body"] = json.dumps({

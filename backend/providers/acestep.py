@@ -71,6 +71,12 @@ class ACEStepClient:
         thinking: bool = False,
         use_format: bool = False,
         batch_size: int = 1,
+        inference_steps: int | None = None,
+        guidance_scale: float | None = None,
+        seed: int | None = None,
+        shift: float | None = None,
+        infer_method: str | None = None,
+        timesteps: str | None = None,
         **kwargs: Any,
     ) -> ACEStepResult:
         """Generate music using ACE-Step 1.5 model (OpenAI-compatible API).
@@ -88,6 +94,12 @@ class ACEStepClient:
             thinking: 使用 5Hz LM 增强质量
             use_format: 让 LM 优化描述和歌词
             batch_size: 同时生成多个候选 (1-4)
+            inference_steps: 推理步数 (Turbo 1-20, Base 1-200)
+            guidance_scale: Prompt 引导系数 (仅 base 模型)
+            seed: 固定种子 (可复现结果)
+            shift: 时间步偏移因子 1.0-5.0 (仅 base 模型)
+            infer_method: 推理方法 "ode" 或 "sde"
+            timesteps: 自定义时间步 (逗号分隔)
 
         Returns:
             ACEStepResult with audio_bytes
@@ -139,9 +151,24 @@ class ACEStepClient:
         if batch_size and batch_size > 1:
             body["batch_size"] = int(batch_size)
 
+        # Advanced generation parameters
+        if inference_steps is not None:
+            body["inference_steps"] = int(inference_steps)
+        if guidance_scale is not None:
+            body["guidance_scale"] = float(guidance_scale)
+        if seed is not None and seed >= 0:
+            body["seed"] = int(seed)
+            body["use_random_seed"] = False
+        if shift is not None:
+            body["shift"] = float(shift)
+        if infer_method:
+            body["infer_method"] = infer_method
+        if timesteps:
+            body["timesteps"] = timesteps
+
         # Add any additional parameters
         for k, v in kwargs.items():
-            if v is not None and k not in ("poll_interval_s", "max_wait_s", "inference_steps", "seed"):
+            if v is not None and k not in ("poll_interval_s", "max_wait_s"):
                 body[k] = v
 
         if self._shared_client:
@@ -213,6 +240,12 @@ class ACEStepClient:
         thinking: bool = False,
         use_format: bool = False,
         batch_size: int = 1,
+        inference_steps: int | None = None,
+        guidance_scale: float | None = None,
+        seed: int | None = None,
+        shift: float | None = None,
+        infer_method: str | None = None,
+        timesteps: str | None = None,
         **kwargs: Any,
     ) -> ACEStepResult:
         """Generate music and return result (synchronous API)."""
@@ -229,6 +262,12 @@ class ACEStepClient:
             thinking=thinking,
             use_format=use_format,
             batch_size=batch_size,
+            inference_steps=inference_steps,
+            guidance_scale=guidance_scale,
+            seed=seed,
+            shift=shift,
+            infer_method=infer_method,
+            timesteps=timesteps,
             **kwargs,
         )
 

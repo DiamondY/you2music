@@ -188,6 +188,53 @@ def get_providers(settings: Settings, *, include_disabled: bool = False) -> list
             default=_def("acestep", "request_timeout_s", 180),
             help="API 请求超时时间。思考模式建议 ≥180，批量生成建议 ≥240。",
         ),
+        # Advanced generation control parameters
+        ProviderField(
+            key="inference_steps",
+            label="推理步数",
+            kind="integer",
+            required=False,
+            advanced=True,
+            default=_def("acestep", "inference_steps", None),
+            help="Turbo 模型 1-20（推荐 8），留空使用服务端默认值。",
+        ),
+        ProviderField(
+            key="guidance_scale",
+            label="引导系数",
+            kind="number",
+            required=False,
+            advanced=True,
+            default=_def("acestep", "guidance_scale", None),
+            help="Prompt 引导强度，默认 7.0。仅 base 模型有效。",
+        ),
+        ProviderField(
+            key="shift",
+            label="时间偏移",
+            kind="number",
+            required=False,
+            advanced=True,
+            default=_def("acestep", "shift", None),
+            help="时间步偏移因子 1.0-5.0，默认 3.0。仅 base 模型有效。",
+        ),
+        ProviderField(
+            key="infer_method",
+            label="推理方法",
+            kind="enum",
+            required=False,
+            advanced=True,
+            default=_def("acestep", "infer_method", ""),
+            enum=["", "ode", "sde"],
+            help="ode=确定性（更快），sde=随机性。留空使用默认。",
+        ),
+        ProviderField(
+            key="timesteps",
+            label="自定义时间步",
+            kind="string",
+            required=False,
+            advanced=True,
+            default=_def("acestep", "timesteps", ""),
+            help="逗号分隔值，如 0.97,0.76,... 覆盖推理步数。留空自动。",
+        ),
     ]
 
     providers: list[ProviderInfo] = [

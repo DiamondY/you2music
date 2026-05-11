@@ -131,11 +131,35 @@ ACE-Step 1.5 开源音乐生成模型，通过 acemusic.ai 云服务调用，质
 
 ### API 参数
 
+#### 基础参数
+
 | 参数 | 说明 | 默认值 |
 |------|------|--------|
 | `model` | 模型版本 | `acemusic/acestep-v1.5-turbo` |
-| `audio_duration` | 时长（秒）| 30 |
-| `audio_format` | 输出格式 | `mp3` |
+| `audio_duration` | 时长（秒，3-600）| 30 |
+| `audio_format` | 输出格式（mp3/wav/flac）| `mp3` |
+| `vocal_language` | 歌词语言（zh/en/ja/ko/auto）| `zh` |
+| `bpm` | 节拍速度（30-300）| 自动推断 |
+| `key_scale` | 调性（如 C Major, Am）| 自动推断 |
+| `time_signature` | 拍号（2/4, 3/4, 4/4, 6/8）| 自动推断 |
+| `thinking` | 思考模式（5Hz LM 增强质量）| `false` |
+| `use_format` | 格式增强（LM 优化描述和歌词）| `false` |
+
+#### 高级生成控制参数（高级模式）
+
+| 参数 | 说明 | 默认值 |
+|------|------|--------|
+| `inference_steps` | 推理步数（Turbo: 1-20，Base: 1-200）| 服务端默认 |
+| `guidance_scale` | Prompt 引导系数（仅 base 模型）| 7.0 |
+| `seed` | 种子值（可复现结果）| 随机 |
+| `shift` | 时间步偏移因子 1.0-5.0（仅 base 模型）| 3.0 |
+| `infer_method` | 推理方法（ode=确定性, sde=随机）| `ode` |
+| `timesteps` | 自定义时间步（逗号分隔）| 自动 |
+
+> **参数传递机制**: 这些参数通过 acemusic.ai 云服务的 OpenAI 兼容 API 透传给后端 ACE-Step 模型。
+> 云服务网关接收 `/v1/chat/completions` 请求后，内部转换为 ACE-Step 原生 API 调用。
+
+> **seed 说明**: 前端全局 seed 输入框的值会传递给 ACE-Step API。设置相同 seed 可获得更一致的结果。
 
 ### 相关链接
 
