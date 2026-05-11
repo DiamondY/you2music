@@ -103,6 +103,7 @@ class ACEStepClientStdlib:
         key_scale: str | None = None,
         time_signature: str | None = None,
         vocal_language: str | None = None,
+        instrumental: bool = False,
         thinking: bool = False,
         use_format: bool = False,
         batch_size: int = 1,
@@ -126,6 +127,7 @@ class ACEStepClientStdlib:
             key_scale: 调性 (e.g. "C Major", "Am")
             time_signature: 拍号 (e.g. "4/4")
             vocal_language: 歌词语言 (en, zh, ja, ko, auto)
+            instrumental: 纯音乐模式（无人声）
             thinking: 使用 5Hz LM 增强质量
             use_format: 让 LM 优化描述和歌词
             batch_size: 同时生成多个候选 (1-4)
@@ -141,7 +143,7 @@ class ACEStepClientStdlib:
         """
         url = f"{self._base}/v1/chat/completions"
 
-        # Build the prompt content
+        # Build the prompt content (lyrics embedded in messages.content for dual-write compat)
         content = prompt
         if lyrics:
             content = f"{prompt}\n\nLyrics:\n{lyrics}"
@@ -156,13 +158,30 @@ class ACEStepClientStdlib:
             ],
         }
 
-        # Add optional parameters
+        # --- audio_config: nested object (OpenRouter format) ---
+        audio_config: dict[str, Any] = {}
+        if audio_duration is not None:
+            audio_config["duration"] = int(audio_duration)
+        if audio_format:
+            audio_config["format"] = audio_format
+        if bpm is not None:
+            audio_config["bpm"] = int(bpm)
+        if key_scale:
+            audio_config["key_scale"] = key_scale
+        if time_signature:
+            audio_config["time_signature"] = time_signature
+        if vocal_language and vocal_language != "auto":
+            audio_config["vocal_language"] = vocal_language
+        if instrumental:
+            audio_config["instrumental"] = True
+        if audio_config:
+            body["audio_config"] = audio_config
+
+        # --- Dual-write: top-level flat params (backward compat) ---
         if audio_duration is not None:
             body["duration"] = int(audio_duration)
         if audio_format:
             body["audio_format"] = audio_format
-
-        # Music attributes
         if bpm is not None:
             body["bpm"] = int(bpm)
         if key_scale:
@@ -172,7 +191,11 @@ class ACEStepClientStdlib:
         if vocal_language and vocal_language != "auto":
             body["vocal_language"] = vocal_language
 
-        # Generation control
+        # --- lyrics: top-level field (OpenRouter format) ---
+        if lyrics:
+            body["lyrics"] = str(lyrics).strip()
+
+        # Generation control (top-level)
         if thinking:
             body["thinking"] = True
         if use_format:
@@ -180,7 +203,7 @@ class ACEStepClientStdlib:
         if batch_size and batch_size > 1:
             body["batch_size"] = int(batch_size)
 
-        # Advanced generation parameters
+        # Advanced generation parameters (top-level)
         if inference_steps is not None:
             body["inference_steps"] = int(inference_steps)
         if guidance_scale is not None:
@@ -258,6 +281,7 @@ class ACEStepClientStdlib:
         key_scale: str | None = None,
         time_signature: str | None = None,
         vocal_language: str | None = None,
+        instrumental: bool = False,
         thinking: bool = False,
         use_format: bool = False,
         batch_size: int = 1,
@@ -280,6 +304,7 @@ class ACEStepClientStdlib:
             key_scale=key_scale,
             time_signature=time_signature,
             vocal_language=vocal_language,
+            instrumental=instrumental,
             thinking=thinking,
             use_format=use_format,
             batch_size=batch_size,

@@ -288,29 +288,36 @@ class AppState:
                 if audio_duration is None:
                     audio_duration = float(params["duration_sec"])
                 audio_format = str(provider_params.get("audio_format") or "mp3")
+                instrumental = not vocals
 
-                # New music attribute params
-                bpm = provider_params.get("bpm")
-                if bpm is not None:
-                    bpm = int(bpm)
-                key_scale = provider_params.get("key_scale") or None
-                time_signature = provider_params.get("time_signature") or None
-                vocal_language = provider_params.get("vocal_language") or None
-                thinking = bool(provider_params.get("thinking", False))
-                use_format = bool(provider_params.get("use_format", False))
+                # Extract base_prompt (strip vocals tag and lyrics embedded by build_prompt)
+                acestep_prompt = str(params.get("base_prompt") or prompt).split("\n\nLyrics:\n")[0]
+                for _tag in ("with vocals, singing (do not be instrumental-only)", "instrumental only (no vocals)"):
+                    acestep_prompt = acestep_prompt.replace("\n\n" + _tag, "").replace(_tag, "")
+                acestep_prompt = acestep_prompt.strip()
+
+                # Collect all ACE-Step params from provider_params
+                acestep_kwargs: dict[str, Any] = {}
+                for k in ("bpm", "key_scale", "time_signature", "vocal_language",
+                           "thinking", "use_format", "inference_steps", "guidance_scale",
+                           "shift", "infer_method", "timesteps"):
+                    val = provider_params.get(k)
+                    if val is not None and val != "":
+                        acestep_kwargs[k] = val
+
+                # seed: prefer global params, fallback to provider_params
+                seed_val = params.get("seed") or provider_params.get("seed")
+                if seed_val is not None:
+                    acestep_kwargs["seed"] = int(seed_val)
 
                 result = client.generate(
-                    prompt=prompt,
+                    prompt=acestep_prompt,
                     lyrics=str(lyrics).strip() if lyrics else None,
                     model=model,
                     audio_duration=audio_duration,
                     audio_format=audio_format,
-                    bpm=bpm,
-                    key_scale=key_scale,
-                    time_signature=time_signature,
-                    vocal_language=vocal_language,
-                    thinking=thinking,
-                    use_format=use_format,
+                    instrumental=instrumental,
+                    **acestep_kwargs,
                 )
 
                 out_bytes = result.audio_bytes
