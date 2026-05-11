@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import bcrypt
@@ -35,7 +35,7 @@ def verify_password(password: str, password_hash: str) -> bool:
 
 def create_token(*, user: UserRecord, settings: Settings) -> str:
     secret = _require_jwt_secret(settings)
-    now = datetime.now(UTC)
+    now = datetime.now(timezone.utc)
     payload: dict[str, Any] = {
         "sub": str(user.id),
         "username": user.username,
