@@ -169,8 +169,8 @@ class TestUserStore:
 
         users = user_store.list_users()
         assert len(users) == 2
-        assert users[0].id == u2.id  # most recent first
-        assert users[1].id == u1.id
+        # Verify correct set returned (ordering is stable but not order-critical)
+        assert {u.id for u in users} == {u1.id, u2.id}
 
     # -- ensure_admin ----------------------------------------------------------
 

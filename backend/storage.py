@@ -152,7 +152,7 @@ class JobStore:
                         """
                         SELECT job_id, status, created_at_ms, updated_at_ms, provider, prompt, params_json, output_path, error, song_id, user_id, visibility, share_permission
                         FROM jobs
-                        ORDER BY created_at_ms DESC, job_id DESC
+                        ORDER BY created_at_ms DESC, job_id ASC
                         LIMIT ?
                         """,
                         (limit_int,),
@@ -163,7 +163,7 @@ class JobStore:
                         SELECT job_id, status, created_at_ms, updated_at_ms, provider, prompt, params_json, output_path, error, song_id, user_id, visibility, share_permission
                         FROM jobs
                         WHERE user_id = ?
-                        ORDER BY created_at_ms DESC, job_id DESC
+                        ORDER BY created_at_ms DESC, job_id ASC
                         LIMIT ?
                         """,
                         (user_id, limit_int),
@@ -216,7 +216,7 @@ class JobStore:
                     SELECT job_id, status, created_at_ms, updated_at_ms, provider, prompt, params_json, output_path, error, song_id, user_id, visibility, share_permission
                     FROM jobs
                     {where}
-                    ORDER BY created_at_ms DESC, job_id DESC
+                    ORDER BY created_at_ms DESC, job_id ASC
                     LIMIT ? OFFSET ?
                     """,
                     params,
