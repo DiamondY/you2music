@@ -8,7 +8,6 @@ import time
 import pytest
 
 from concurrency import (
-    DEFAULT_CONCURRENCY,
     ProviderQueue,
     TokenBucket,
     _merge_concurrency,

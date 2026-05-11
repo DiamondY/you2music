@@ -39,13 +39,13 @@ from deps import (
     _public_user,
     _resolve_output_format,
     _resolve_provider,
-    _sanitize_filename,
     _serialize_job,
     get_current_user,
     install_windows_asyncio_connection_reset_suppression,
     require_admin,
 )
 from user_store import UserRecord, UserRole
+from workers import _job_worker_handler
 
 
 class GenerateRequest(BaseModel):
@@ -309,7 +309,6 @@ async def admin_test(current_user: UserRecord = Depends(require_admin)) -> dict[
     # Notes:
     # - Prefer "whoami/account/balance" style endpoints.
     # - For fal queue we use a "dummy request_id status" probe so we don't enqueue jobs.
-    import os
     import time
 
     providers = providers_payload(STATE.settings, include_disabled=True)["providers"]
@@ -939,9 +938,6 @@ def get_community_audio(job_id: str) -> FileResponse:
 def get_audio_mp3_compat(job_id: str, current_user: UserRecord | None = Depends(_optional_current_user)) -> FileResponse:
     # Backwards-compatible alias (older UI/clients).
     return get_audio(job_id, current_user)
-
-
-from workers import _job_worker_handler
 
 
 if __name__ == "__main__":

@@ -16,7 +16,7 @@ from typing import Any
 from fastapi import Depends, Header
 from fastapi import HTTPException
 
-from auth import extract_bearer_token, hash_password, verify_password, verify_token
+from auth import extract_bearer_token, verify_token
 from shared import build_prompt
 from state import STATE
 from user_store import UserRecord

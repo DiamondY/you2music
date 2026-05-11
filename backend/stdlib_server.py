@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import os
 import random
-import re
 import threading
 import time
 from http import HTTPStatus
@@ -106,7 +105,7 @@ def _validate_generate(payload: dict[str, Any]) -> tuple[str, dict[str, Any]]:
 
     state = globals().get("STATE", None)
     default_provider = getattr(getattr(state, "settings", None), "default_provider", None)
-    effective_provider = str(provider or default_provider or "minimax").strip()
+    str(provider or default_provider or "minimax").strip()  # validate/resolve provider
 
     if not prompt:
         raise ValueError("prompt is required")

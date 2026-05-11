@@ -18,6 +18,8 @@ from providers.minimax import MiniMaxMusicClient
 from providers.acestep import ACEStepClient
 from state import STATE
 
+logger = logging.getLogger(__name__)
+
 
 @asynccontextmanager
 async def _log_api_call(
@@ -236,7 +238,6 @@ async def _run_job(*, job_id: str, prompt: str, params: dict[str, Any]) -> None:
     try:
         STATE.audio_dir.mkdir(parents=True, exist_ok=True)
 
-        duration_ms = int(params["duration_sec"]) * 1000
         vocals = bool(params["vocals"])
         provider_params = params.get("provider_params") or {}
 
