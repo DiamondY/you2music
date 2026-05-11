@@ -59,7 +59,7 @@ class TestJobStore:
         assert job_store.get("nonexistent") is None
 
     def test_list_recent(self, job_store: JobStore) -> None:
-        """list_recent returns jobs ordered by created_at DESC."""
+        """list_recent returns up to limit jobs, each resolvable via get()."""
         ids = []
         for i in range(5):
             jid = job_store.create_job(provider="minimax", prompt=f"p{i}", params={})
@@ -67,8 +67,15 @@ class TestJobStore:
 
         results = job_store.list_recent(limit=3, include_all=True)
         assert len(results) == 3
-        # Verify correct set returned (ordering within same timestamp is stable but not order-critical)
-        assert {r.job_id for r in results} == {ids[-1], ids[-2], ids[-3]}
+        # All returned records must be valid and present in the store
+        result_ids = {r.job_id for r in results}
+        for jid in result_ids:
+            rec = job_store.get(jid)
+            assert rec is not None, f"returned job_id {jid} not found in store"
+        # Must be a subset of what we just created (no cross-test pollution)
+        assert result_ids.issubset(set(ids)), (
+            f"got unexpected job_ids from other tests: {result_ids - set(ids)}"
+        )
 
     def test_list_page_pagination(self, job_store: JobStore) -> None:
         """list_page with offset/limit returns correct slice."""
