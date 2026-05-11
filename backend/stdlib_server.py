@@ -105,7 +105,14 @@ def _validate_generate(payload: dict[str, Any]) -> tuple[str, dict[str, Any]]:
 
     state = globals().get("STATE", None)
     default_provider = getattr(getattr(state, "settings", None), "default_provider", None)
-    str(provider or default_provider or "minimax").strip()  # validate/resolve provider
+    effective_provider = str(provider or default_provider or "minimax").strip()
+    # Validate provider early to keep stdlib mode behavior predictable.
+    allowed = getattr(getattr(state, "settings", None), "enabled_providers", None)
+    if not allowed:
+        allowed = ["minimax", "acestep"]
+    if effective_provider not in set(str(x).strip() for x in allowed if str(x).strip()):
+        raise ValueError(f"unknown provider: {effective_provider}")
+    params["provider"] = effective_provider
 
     if not prompt:
         raise ValueError("prompt is required")

@@ -2,7 +2,6 @@
 
 **小范围内部工具，通过 MiniMax / ACE-Step API 生成音乐，支持歌词/人声切换、延长、多 key 轮询、API 日志审计。**
 
-[![CI](https://github.com/yourusername/you2music/actions/workflows/ci.yml/badge.svg)](https://github.com/yourusername/you2music/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 ---
