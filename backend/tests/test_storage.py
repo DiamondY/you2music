@@ -59,23 +59,27 @@ class TestJobStore:
         assert job_store.get("nonexistent") is None
 
     def test_list_recent(self, job_store: JobStore) -> None:
-        """list_recent returns up to limit jobs, each resolvable via get()."""
-        ids = []
+        """list_recent returns jobs ordered by created_at_ms DESC, job_id ASC."""
+        ids: list[str] = []
         for i in range(5):
             jid = job_store.create_job(provider="minimax", prompt=f"p{i}", params={})
             ids.append(jid)
 
         results = job_store.list_recent(limit=3, include_all=True)
         assert len(results) == 3
-        # All returned records must be valid and present in the store
-        result_ids = {r.job_id for r in results}
-        for jid in result_ids:
+
+        # Build expected ordering based on the store's ordering contract.
+        # This makes the test stable even when multiple rows share the same millisecond timestamp.
+        created: list[tuple[int, str]] = []
+        for jid in ids:
             rec = job_store.get(jid)
-            assert rec is not None, f"returned job_id {jid} not found in store"
-        # Must be a subset of what we just created (no cross-test pollution)
-        assert result_ids.issubset(set(ids)), (
-            f"got unexpected job_ids from other tests: {result_ids - set(ids)}"
-        )
+            assert rec is not None
+            created.append((int(rec.created_at_ms), str(rec.job_id)))
+
+        # storage.JobStore.list_recent uses: ORDER BY created_at_ms DESC, job_id ASC
+        created_sorted = sorted(created, key=lambda x: (-x[0], x[1]))
+        expected_ids = [jid for _, jid in created_sorted[:3]]
+        assert [r.job_id for r in results] == expected_ids
 
     def test_list_page_pagination(self, job_store: JobStore) -> None:
         """list_page with offset/limit returns correct slice."""

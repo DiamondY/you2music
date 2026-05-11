@@ -27,12 +27,16 @@ class TestUserStore:
         c1 = user_store.create_invite_code(created_by=None)
         c2 = user_store.create_invite_code(created_by=1)
         codes = user_store.list_invite_codes()
-        # Verify returned codes are a subset of what this test created (no cross-test pollution)
-        expected_codes = {c1.code, c2.code}
-        returned_codes = {c.code for c in codes}
-        assert returned_codes.issubset(expected_codes), (
-            f"got unexpected codes from other tests: {returned_codes - expected_codes}"
-        )
+        assert len(codes) == 2
+
+        # user_store.list_invite_codes uses: ORDER BY created_at_ms DESC, code DESC
+        created = [(int(c1.created_at_ms), str(c1.code)), (int(c2.created_at_ms), str(c2.code))]
+        # Two-pass stable sort: secondary first, then primary.
+        created_sorted = sorted(created, key=lambda x: x[1], reverse=True)  # code DESC
+        created_sorted = sorted(created_sorted, key=lambda x: x[0], reverse=True)  # created_at_ms DESC
+        expected_codes = [code for _, code in created_sorted]
+
+        assert [c.code for c in codes] == expected_codes
 
     # -- user creation ---------------------------------------------------------
 
