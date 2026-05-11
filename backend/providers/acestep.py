@@ -161,6 +161,8 @@ class ACEStepClient:
             body["time_signature"] = time_signature
         if vocal_language and vocal_language != "auto":
             body["vocal_language"] = vocal_language
+        if instrumental:
+            body["instrumental"] = True
 
         # --- lyrics: top-level field (OpenRouter format) ---
         if lyrics:

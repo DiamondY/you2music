@@ -27,6 +27,9 @@ from shared import (
     generate_random_prompt,
 )
 
+_VOCALS_TAG_WITH = "with vocals, singing (do not be instrumental-only)"
+_VOCALS_TAG_INSTR = "instrumental only (no vocals)"
+
 
 def _read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8")
@@ -292,7 +295,7 @@ class AppState:
 
                 # Extract base_prompt (strip vocals tag and lyrics embedded by build_prompt)
                 acestep_prompt = str(params.get("base_prompt") or prompt).split("\n\nLyrics:\n")[0]
-                for _tag in ("with vocals, singing (do not be instrumental-only)", "instrumental only (no vocals)"):
+                for _tag in (_VOCALS_TAG_WITH, _VOCALS_TAG_INSTR):
                     acestep_prompt = acestep_prompt.replace("\n\n" + _tag, "").replace(_tag, "")
                 acestep_prompt = acestep_prompt.strip()
 
@@ -306,8 +309,11 @@ class AppState:
                         acestep_kwargs[k] = val
 
                 # seed: prefer global params, fallback to provider_params
-                seed_val = params.get("seed") or provider_params.get("seed")
-                if seed_val is not None:
+                seed_val = params.get("seed")
+                if seed_val is None:
+                    seed_val = provider_params.get("seed")
+                if seed_val is not None and seed_val != "":
+                    # allow seed=0, reject empty string
                     acestep_kwargs["seed"] = int(seed_val)
 
                 result = client.generate(
