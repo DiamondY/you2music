@@ -344,6 +344,7 @@ async def _run_job(*, job_id: str, prompt: str, params: dict[str, Any]) -> None:
             if audio_duration is None:
                 audio_duration = float(params["duration_sec"])
             audio_format = str(provider_params.get("audio_format") or "mp3")
+            instrumental = not vocals
 
             # Extract base_prompt (strip vocals tag and lyrics embedded by build_prompt)
             acestep_prompt = str(params.get("base_prompt") or prompt).split("\n\nLyrics:\n")[0]
@@ -365,14 +366,37 @@ async def _run_job(*, job_id: str, prompt: str, params: dict[str, Any]) -> None:
             if seed_val is not None:
                 acestep_kwargs["seed"] = int(seed_val)
 
-            # Build log body
+            # Build log body (audio_config + dual-write flat params)
             log_body: dict[str, Any] = {
                 "model": model,
                 "messages": [{"role": "user", "content": acestep_prompt}],
             }
             if lyrics:
                 log_body["lyrics"] = str(lyrics).strip()
-            log_body.update(acestep_kwargs)
+            log_audio_config: dict[str, Any] = {}
+            if audio_duration is not None:
+                log_audio_config["duration"] = int(audio_duration)
+            if audio_format:
+                log_audio_config["format"] = audio_format
+            if instrumental:
+                log_audio_config["instrumental"] = True
+            for k in ("bpm", "key_scale", "time_signature", "vocal_language"):
+                val = acestep_kwargs.get(k)
+                if val is not None:
+                    log_audio_config[k] = val
+            if log_audio_config:
+                log_body["audio_config"] = log_audio_config
+            # Dual-write flat params in log
+            if audio_duration is not None:
+                log_body["duration"] = int(audio_duration)
+            if audio_format:
+                log_body["audio_format"] = audio_format
+            for k in ("bpm", "key_scale", "time_signature", "vocal_language",
+                       "thinking", "use_format", "inference_steps", "guidance_scale",
+                       "seed", "shift", "infer_method", "timesteps"):
+                val = acestep_kwargs.get(k)
+                if val is not None:
+                    log_body[k] = val
             req_body = json.dumps(log_body, ensure_ascii=False)
 
             async with _log_api_call(
@@ -389,6 +413,7 @@ async def _run_job(*, job_id: str, prompt: str, params: dict[str, Any]) -> None:
                         model=model,
                         audio_duration=audio_duration,
                         audio_format=audio_format,
+                        instrumental=instrumental,
                         **acestep_kwargs,
                     )
                     log_info["http_status"] = 200

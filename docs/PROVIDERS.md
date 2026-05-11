@@ -142,6 +142,7 @@ ACE-Step 1.5 开源音乐生成模型，通过 acemusic.ai 云服务调用，质
 | `bpm` | 节拍速度（30-300）| 自动推断 |
 | `key_scale` | 调性（如 C Major, Am）| 自动推断 |
 | `time_signature` | 拍号（2/4, 3/4, 4/4, 6/8）| 自动推断 |
+| `instrumental` | 纯音乐模式（无人声）| `false` |
 | `thinking` | 思考模式（5Hz LM 增强质量）| `false` |
 | `use_format` | 格式增强（LM 优化描述和歌词）| `false` |
 
@@ -156,8 +157,9 @@ ACE-Step 1.5 开源音乐生成模型，通过 acemusic.ai 云服务调用，质
 | `infer_method` | 推理方法（ode=确定性, sde=随机）| `ode` |
 | `timesteps` | 自定义时间步（逗号分隔）| 自动 |
 
-> **参数传递机制**: 这些参数通过 acemusic.ai 云服务的 OpenAI 兼容 API 透传给后端 ACE-Step 模型。
-> 云服务网关接收 `/v1/chat/completions` 请求后，内部转换为 ACE-Step 原生 API 调用。
+> **参数传递机制**: 音乐属性参数（duration/bpm/format/vocal_language/key_scale/time_signature/instrumental）通过 `audio_config` 嵌套对象传递，符合 OpenRouter API 规范。同时以顶层平铺参数双写，确保向后兼容。歌词通过 `lyrics` 顶层字段独立传递（同时保留在 `messages.content` 中）。
+
+> **instrumental 说明**: 关闭人声（UI 中 vocals=false）时自动启用 `instrumental=true`，此时不生成人声轨道。
 
 > **seed 说明**: 前端全局 seed 输入框的值会传递给 ACE-Step API。设置相同 seed 可获得更一致的结果。
 
@@ -235,4 +237,4 @@ export AI_MUSIC_PROVIDER_DEFAULT="acestep"
 
 ---
 
-*最后更新: 2026-04-27*
+*最后更新: 2026-05-11*
