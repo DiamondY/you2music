@@ -189,7 +189,7 @@ class UserStore:
                 rows = conn.execute(
                     """
                     SELECT id, username, password_hash, role, avatar_path, daily_quota, disabled, must_change_password, created_at_ms
-                    FROM users ORDER BY created_at_ms DESC
+                    FROM users ORDER BY created_at_ms DESC, id DESC
                     """
                 ).fetchall()
         return [u for u in (_row_to_user(row) for row in rows) if u is not None]
@@ -282,7 +282,7 @@ class UserStore:
                 rows = conn.execute(
                     """
                     SELECT code, created_by, used_by, used_at_ms, created_at_ms
-                    FROM invite_codes ORDER BY created_at_ms DESC
+                    FROM invite_codes ORDER BY created_at_ms DESC, code DESC
                     """
                 ).fetchall()
         return [_row_to_invite(row) for row in rows]
