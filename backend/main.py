@@ -126,6 +126,20 @@ app = FastAPI(title="you2music", version="0.1.0", lifespan=_lifespan)
 static_dir = Path(__file__).resolve().parent / "static"
 app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
+def _normalize_provider_alias(provider_name: str) -> str:
+    """
+    Normalize legacy / frontend-hardcoded provider names to a real provider.
+
+    The server currently supports only providers that exist in `STATE.provider_queues`
+    (configured in app_state.py). Historically some UI flows referenced "elevenlabs"
+    as a provider, but we don't ship an ElevenLabs worker. Mapping keeps the API
+    resilient and avoids creating jobs that will never run.
+    """
+    p = (provider_name or "").strip()
+    if p == "elevenlabs":
+        return "acestep"
+    return p or "minimax"
+
 
 @app.get("/", response_class=HTMLResponse)
 def index() -> HTMLResponse:
@@ -635,9 +649,9 @@ def admin_delete_job(
 
 @app.post("/api/generate")
 async def generate(req: GenerateRequest, current_user: UserRecord = Depends(get_current_user)) -> dict[str, Any]:
-    provider_name = _resolve_provider(req.provider)
+    provider_name = _normalize_provider_alias(_resolve_provider(req.provider))
     if provider_name not in ("minimax", "acestep"):
-        raise HTTPException(status_code=400, detail=f"unknown provider: {provider_name}")
+        raise HTTPException(status_code=400, detail=f"不支持的 provider: {provider_name}")
 
     provider_params = req.provider_params or {}
     # Never accept base64 audio blobs in provider_params; they would be persisted
@@ -647,7 +661,7 @@ async def generate(req: GenerateRequest, current_user: UserRecord = Depends(get_
             raise HTTPException(status_code=400, detail="请先上传音频文件（不要直接传 base64）")
     base_prompt = (req.prompt or "").strip()
     if not base_prompt:
-        raise HTTPException(status_code=400, detail="prompt is required")
+        raise HTTPException(status_code=400, detail="请填写歌曲描述（prompt）")
 
     params: dict[str, Any] = {
         "base_prompt": req.prompt,
@@ -695,9 +709,9 @@ async def generate(req: GenerateRequest, current_user: UserRecord = Depends(get_
 
 @app.post("/api/generate_many")
 async def generate_many(req: GenerateManyRequest, current_user: UserRecord = Depends(get_current_user)) -> dict[str, Any]:
-    provider_name = _resolve_provider(req.provider)
+    provider_name = _normalize_provider_alias(_resolve_provider(req.provider))
     if provider_name not in ("minimax", "acestep"):
-        raise HTTPException(status_code=400, detail=f"unknown provider: {provider_name}")
+        raise HTTPException(status_code=400, detail=f"不支持的 provider: {provider_name}")
 
     provider_params = req.provider_params or {}
     for k in ("src_audio_b64", "reference_audio_b64"):
@@ -777,9 +791,9 @@ async def extend(req: ExtendRequest, current_user: UserRecord = Depends(get_curr
     new_params = dict(parent_params)
     new_params["duration_sec"] = new_duration
     if req.provider:
-        new_provider = _resolve_provider(req.provider)
+        new_provider = _normalize_provider_alias(_resolve_provider(req.provider))
         if new_provider not in ("minimax", "acestep"):
-            raise HTTPException(status_code=400, detail=f"unknown provider: {new_provider}")
+            raise HTTPException(status_code=400, detail=f"不支持的 provider: {new_provider}")
         new_params["provider"] = new_provider
     if req.provider_params:
         new_params["provider_params"] = req.provider_params
@@ -814,11 +828,15 @@ async def extend(req: ExtendRequest, current_user: UserRecord = Depends(get_curr
 
 @app.post("/api/generate_store")
 async def generate_store(req: GenerateRequest, current_user: UserRecord = Depends(get_current_user)) -> dict[str, Any]:
-    """Generate and store a song for later inpainting (ElevenLabs Music API style)."""
-    provider_name = _resolve_provider(req.provider)
-    # Allow elevenlabs for store endpoint (frontend hardcodes it for this flow)
-    if provider_name not in ("minimax", "acestep", "elevenlabs"):
-        raise HTTPException(status_code=400, detail=f"unknown provider: {provider_name}")
+    """
+    Generate and store a song for later editing.
+
+    Note: The current backend does not implement real "inpainting" or stem separation.
+    This endpoint mainly exists to support frontend flows that want a "stored" result.
+    """
+    provider_name = _normalize_provider_alias(_resolve_provider(req.provider))
+    if provider_name not in ("minimax", "acestep"):
+        raise HTTPException(status_code=400, detail=f"不支持的 provider: {provider_name}")
 
     provider_params = req.provider_params or {}
     for k in ("src_audio_b64", "reference_audio_b64"):
@@ -826,10 +844,10 @@ async def generate_store(req: GenerateRequest, current_user: UserRecord = Depend
             raise HTTPException(status_code=400, detail="请先上传音频文件（不要直接传 base64）")
     base_prompt = (req.prompt or "").strip()
     if not base_prompt:
-        raise HTTPException(status_code=400, detail="prompt is required")
+        raise HTTPException(status_code=400, detail="请填写歌曲描述（prompt）")
 
     params: dict[str, Any] = {
-        "base_prompt": req.prompt,
+        "base_prompt": base_prompt,
         "duration_sec": req.duration_sec,
         "vocals": req.vocals,
         "seed": req.seed,
@@ -869,61 +887,20 @@ async def generate_store(req: GenerateRequest, current_user: UserRecord = Depend
     )
 
     # Submit to provider queue (job starts in "queued" status, worker picks it up)
-    # NOTE: elevenlabs jobs will fail in the worker unless worker support is added.
-    if provider_name in STATE.provider_queues:
-        await STATE.provider_queues[provider_name].submit(job_id)
+    await STATE.provider_queues[provider_name].submit(job_id)
     return {"job_id": job_id, "quota": quota}
 
 
 @app.post("/api/inpaint")
 async def inpaint(req: InpaintRequest, current_user: UserRecord = Depends(get_current_user)) -> dict[str, Any]:
-    """Inpaint a stored song using a composition plan (ElevenLabs Music API style)."""
-    source = STATE.store.get(req.source_job_id)
-    if not source:
-        raise HTTPException(status_code=404, detail="source job not found")
-    if not (_is_admin(current_user) or source.user_id == current_user.id):
-        raise HTTPException(status_code=403, detail="job is private")
-    if source.status != "succeeded":
-        raise HTTPException(status_code=409, detail="source job not ready")
+    """
+    Inpaint a stored song using a composition plan.
 
-    try:
-        parent_params = json.loads(source.params_json)
-    except Exception:
-        parent_params = {}
-
-    provider_name = str(parent_params.get("provider") or source.provider or "elevenlabs")
-    if provider_name not in ("minimax", "acestep", "elevenlabs"):
-        raise HTTPException(status_code=400, detail=f"unknown provider: {provider_name}")
-
-    new_params = dict(parent_params)
-    new_params["inpaint_composition_plan"] = req.composition_plan
-    new_params["source_job_id"] = req.source_job_id
-
-    try:
-        quota = STATE.user_store.consume_quota(user_id=current_user.id, amount=1, daily_quota=current_user.daily_quota)
-    except ValueError as e:
-        msg = str(e)
-        if msg == "daily quota exhausted":
-            msg = "今日配额已用完"
-        raise HTTPException(status_code=429, detail=msg) from e
-
-    job_id = STATE.store.create_job(
-        provider=provider_name,
-        prompt=source.prompt,
-        params=new_params,
-        kind="inpaint",
-        parent_job_id=source.job_id,
-        user_id=current_user.id,
-    )
-
-    await STATE.event_hub.publish(
-        int(current_user.id),
-        {"type": "job_created", "job_id": job_id, "status": "queued", "provider": provider_name},
-    )
-
-    if provider_name in STATE.provider_queues:
-        await STATE.provider_queues[provider_name].submit(job_id)
-    return {"job_id": job_id, "quota": quota}
+    Not implemented in this backend yet. We keep the endpoint shape reserved to
+    avoid breaking newer frontends, but return 501 so callers can handle it
+    explicitly instead of queuing a job that will never apply the plan.
+    """
+    raise HTTPException(status_code=501, detail="当前后端暂不支持 Inpaint（待实现 composition_plan 对齐）")
 
 
 @app.get("/api/stems/{job_id}")
