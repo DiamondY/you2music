@@ -59,6 +59,7 @@ class GenerateRequest(BaseModel):
     model_id: str | None = Field(default=None, max_length=128)
     provider: str | None = Field(default=None, max_length=64)
     provider_params: dict[str, Any] | None = Field(default=None)
+    store_for_inpainting: bool = False
 
 
 class GenerateManyRequest(GenerateRequest):
@@ -97,6 +98,11 @@ class AdminUserUpdateRequest(BaseModel):
     daily_quota: int | None = Field(default=None, ge=0, le=100000)
     disabled: bool | None = None
     reset_password: str | None = Field(default=None, min_length=6, max_length=72)
+
+
+class InpaintRequest(BaseModel):
+    source_job_id: str = Field(min_length=1, max_length=64)
+    composition_plan: dict[str, Any] = Field(default_factory=dict)
 
 
 class PublishRequest(BaseModel):
@@ -804,6 +810,144 @@ async def extend(req: ExtendRequest, current_user: UserRecord = Depends(get_curr
     )
     await STATE.provider_queues[provider_name].submit(job_id)
     return {"job_id": job_id, "parent_job_id": parent.job_id, "quota": quota}
+
+
+@app.post("/api/generate_store")
+async def generate_store(req: GenerateRequest, current_user: UserRecord = Depends(get_current_user)) -> dict[str, Any]:
+    """Generate and store a song for later inpainting (ElevenLabs Music API style)."""
+    provider_name = _resolve_provider(req.provider)
+    # Allow elevenlabs for store endpoint (frontend hardcodes it for this flow)
+    if provider_name not in ("minimax", "acestep", "elevenlabs"):
+        raise HTTPException(status_code=400, detail=f"unknown provider: {provider_name}")
+
+    provider_params = req.provider_params or {}
+    for k in ("src_audio_b64", "reference_audio_b64"):
+        if provider_params.get(k):
+            raise HTTPException(status_code=400, detail="请先上传音频文件（不要直接传 base64）")
+    base_prompt = (req.prompt or "").strip()
+    if not base_prompt:
+        raise HTTPException(status_code=400, detail="prompt is required")
+
+    params: dict[str, Any] = {
+        "base_prompt": req.prompt,
+        "duration_sec": req.duration_sec,
+        "vocals": req.vocals,
+        "seed": req.seed,
+        "model_id": req.model_id,
+        "output_format": _resolve_output_format(provider_params),
+        "provider": provider_name,
+        "provider_params": provider_params,
+        "lyrics": req.lyrics,
+        "store_for_inpainting": True,
+    }
+
+    prompt = _apply_provider_prompt_options(
+        base_prompt=base_prompt,
+        lyrics=req.lyrics,
+        vocals=req.vocals,
+        provider_params=provider_params,
+    )
+    try:
+        quota = STATE.user_store.consume_quota(user_id=current_user.id, amount=1, daily_quota=current_user.daily_quota)
+    except ValueError as e:
+        msg = str(e)
+        if msg == "daily quota exhausted":
+            msg = "今日配额已用完"
+        raise HTTPException(status_code=429, detail=msg) from e
+
+    job_id = STATE.store.create_job(
+        provider=provider_name,
+        prompt=prompt,
+        params=params,
+        kind="store",
+        user_id=current_user.id,
+    )
+
+    await STATE.event_hub.publish(
+        int(current_user.id),
+        {"type": "job_created", "job_id": job_id, "status": "queued", "provider": provider_name},
+    )
+
+    # Submit to provider queue (job starts in "queued" status, worker picks it up)
+    # NOTE: elevenlabs jobs will fail in the worker unless worker support is added.
+    if provider_name in STATE.provider_queues:
+        await STATE.provider_queues[provider_name].submit(job_id)
+    return {"job_id": job_id, "quota": quota}
+
+
+@app.post("/api/inpaint")
+async def inpaint(req: InpaintRequest, current_user: UserRecord = Depends(get_current_user)) -> dict[str, Any]:
+    """Inpaint a stored song using a composition plan (ElevenLabs Music API style)."""
+    source = STATE.store.get(req.source_job_id)
+    if not source:
+        raise HTTPException(status_code=404, detail="source job not found")
+    if not (_is_admin(current_user) or source.user_id == current_user.id):
+        raise HTTPException(status_code=403, detail="job is private")
+    if source.status != "succeeded":
+        raise HTTPException(status_code=409, detail="source job not ready")
+
+    try:
+        parent_params = json.loads(source.params_json)
+    except Exception:
+        parent_params = {}
+
+    provider_name = str(parent_params.get("provider") or source.provider or "elevenlabs")
+    if provider_name not in ("minimax", "acestep", "elevenlabs"):
+        raise HTTPException(status_code=400, detail=f"unknown provider: {provider_name}")
+
+    new_params = dict(parent_params)
+    new_params["inpaint_composition_plan"] = req.composition_plan
+    new_params["source_job_id"] = req.source_job_id
+
+    try:
+        quota = STATE.user_store.consume_quota(user_id=current_user.id, amount=1, daily_quota=current_user.daily_quota)
+    except ValueError as e:
+        msg = str(e)
+        if msg == "daily quota exhausted":
+            msg = "今日配额已用完"
+        raise HTTPException(status_code=429, detail=msg) from e
+
+    job_id = STATE.store.create_job(
+        provider=provider_name,
+        prompt=source.prompt,
+        params=new_params,
+        kind="inpaint",
+        parent_job_id=source.job_id,
+        user_id=current_user.id,
+    )
+
+    await STATE.event_hub.publish(
+        int(current_user.id),
+        {"type": "job_created", "job_id": job_id, "status": "queued", "provider": provider_name},
+    )
+
+    if provider_name in STATE.provider_queues:
+        await STATE.provider_queues[provider_name].submit(job_id)
+    return {"job_id": job_id, "quota": quota}
+
+
+@app.get("/api/stems/{job_id}")
+def get_stems(job_id: str, current_user: UserRecord = Depends(get_current_user)) -> dict[str, Any]:
+    """Return stem separation URLs for a completed job (vocals + instrumental).
+
+    Currently returns the same audio file for both tracks unless actual stem
+    separation is implemented by the provider worker.
+    """
+    rec = STATE.store.get(job_id)
+    if not rec:
+        raise HTTPException(status_code=404, detail="job not found")
+    if not (_is_admin(current_user) or rec.user_id == current_user.id):
+        raise HTTPException(status_code=403, detail="job is private")
+    if rec.status != "succeeded":
+        raise HTTPException(status_code=409, detail="job not ready")
+
+    audio_url = f"/api/audio/{rec.job_id}"
+    # Return the same audio for both until real stem separation is wired up.
+    return {
+        "vocals_url": audio_url,
+        "instrumental_url": audio_url,
+        "song_id": rec.song_id,
+    }
 
 
 @app.get("/api/jobs/recent")

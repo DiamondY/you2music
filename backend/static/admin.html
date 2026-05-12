@@ -4,53 +4,44 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>you2music - 管理后台</title>
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'><stop offset='0%25' stop-color='%236366F1'/><stop offset='100%25' stop-color='%238B5CF6'/></linearGradient></defs><rect width='100' height='100' rx='20' fill='url(%23g)'/><path d='M38 28v34a12 12 0 1 1-6-10.4V22l30-6v40a12 12 0 1 1-6-10.4V22z' fill='white' opacity='0.95'/></svg>" type="image/svg+xml" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Righteous&display=swap" rel="stylesheet">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><defs><linearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'><stop offset='0%25' stop-color='%23F59E0B'/><stop offset='100%25' stop-color='%23F97316'/></linearGradient></defs><rect width='100' height='100' rx='20' fill='url(%23g)'/><path d='M30 30v40M42 20v60M54 35v30M66 25v50M78 40v20' stroke='white' stroke-width='6' stroke-linecap='round'/></svg>" type="image/svg+xml" />
     <style>
       /* ========================================
          CSS Variables - Design System
          ======================================== */
       :root {
-        --color-bg-primary: #F5F5FA;
-        --color-bg-card: #FFFFFF;
-        --color-bg-hover: #F0F0F8;
-        --color-bg-subtle: rgba(99, 102, 241, 0.05);
-        --color-bg-surface: #F3F4F6;
-        --color-primary: #6366F1;
-        --color-primary-dark: #4F46E5;
-        --color-secondary: #8B5CF6;
-        --color-success: #10B981;
-        --color-warning: #F59E0B;
+        --color-bg-primary: #1A1A2E;
+        --color-bg-secondary: #16213E;
+        --color-bg-card: rgba(30,30,50,0.85);
+        --color-bg-card-solid: #252542;
+        --color-bg-hover: rgba(255,255,255,0.06);
+        --color-bg-surface: rgba(255,255,255,0.04);
+        --color-accent: #F59E0B;
+        --color-accent-dark: #D97706;
+        --color-accent-light: #FBBF24;
+        --color-accent-orange: #F97316;
+        --color-accent-glow: rgba(245,158,11,0.3);
+        --color-text-primary: #F8FAFC;
+        --color-text-secondary: #94A3B8;
+        --color-text-muted: #64748B;
+        --color-success: #22C55E;
         --color-error: #EF4444;
-        --color-text-primary: #1F2937;
-        --color-text-secondary: #6B7280;
-        --color-text-muted: #9CA3AF;
-        --color-border: #E5E7EB;
-        --color-border-hover: #D1D5DB;
-
-        --color-primary-a05: rgba(99, 102, 241, 0.05);
-        --color-primary-a10: rgba(99, 102, 241, 0.1);
-        --color-primary-a15: rgba(99, 102, 241, 0.15);
-        --color-primary-a20: rgba(99, 102, 241, 0.2);
-        --color-primary-a30: rgba(99, 102, 241, 0.3);
-        --color-error-a05: rgba(239, 68, 68, 0.05);
-        --color-error-a10: rgba(239, 68, 68, 0.1);
-        --color-error-a30: rgba(239, 68, 68, 0.3);
-        --color-success-a05: rgba(16, 185, 129, 0.05);
-        --color-success-a10: rgba(16, 185, 129, 0.1);
-        --color-success-a20: rgba(16, 185, 129, 0.2);
-        --color-warning-a10: rgba(245, 158, 11, 0.1);
-        --color-warning-a20: rgba(245, 158, 11, 0.2);
-
-        --focus-ring: 0 0 0 3px rgba(99, 102, 241, 0.1);
-        --radius-sm: 4px;
-        --radius-md: 8px;
-        --radius-lg: 12px;
-        --radius-xl: 20px;
-        --shadow-card: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
-        --shadow-card-hover: 0 4px 6px rgba(0,0,0,0.07), 0 2px 4px rgba(0,0,0,0.04);
-        --shadow-elevated: 0 10px 25px rgba(0,0,0,0.1);
-        --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans SC", sans-serif;
-        --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        --color-warning: #F59E0B;
+        --color-border: rgba(255,255,255,0.08);
+        --color-border-hover: rgba(255,255,255,0.15);
+        --glass-bg: rgba(30,30,50,0.7);
+        --glass-border: rgba(255,255,255,0.1);
+        --glass-blur: blur(12px);
+        --glass-shadow: 0 8px 32px rgba(0,0,0,0.4);
+        --shadow-card: 0 4px 24px rgba(0,0,0,0.3);
+        --shadow-glow: 0 0 20px var(--color-accent-glow);
+        --radius-sm: 8px;
+        --radius-md: 12px;
+        --radius-lg: 16px;
+        --radius-xl: 24px;
         --space-xs: 4px;
         --space-sm: 8px;
         --space-md: 16px;
@@ -58,84 +49,10 @@
         --space-xl: 32px;
         --transition-fast: 0.15s ease;
         --transition-normal: 0.2s ease;
+        --font-display: 'Righteous', cursive;
+        --font-body: 'Poppins', sans-serif;
+        --font-mono: ui-monospace, SFMono-Regular, monospace;
         --sidebar-width: 220px;
-      }
-
-      /* ========================================
-         Dark Theme
-         ======================================== */
-      [data-theme="dark"] {
-        --color-bg-primary: #0F0F23;
-        --color-bg-card: #1A1A2E;
-        --color-bg-hover: #252540;
-        --color-bg-subtle: rgba(129, 140, 248, 0.08);
-        --color-bg-surface: #252540;
-        --color-primary: #818CF8;
-        --color-primary-dark: #6366F1;
-        --color-secondary: #A78BFA;
-        --color-success: #22C55E;
-        --color-warning: #FBBF24;
-        --color-error: #F87171;
-        --color-text-primary: #F8FAFC;
-        --color-text-secondary: #94A3B8;
-        --color-text-muted: #64748B;
-        --color-border: rgba(255,255,255,0.08);
-        --color-border-hover: rgba(255,255,255,0.15);
-        --shadow-card: 0 1px 3px rgba(0,0,0,0.3);
-        --shadow-card-hover: 0 4px 12px rgba(0,0,0,0.4);
-        --shadow-elevated: 0 10px 25px rgba(0,0,0,0.5);
-        --color-primary-a05: rgba(129, 140, 248, 0.05);
-        --color-primary-a10: rgba(129, 140, 248, 0.1);
-        --color-primary-a15: rgba(129, 140, 248, 0.15);
-        --color-primary-a20: rgba(129, 140, 248, 0.2);
-        --color-primary-a30: rgba(129, 140, 248, 0.3);
-        --color-error-a05: rgba(248, 113, 113, 0.05);
-        --color-error-a10: rgba(248, 113, 113, 0.1);
-        --color-error-a30: rgba(248, 113, 113, 0.3);
-        --color-success-a05: rgba(34, 197, 94, 0.05);
-        --color-success-a10: rgba(34, 197, 94, 0.1);
-        --color-success-a20: rgba(34, 197, 94, 0.2);
-        --color-warning-a10: rgba(251, 191, 36, 0.1);
-        --color-warning-a20: rgba(251, 191, 36, 0.2);
-        --focus-ring: 0 0 0 3px rgba(129, 140, 248, 0.2);
-      }
-
-      @media (prefers-color-scheme: dark) {
-        :root:not([data-theme]) {
-          --color-bg-primary: #0F0F23;
-          --color-bg-card: #1A1A2E;
-          --color-bg-hover: #252540;
-          --color-bg-subtle: rgba(129, 140, 248, 0.08);
-          --color-bg-surface: #252540;
-          --color-primary: #818CF8;
-          --color-primary-dark: #6366F1;
-          --color-secondary: #A78BFA;
-          --color-success: #22C55E;
-          --color-warning: #FBBF24;
-          --color-error: #F87171;
-          --color-text-primary: #F8FAFC;
-          --color-text-secondary: #94A3B8;
-          --color-text-muted: #64748B;
-          --color-border: rgba(255,255,255,0.08);
-          --color-border-hover: rgba(255,255,255,0.15);
-          --shadow-card: 0 1px 3px rgba(0,0,0,0.3);
-          --shadow-card-hover: 0 4px 12px rgba(0,0,0,0.4);
-          --shadow-elevated: 0 10px 25px rgba(0,0,0,0.5);
-          --color-primary-a05: rgba(129, 140, 248, 0.05);
-          --color-primary-a10: rgba(129, 140, 248, 0.1);
-          --color-primary-a15: rgba(129, 140, 248, 0.15);
-          --color-primary-a20: rgba(129, 140, 248, 0.2);
-          --color-primary-a30: rgba(129, 140, 248, 0.3);
-          --color-error-a05: rgba(248, 113, 113, 0.05);
-          --color-error-a10: rgba(248, 113, 113, 0.1);
-          --color-error-a30: rgba(248, 113, 113, 0.3);
-          --color-success-a05: rgba(34, 197, 94, 0.05);
-          --color-success-a10: rgba(34, 197, 94, 0.1);
-          --color-success-a20: rgba(34, 197, 94, 0.2);
-          --color-warning-a10: rgba(251, 191, 36, 0.1);
-          --color-warning-a20: rgba(251, 191, 36, 0.2);
-          --focus-ring: 0 0 0 3px rgba(129, 140, 248, 0.2);
-        }
       }
 
       @media (prefers-reduced-motion: reduce) {
@@ -169,16 +86,15 @@
       * { box-sizing: border-box; margin: 0; padding: 0; }
 
       body {
-        font-family: var(--font-sans);
+        font-family: var(--font-body);
         font-size: 14px;
         line-height: 1.5;
         color: var(--color-text-primary);
         background: var(--color-bg-primary);
         min-height: 100vh;
-        transition: background-color 0.3s ease, color 0.3s ease;
       }
 
-      a { color: var(--color-primary); text-decoration: none; }
+      a { color: var(--color-accent); text-decoration: none; }
       a:hover { text-decoration: underline; }
 
       /* ========================================
@@ -191,8 +107,10 @@
 
       .admin-sidebar {
         width: var(--sidebar-width);
-        background: var(--color-bg-card);
-        border-right: 1px solid var(--color-border);
+        background: var(--glass-bg);
+        backdrop-filter: var(--glass-blur);
+        -webkit-backdrop-filter: var(--glass-blur);
+        border-right: 1px solid var(--glass-border);
         padding: var(--space-lg) 0;
         display: flex;
         flex-direction: column;
@@ -201,25 +119,35 @@
         left: 0;
         bottom: 0;
         z-index: 10;
-        transition: transform 0.3s ease, background-color 0.3s ease;
+        transition: transform 0.3s ease;
       }
 
       .sidebar-brand {
         padding: 0 var(--space-lg);
         margin-bottom: var(--space-xl);
+        display: flex;
+        align-items: center;
+        gap: var(--space-sm);
+      }
+
+      .sidebar-brand-icon {
+        width: 32px;
+        height: 32px;
+        flex-shrink: 0;
       }
 
       .sidebar-brand-title {
-        font-size: 18px;
-        font-weight: 700;
-        background: linear-gradient(135deg, var(--color-primary), var(--color-secondary));
+        font-family: var(--font-display);
+        font-size: 20px;
+        font-weight: 400;
+        background: linear-gradient(135deg, var(--color-accent), var(--color-accent-orange));
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
         background-clip: text;
       }
 
       .sidebar-brand-sub {
-        font-size: 12px;
+        font-size: 11px;
         color: var(--color-text-muted);
         margin-top: 2px;
       }
@@ -245,6 +173,8 @@
         width: 100%;
         text-align: left;
         font-family: inherit;
+        border-left: 3px solid transparent;
+        margin: 2px 0;
       }
 
       .nav-item:hover {
@@ -253,8 +183,9 @@
       }
 
       .nav-item.active {
-        background: var(--color-primary-a10);
-        color: var(--color-primary);
+        background: rgba(245,158,11,0.12);
+        color: var(--color-accent);
+        border-left-color: var(--color-accent);
       }
 
       .nav-item .icon { width: 18px; height: 18px; }
@@ -278,16 +209,16 @@
       }
 
       .sidebar-avatar {
-        width: 32px;
-        height: 32px;
+        width: 36px;
+        height: 36px;
         border-radius: 50%;
-        background: linear-gradient(135deg, var(--color-primary), var(--color-secondary));
+        background: linear-gradient(135deg, var(--color-accent), var(--color-accent-orange));
         display: flex;
         align-items: center;
         justify-content: center;
-        color: white;
-        font-size: 14px;
-        font-weight: 600;
+        color: #1A1A2E;
+        font-size: 16px;
+        font-weight: 700;
         flex-shrink: 0;
       }
 
@@ -319,13 +250,15 @@
         width: 40px;
         height: 40px;
         border-radius: var(--radius-md);
-        background: var(--color-bg-card);
-        border: 1px solid var(--color-border);
+        background: var(--glass-bg);
+        backdrop-filter: var(--glass-blur);
+        -webkit-backdrop-filter: var(--glass-blur);
+        border: 1px solid var(--glass-border);
         cursor: pointer;
         align-items: center;
         justify-content: center;
         color: var(--color-text-primary);
-        box-shadow: var(--shadow-card);
+        box-shadow: var(--glass-shadow);
       }
 
       .sidebar-toggle .icon { width: 20px; height: 20px; }
@@ -334,7 +267,7 @@
         display: none;
         position: fixed;
         inset: 0;
-        background: rgba(0,0,0,0.4);
+        background: rgba(0,0,0,0.6);
         z-index: 9;
       }
 
@@ -364,7 +297,7 @@
       }
 
       .page-title .icon {
-        color: var(--color-primary);
+        color: var(--color-accent);
         width: 24px;
         height: 24px;
       }
@@ -380,11 +313,13 @@
          ======================================== */
       .card {
         background: var(--color-bg-card);
+        backdrop-filter: var(--glass-blur);
+        -webkit-backdrop-filter: var(--glass-blur);
+        border: 1px solid var(--glass-border);
         border-radius: var(--radius-lg);
         box-shadow: var(--shadow-card);
         padding: var(--space-lg);
         margin-bottom: var(--space-lg);
-        transition: box-shadow var(--transition-normal), background-color 0.3s ease;
       }
 
       .card-header {
@@ -409,7 +344,7 @@
       }
 
       .card-title .icon {
-        color: var(--color-primary);
+        color: var(--color-accent);
         width: 20px;
         height: 20px;
       }
@@ -443,14 +378,15 @@
       }
 
       .btn-primary {
-        background: linear-gradient(135deg, var(--color-primary), var(--color-secondary));
-        color: white;
-        box-shadow: 0 2px 4px var(--color-primary-a30);
+        background: linear-gradient(135deg, var(--color-accent), var(--color-accent-orange));
+        color: #1A1A2E;
+        font-weight: 600;
+        box-shadow: 0 2px 8px var(--color-accent-glow);
       }
 
       .btn-primary:hover {
         transform: translateY(-1px);
-        box-shadow: 0 4px 8px var(--color-primary-a30);
+        box-shadow: 0 4px 16px var(--color-accent-glow);
       }
 
       .btn-primary:active:not(:disabled) {
@@ -464,18 +400,18 @@
       }
 
       .btn-secondary:hover {
-        background: var(--color-border);
+        background: var(--color-bg-hover);
         border-color: var(--color-border-hover);
       }
 
       .btn-outline {
         background: transparent;
-        color: var(--color-primary);
-        border: 1px solid var(--color-primary);
+        color: var(--color-accent);
+        border: 1px solid var(--color-accent);
       }
 
       .btn-outline:hover {
-        background: var(--color-primary-a10);
+        background: rgba(245,158,11,0.1);
       }
 
       .btn-danger {
@@ -485,17 +421,17 @@
       }
 
       .btn-danger:hover {
-        background: var(--color-error-a10);
+        background: rgba(239,68,68,0.1);
       }
 
       .btn-warning {
-        color: #d97706;
-        border: 1px solid #d97706;
+        color: var(--color-accent);
+        border: 1px solid var(--color-accent-dark);
         background: transparent;
       }
 
       .btn-warning:hover {
-        background: rgba(217, 119, 6, 0.1);
+        background: rgba(245,158,11,0.1);
       }
 
       .btn-ghost {
@@ -547,8 +483,8 @@
       textarea:focus,
       select:focus {
         outline: none;
-        border-color: var(--color-primary);
-        box-shadow: var(--focus-ring);
+        border-color: var(--color-accent);
+        box-shadow: 0 0 0 3px var(--color-accent-glow);
       }
 
       input::placeholder,
@@ -570,7 +506,7 @@
         width: 16px;
         height: 16px;
         cursor: pointer;
-        accent-color: var(--color-primary);
+        accent-color: var(--color-accent);
       }
 
       .form-row {
@@ -615,7 +551,7 @@
         font-weight: 600;
         text-transform: uppercase;
         letter-spacing: 0.04em;
-        color: var(--color-text-muted);
+        color: var(--color-accent);
         padding: var(--space-sm) var(--space-md);
         text-align: left;
         border-bottom: 1px solid var(--color-border);
@@ -633,7 +569,7 @@
       }
 
       tbody tr:hover {
-        background: var(--color-bg-subtle);
+        background: var(--color-bg-hover);
       }
 
       tbody tr:last-child td {
@@ -648,6 +584,10 @@
         font-size: 13px;
         width: auto;
         max-width: 120px;
+        background: var(--color-bg-surface);
+        border: 1px solid var(--color-border);
+        color: var(--color-text-primary);
+        border-radius: var(--radius-sm);
       }
 
       td input[type="number"] {
@@ -681,19 +621,19 @@
       }
 
       .badge-admin {
-        background: var(--color-primary-a10);
-        color: var(--color-primary);
+        background: rgba(245,158,11,0.15);
+        color: var(--color-accent);
       }
 
-            .badge-user {
+      .badge-user {
         background: var(--color-bg-surface);
         color: var(--color-text-secondary);
       }
 
-      .badge-queued { background: var(--color-warning-a10); color: var(--color-warning); }
-      .badge-running { background: var(--color-primary-a10); color: var(--color-primary); }
-      .badge-succeeded { background: var(--color-success-a10); color: var(--color-success); }
-      .badge-failed { background: var(--color-error-a10); color: var(--color-error); }
+      .badge-queued { background: rgba(245,158,11,0.15); color: var(--color-warning); }
+      .badge-running { background: rgba(245,158,11,0.2); color: var(--color-accent-light); }
+      .badge-succeeded { background: rgba(34,197,94,0.15); color: var(--color-success); }
+      .badge-failed { background: rgba(239,68,68,0.15); color: var(--color-error); }
 
       /* ========================================
          Invite Code List
@@ -739,7 +679,7 @@
 
       .invite-status.unused {
         color: var(--color-success);
-        background: var(--color-success-a05);
+        background: rgba(34,197,94,0.15);
         padding: 2px 8px;
         border-radius: var(--radius-xl);
       }
@@ -770,8 +710,8 @@
       .status-text.error { color: var(--color-error); }
 
       .error-message {
-        background: var(--color-error-a05);
-        border: 1px solid var(--color-error-a30);
+        background: rgba(239,68,68,0.1);
+        border: 1px solid rgba(239,68,68,0.3);
         border-radius: var(--radius-md);
         padding: var(--space-sm) var(--space-md);
         color: var(--color-error);
@@ -781,7 +721,7 @@
       }
 
       .info-message {
-        background: var(--color-primary-a05);
+        background: rgba(245,158,11,0.05);
         border-radius: var(--radius-md);
         padding: var(--space-md);
         font-size: 13px;
@@ -802,16 +742,39 @@
         justify-content: center;
         padding: var(--space-lg);
         background: var(--color-bg-primary);
+        position: relative;
+        overflow: hidden;
+      }
+
+      .login-bg {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+      }
+
+      .login-glow {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: 600px;
+        height: 600px;
+        background: radial-gradient(circle, rgba(245,158,11,0.15) 0%, rgba(249,115,22,0.08) 40%, transparent 70%);
+        filter: blur(60px);
       }
 
       .login-card {
         width: 100%;
         max-width: 400px;
         background: var(--color-bg-card);
-        border-radius: var(--radius-lg);
-        box-shadow: var(--shadow-elevated);
+        backdrop-filter: var(--glass-blur);
+        -webkit-backdrop-filter: var(--glass-blur);
+        border: 1px solid var(--glass-border);
+        border-radius: var(--radius-xl);
+        box-shadow: var(--glass-shadow), var(--shadow-glow);
         padding: var(--space-xl);
-        transition: background-color 0.3s ease;
+        position: relative;
+        z-index: 1;
       }
 
       .login-header {
@@ -819,19 +782,33 @@
         margin-bottom: var(--space-xl);
       }
 
+      .login-logo-wrap {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: var(--space-sm);
+        margin-bottom: var(--space-sm);
+      }
+
+      .login-logo-icon {
+        width: 36px;
+        height: 36px;
+      }
+
       .login-logo {
-        font-size: 24px;
-        font-weight: 700;
-        background: linear-gradient(135deg, var(--color-primary), var(--color-secondary));
+        font-family: var(--font-display);
+        font-size: 26px;
+        font-weight: 400;
+        background: linear-gradient(135deg, var(--color-accent), var(--color-accent-orange));
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
         background-clip: text;
-        margin-bottom: var(--space-xs);
       }
 
       .login-subtitle {
         font-size: 14px;
         color: var(--color-text-muted);
+        font-weight: 500;
       }
 
       .login-footer {
@@ -842,7 +819,7 @@
       }
 
       .login-footer a {
-        color: var(--color-primary);
+        color: var(--color-accent);
         font-weight: 500;
       }
 
@@ -880,30 +857,6 @@
          ======================================== */
       .section-panel { display: none; }
       .section-panel.active { display: block; }
-
-      /* ========================================
-         Theme Toggle
-         ======================================== */
-      .theme-toggle {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        width: 36px;
-        height: 36px;
-        border-radius: var(--radius-md);
-        background: transparent;
-        border: 1px solid var(--color-border);
-        cursor: pointer;
-        color: var(--color-text-secondary);
-        transition: all var(--transition-fast);
-      }
-
-      .theme-toggle:hover {
-        background: var(--color-bg-hover);
-        color: var(--color-text-primary);
-      }
-
-      .theme-toggle .icon { width: 18px; height: 18px; }
 
       /* ========================================
          Responsive
@@ -1005,10 +958,25 @@
 
     <!-- ==================== LOGIN PAGE ==================== -->
     <div id="loginPage" class="login-page">
+      <div class="login-bg">
+        <div class="login-glow"></div>
+      </div>
       <div class="login-card">
         <div class="login-header">
-          <div class="login-logo">you2music</div>
-          <div class="login-subtitle">管理后台登录</div>
+          <div class="login-logo-wrap">
+            <svg class="login-logo-icon" viewBox="0 0 100 100">
+              <defs>
+                <linearGradient id="loginGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stop-color="#F59E0B"/>
+                  <stop offset="100%" stop-color="#F97316"/>
+                </linearGradient>
+              </defs>
+              <rect width="100" height="100" rx="20" fill="url(#loginGrad)"/>
+              <path d="M30 30v40M42 20v60M54 35v30M66 25v50M78 40v20" stroke="white" stroke-width="6" stroke-linecap="round"/>
+            </svg>
+            <div class="login-logo">you2music</div>
+          </div>
+          <div class="login-subtitle">管理后台</div>
         </div>
         <div class="form-group">
           <label for="username">用户名</label>
@@ -1043,8 +1011,20 @@
       <!-- Sidebar -->
       <aside class="admin-sidebar" id="adminSidebar">
         <div class="sidebar-brand">
-          <div class="sidebar-brand-title">you2music</div>
-          <div class="sidebar-brand-sub">管理后台</div>
+          <svg class="sidebar-brand-icon" viewBox="0 0 100 100">
+            <defs>
+              <linearGradient id="sidebarGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#F59E0B"/>
+                <stop offset="100%" stop-color="#F97316"/>
+              </linearGradient>
+            </defs>
+            <rect width="100" height="100" rx="20" fill="url(#sidebarGrad)"/>
+            <path d="M30 30v40M42 20v60M54 35v30M66 25v50M78 40v20" stroke="white" stroke-width="6" stroke-linecap="round"/>
+          </svg>
+          <div>
+            <div class="sidebar-brand-title">you2music</div>
+            <div class="sidebar-brand-sub">管理后台</div>
+          </div>
         </div>
 
         <nav class="sidebar-nav">
@@ -1275,17 +1255,6 @@
       const apiLogLimit = 20;
       let apiLogRefreshTimer = null;
       let _lastApiLogs = [];
-
-      /* ========================================
-         Theme Management
-         ======================================== */
-      function initTheme() {
-        const saved = localStorage.getItem("you2music.theme");
-        if (saved) {
-          document.documentElement.setAttribute("data-theme", saved);
-        }
-      }
-      initTheme();
 
       /* ========================================
          DOM References
@@ -1818,30 +1787,30 @@
           }
         };
         return `
-        <div id="apiLogModal" style="position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.5);">
-          <div style="background:var(--color-bg-card);border-radius:var(--radius-lg);padding:var(--space-xl);width:min(700px,90vw);max-height:90vh;overflow-y:auto;box-shadow:var(--shadow-elevated);">
+        <div id="apiLogModal" style="position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.7);">
+          <div style="background:var(--color-bg-card-solid, #252542);border-radius:var(--radius-lg);padding:var(--space-xl);width:min(700px,90vw);max-height:90vh;overflow-y:auto;box-shadow:var(--glass-shadow, 0 8px 32px rgba(0,0,0,0.4));border:1px solid var(--glass-border, rgba(255,255,255,0.1));">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-lg);">
-              <div style="font-size:16px;font-weight:600;">API 日志详情</div>
-              <button id="closeApiLogModal" style="background:none;border:none;cursor:pointer;color:var(--color-text-secondary);font-size:20px;line-height:1;">&times;</button>
+              <div style="font-size:16px;font-weight:600;color:var(--color-text-primary);">API 日志详情</div>
+              <button id="closeApiLogModal" style="background:none;border:none;cursor:pointer;color:var(--color-text-secondary);font-size:24px;line-height:1;">&times;</button>
             </div>
             <table style="width:100%;font-size:13px;border-collapse:collapse;">
-              <tr><td style="padding:6px 8px;color:var(--color-text-muted);white-space:nowrap;">时间</td><td style="padding:6px 8px;">${formatTime(log.created_at_ms)}</td></tr>
-              <tr><td style="padding:6px 8px;color:var(--color-text-muted);">Provider</td><td style="padding:6px 8px;">${escapeHtml(log.provider || "-")}</td></tr>
-              <tr><td style="padding:6px 8px;color:var(--color-text-muted);">任务ID</td><td style="padding:6px 8px;font-family:var(--font-mono);font-size:12px;word-break:break-all;">${escapeHtml(log.job_id || "-")}</td></tr>
-              <tr><td style="padding:6px 8px;color:var(--color-text-muted);">端点</td><td style="padding:6px 8px;font-family:var(--font-mono);font-size:12px;">${escapeHtml(log.endpoint || "-")}</td></tr>
-              <tr><td style="padding:6px 8px;color:var(--color-text-muted);">方法</td><td style="padding:6px 8px;">${escapeHtml(log.method || "-")}</td></tr>
-              <tr><td style="padding:6px 8px;color:var(--color-text-muted);">Key</td><td style="padding:6px 8px;">${escapeHtml(log.api_key_hint || "-")}</td></tr>
-              <tr><td style="padding:6px 8px;color:var(--color-text-muted);">耗时</td><td style="padding:6px 8px;">${escapeHtml(log.elapsed_ms != null ? log.elapsed_ms + "ms" : "-")}</td></tr>
+              <tr><td style="padding:6px 8px;color:var(--color-text-muted);white-space:nowrap;">时间</td><td style="padding:6px 8px;color:var(--color-text-primary);">${formatTime(log.created_at_ms)}</td></tr>
+              <tr><td style="padding:6px 8px;color:var(--color-text-muted);">Provider</td><td style="padding:6px 8px;color:var(--color-text-primary);">${escapeHtml(log.provider || "-")}</td></tr>
+              <tr><td style="padding:6px 8px;color:var(--color-text-muted);">任务ID</td><td style="padding:6px 8px;font-family:var(--font-mono);font-size:12px;word-break:break-all;color:var(--color-text-primary);">${escapeHtml(log.job_id || "-")}</td></tr>
+              <tr><td style="padding:6px 8px;color:var(--color-text-muted);">端点</td><td style="padding:6px 8px;font-family:var(--font-mono);font-size:12px;color:var(--color-text-primary);">${escapeHtml(log.endpoint || "-")}</td></tr>
+              <tr><td style="padding:6px 8px;color:var(--color-text-muted);">方法</td><td style="padding:6px 8px;color:var(--color-text-primary);">${escapeHtml(log.method || "-")}</td></tr>
+              <tr><td style="padding:6px 8px;color:var(--color-text-muted);">Key</td><td style="padding:6px 8px;color:var(--color-text-primary);">${escapeHtml(log.api_key_hint || "-")}</td></tr>
+              <tr><td style="padding:6px 8px;color:var(--color-text-muted);">耗时</td><td style="padding:6px 8px;color:var(--color-text-primary);">${escapeHtml(log.elapsed_ms != null ? log.elapsed_ms + "ms" : "-")}</td></tr>
               <tr><td style="padding:6px 8px;color:var(--color-text-muted);">HTTP 状态</td><td style="padding:6px 8px;">${httpStatusLabel(log.http_status)}</td></tr>
               <tr><td style="padding:6px 8px;color:var(--color-text-muted);">错误</td><td style="padding:6px 8px;color:var(--color-error);font-size:12px;">${escapeHtml(log.error || "（无）")}</td></tr>
             </table>
             <div style="margin-top:var(--space-lg);">
               <div style="font-size:12px;font-weight:600;color:var(--color-text-muted);margin-bottom:var(--space-xs);">请求内容</div>
-              <pre style="background:var(--color-bg-surface);border-radius:var(--radius-md);padding:var(--space-md);font-family:var(--font-mono);font-size:12px;white-space:pre-wrap;word-break:break-all;max-height:200px;overflow-y:auto;margin:0;">${pretty(log.request_body)}</pre>
+              <pre style="background:var(--color-bg-surface, rgba(255,255,255,0.04));border-radius:var(--radius-md);padding:var(--space-md);font-family:var(--font-mono);font-size:12px;white-space:pre-wrap;word-break:break-all;max-height:200px;overflow-y:auto;margin:0;color:var(--color-text-secondary);">${pretty(log.request_body)}</pre>
             </div>
             <div style="margin-top:var(--space-lg);">
               <div style="font-size:12px;font-weight:600;color:var(--color-text-muted);margin-bottom:var(--space-xs);">响应内容</div>
-              <pre style="background:var(--color-bg-surface);border-radius:var(--radius-md);padding:var(--space-md);font-family:var(--font-mono);font-size:12px;white-space:pre-wrap;word-break:break-all;max-height:200px;overflow-y:auto;margin:0;">${pretty(log.response_body)}</pre>
+              <pre style="background:var(--color-bg-surface, rgba(255,255,255,0.04));border-radius:var(--radius-md);padding:var(--space-md);font-family:var(--font-mono);font-size:12px;white-space:pre-wrap;word-break:break-all;max-height:200px;overflow-y:auto;margin:0;color:var(--color-text-secondary);">${pretty(log.response_body)}</pre>
             </div>
           </div>
         </div>`;
