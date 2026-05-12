@@ -7,6 +7,7 @@ import random
 import re
 import time
 import uuid
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Callable
 
@@ -102,24 +103,22 @@ class PublishRequest(BaseModel):
     share_permission: str = Field(default="listen_only", max_length=32)
 
 
-app = FastAPI(title="you2music", version="0.1.0")
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    install_windows_asyncio_connection_reset_suppression()
+    # Start provider worker pools.
+    await STATE.start_workers(handler=_job_worker_handler)
+    try:
+        yield
+    finally:
+        # Stop provider workers and close shared httpx clients.
+        await STATE.shutdown_workers()
+
+
+app = FastAPI(title="you2music", version="0.1.0", lifespan=_lifespan)
 
 static_dir = Path(__file__).resolve().parent / "static"
 app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
-
-
-@app.on_event("startup")
-async def _startup_install_loop_handler() -> None:
-    install_windows_asyncio_connection_reset_suppression()
-    # Start provider worker pools
-    await STATE.start_workers(handler=_job_worker_handler)
-
-
-@app.on_event("shutdown")
-async def _shutdown_cancel_jobs() -> None:
-    # Stop provider workers and close shared httpx clients.
-    # Worker cancellation + client cleanup is handled by shutdown_workers().
-    await STATE.shutdown_workers()
 
 
 @app.get("/", response_class=HTMLResponse)
