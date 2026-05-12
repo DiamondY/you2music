@@ -319,6 +319,8 @@ class AppState:
                     acestep_kwargs["seed"] = int(seed_val)
 
                 # Audio input: base64-encoded audio for cover/repaint/lego/extract/complete tasks
+                # Audio input: in stdlib mode we accept base64 from the client for now,
+                # but we MUST NOT persist it to sqlite job params (handled in do_POST).
                 src_audio_b64 = provider_params.get("src_audio_b64")
                 src_audio_format = provider_params.get("src_audio_format") or "mp3"
                 reference_audio_b64 = provider_params.get("reference_audio_b64")
@@ -661,16 +663,23 @@ class Handler(BaseHTTPRequestHandler):
 
             provider_params = params.get("provider_params") or {}
             output_format = str(provider_params.get("output_format") or STATE.settings.output_format)
-            params = {**params, "output_format": output_format, "provider": provider_name}
+            run_params = {**params, "output_format": output_format, "provider": provider_name}
+            # Do NOT persist base64 audio blobs into sqlite. Keep them only in-memory
+            # for the immediate background thread execution (stdlib mode).
+            storage_provider_params = dict(provider_params) if isinstance(provider_params, dict) else {}
+            storage_provider_params.pop("src_audio_b64", None)
+            storage_provider_params.pop("reference_audio_b64", None)
+            storage_params = dict(run_params)
+            storage_params["provider_params"] = storage_provider_params
 
             job_ids: list[str] = []
             for _ in range(count):
-                job_id = STATE.store.create_job(provider=provider_name, prompt=prompt, params=params, kind="variation")
+                job_id = STATE.store.create_job(provider=provider_name, prompt=prompt, params=storage_params, kind="variation")
                 job_ids.append(job_id)
 
                 t = threading.Thread(
                     target=STATE.run_job,
-                    kwargs={"job_id": job_id, "prompt": prompt, "params": params},
+                    kwargs={"job_id": job_id, "prompt": prompt, "params": run_params},
                     daemon=True,
                 )
                 t.start()
@@ -700,12 +709,17 @@ class Handler(BaseHTTPRequestHandler):
 
             provider_params = params.get("provider_params") or {}
             output_format = str(provider_params.get("output_format") or STATE.settings.output_format)
-            params = {**params, "output_format": output_format, "provider": provider_name}
-            job_id = STATE.store.create_job(provider=provider_name, prompt=prompt, params=params, kind="generate")
+            run_params = {**params, "output_format": output_format, "provider": provider_name}
+            storage_provider_params = dict(provider_params) if isinstance(provider_params, dict) else {}
+            storage_provider_params.pop("src_audio_b64", None)
+            storage_provider_params.pop("reference_audio_b64", None)
+            storage_params = dict(run_params)
+            storage_params["provider_params"] = storage_provider_params
+            job_id = STATE.store.create_job(provider=provider_name, prompt=prompt, params=storage_params, kind="generate")
 
             t = threading.Thread(
                 target=STATE.run_job,
-                kwargs={"job_id": job_id, "prompt": prompt, "params": params},
+                kwargs={"job_id": job_id, "prompt": prompt, "params": run_params},
                 daemon=True,
             )
             t.start()

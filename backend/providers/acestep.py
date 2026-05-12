@@ -1,21 +1,18 @@
-"""
-ACE-Step 1.5 Music API Provider
-，基于 OpenRouter 兼容接口的 ACE-Step 音乐生成后端
-提供 generate、generate_stream、generate_and_wait、download_audio 等核心方法
-支持 text2music、cover、repaint、lego、extract、complete 等任务类型
+"""ACE-Step 1.5 music provider (OpenAI/OpenRouter-compatible).
+
+Upstream endpoint (acemusic.ai cloud):
+- POST /v1/chat/completions
+- Supports audio_config, lyrics, multimodal input_audio, task_type, and stream:true (SSE).
 """
 
 from __future__ import annotations
 
 import base64
 import json
-import logging
 from dataclasses import dataclass
 from typing import Any, AsyncIterator
 
 import httpx
-
-logger = logging.getLogger(__name__)
 
 _DEFAULT_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -28,18 +25,18 @@ VALID_TASK_TYPES = {"text2music", "cover", "repaint", "lego", "extract", "comple
 
 @dataclass(frozen=True)
 class ACEStepResult:
-    """ACE-Step 生成结果"""
+    """ACE-Step generation result."""
 
     audio_bytes: bytes
     task_id: str
     audio_url: str | None = None
-    metadata: dict | None = None
+    metadata: dict[str, Any] | None = None
     extra_audios: list[bytes] | None = None
 
 
 @dataclass(frozen=True)
 class ACEStepStreamEvent:
-    """ACE-Step 流式事件"""
+    """ACE-Step streaming event (derived from SSE chunks)."""
 
     event_type: str
     content: str | None = None
@@ -49,7 +46,7 @@ class ACEStepStreamEvent:
 
 
 class ACEStepClient:
-    """ACE-Step 1.5 音乐生成客户端"""
+    """ACE-Step 1.5 API client (async/httpx)."""
 
     MODEL_MAP = {
         "acestep-v15-turbo": "acemusic/acestep-v1.5-turbo",
@@ -65,10 +62,12 @@ class ACEStepClient:
         base_url: str,
         timeout_s: float,
         http_client: httpx.AsyncClient | None = None,
-    ):
+    ) -> None:
+        if not str(api_key or "").strip():
+            raise ValueError("ACESTEP_API_KEY is required for acestep provider.")
         self._key = api_key
         self._base = base_url.rstrip("/")
-        self._timeout = timeout_s
+        self._timeout = float(timeout_s)
         self._shared_client = http_client
 
     def _get_model_id(self, model: str) -> str:
@@ -94,38 +93,38 @@ class ACEStepClient:
     def _build_request_body(
         self,
         *,
-        prompt,
-        lyrics=None,
+        prompt: str,
+        lyrics: str | None = None,
         model: str = "acemusic/acestep-v1.5-turbo",
-        audio_duration=None,
+        audio_duration: float | None = None,
         audio_format: str = "mp3",
-        bpm=None,
-        key_scale=None,
-        time_signature=None,
-        vocal_language=None,
+        bpm: int | None = None,
+        key_scale: str | None = None,
+        time_signature: str | None = None,
+        vocal_language: str | None = None,
         instrumental: bool = False,
         thinking: bool = False,
         use_format: bool = False,
         batch_size: int = 1,
-        inference_steps=None,
-        guidance_scale=None,
-        seed=None,
-        shift=None,
-        infer_method=None,
-        timesteps=None,
-        task_type=None,
+        inference_steps: int | None = None,
+        guidance_scale: float | None = None,
+        seed: int | None = None,
+        shift: float | None = None,
+        infer_method: str | None = None,
+        timesteps: str | None = None,
+        task_type: str | None = None,
         sample_mode: bool = False,
-        temperature=None,
-        top_p=None,
-        use_cot_caption=None,
-        use_cot_language=None,
-        audio_cover_strength=None,
-        repainting_start=None,
-        repainting_end=None,
-        src_audio_b64=None,
-        src_audio_format=None,
-        reference_audio_b64=None,
-        reference_audio_format=None,
+        temperature: float | None = None,
+        top_p: float | None = None,
+        use_cot_caption: bool | None = None,
+        use_cot_language: bool | None = None,
+        audio_cover_strength: float | None = None,
+        repainting_start: float | None = None,
+        repainting_end: float | None = None,
+        src_audio_b64: str | None = None,
+        src_audio_format: str | None = None,
+        reference_audio_b64: str | None = None,
+        reference_audio_format: str | None = None,
         **kwargs,
     ) -> dict[str, Any]:
         """
@@ -137,22 +136,38 @@ class ACEStepClient:
         # 构建消息内容
         text_content = f"{prompt}\n\nLyrics:\n{lyrics}" if lyrics else prompt
 
-        # 音频输入检测
+        # Normalize + validate task type early so we can enforce audio rules.
+        effective_task_type = task_type or "text2music"
+        if effective_task_type not in VALID_TASK_TYPES:
+            raise ValueError(f"Invalid task_type '{effective_task_type}', must be one of {sorted(VALID_TASK_TYPES)}")
+
+        # Audio input: validate against task_type contract.
         has_audio = bool(src_audio_b64 or reference_audio_b64)
+        if effective_task_type == "text2music":
+            # text2music: src_audio is not meaningful; only reference_audio is allowed.
+            if src_audio_b64:
+                raise ValueError("task_type=text2music does not accept src_audio; use reference_audio instead.")
+        else:
+            # Audio-edit tasks require src_audio.
+            if not src_audio_b64:
+                raise ValueError(f"task_type={effective_task_type} requires src_audio.")
 
         if has_audio:
             content_parts = [{"type": "text", "text": text_content}]
 
-            # 根据任务类型决定音频路由
-            # text2music: 仅 reference_audio
-            # cover/repaint/lego/extract/complete: src_audio 在前，reference_audio 在后
-            if src_audio_b64:
+            # Routing per Openrouter_API_DOC:
+            # - text2music: audio[0] => reference_audio
+            # - cover/repaint/lego/extract/complete: audio[0] => src_audio, audio[1] => reference_audio (optional)
+            if effective_task_type == "text2music":
+                if reference_audio_b64:
+                    fmt = reference_audio_format or "mp3"
+                    content_parts.append(self._build_audio_part(reference_audio_b64, fmt))
+            else:
                 fmt = src_audio_format or "mp3"
-                content_parts.append(self._build_audio_part(src_audio_b64, fmt))
-
-            if reference_audio_b64:
-                fmt = reference_audio_format or "mp3"
-                content_parts.append(self._build_audio_part(reference_audio_b64, fmt))
+                content_parts.append(self._build_audio_part(src_audio_b64 or "", fmt))
+                if reference_audio_b64:
+                    fmt2 = reference_audio_format or "mp3"
+                    content_parts.append(self._build_audio_part(reference_audio_b64, fmt2))
 
             messages = [{"role": "user", "content": content_parts}]
         else:
@@ -226,12 +241,11 @@ class ACEStepClient:
             body["timesteps"] = timesteps
 
         # 新 OpenRouter 参数
-        if task_type is not None:
-            if task_type not in VALID_TASK_TYPES:
-                raise ValueError(
-                    f"Invalid task_type '{task_type}', must be one of {VALID_TASK_TYPES}"
-                )
-            body["task_type"] = task_type
+        if effective_task_type != "text2music":
+            body["task_type"] = effective_task_type
+        elif task_type is not None:
+            # Be explicit if caller asked for task_type=text2music.
+            body["task_type"] = "text2music"
 
         if sample_mode:
             body["sample_mode"] = True
@@ -261,38 +275,38 @@ class ACEStepClient:
     async def generate(
         self,
         *,
-        prompt,
-        lyrics=None,
+        prompt: str,
+        lyrics: str | None = None,
         model: str = "acemusic/acestep-v1.5-turbo",
-        audio_duration=None,
+        audio_duration: float | None = None,
         audio_format: str = "mp3",
-        bpm=None,
-        key_scale=None,
-        time_signature=None,
-        vocal_language=None,
+        bpm: int | None = None,
+        key_scale: str | None = None,
+        time_signature: str | None = None,
+        vocal_language: str | None = None,
         instrumental: bool = False,
         thinking: bool = False,
         use_format: bool = False,
         batch_size: int = 1,
-        inference_steps=None,
-        guidance_scale=None,
-        seed=None,
-        shift=None,
-        infer_method=None,
-        timesteps=None,
-        task_type=None,
+        inference_steps: int | None = None,
+        guidance_scale: float | None = None,
+        seed: int | None = None,
+        shift: float | None = None,
+        infer_method: str | None = None,
+        timesteps: str | None = None,
+        task_type: str | None = None,
         sample_mode: bool = False,
-        temperature=None,
-        top_p=None,
-        use_cot_caption=None,
-        use_cot_language=None,
-        audio_cover_strength=None,
-        repainting_start=None,
-        repainting_end=None,
-        src_audio_b64=None,
-        src_audio_format=None,
-        reference_audio_b64=None,
-        reference_audio_format=None,
+        temperature: float | None = None,
+        top_p: float | None = None,
+        use_cot_caption: bool | None = None,
+        use_cot_language: bool | None = None,
+        audio_cover_strength: float | None = None,
+        repainting_start: float | None = None,
+        repainting_end: float | None = None,
+        src_audio_b64: str | None = None,
+        src_audio_format: str | None = None,
+        reference_audio_b64: str | None = None,
+        reference_audio_format: str | None = None,
         **kwargs,
     ) -> ACEStepResult:
         """发起非流式生成请求并解析返回的音频数据"""
@@ -344,7 +358,7 @@ class ACEStepClient:
         if self._shared_client is not None:
             client = self._shared_client
         else:
-            client = httpx.AsyncClient(timeout=self._timeout_s)
+            client = httpx.AsyncClient(timeout=self._timeout)
 
         try:
             resp = await client.post(url, headers=headers, json=body)
@@ -357,13 +371,13 @@ class ACEStepClient:
         data = resp.json()
         choices = data.get("choices", [])
         if not choices:
-            raise ValueError("No choices returned in response")
+            raise ValueError("ACE-Step API returned no choices")
 
         message = choices[0].get("message", {})
         audio_list = message.get("audio", [])
 
         if not audio_list:
-            raise ValueError("No audio data in response")
+            raise ValueError("ACE-Step API returned no audio")
 
         # 解析第一个音频块（data URL 格式: data:audio/mpeg;base64,...）
         first_audio = audio_list[0]
@@ -408,38 +422,38 @@ class ACEStepClient:
     async def generate_stream(
         self,
         *,
-        prompt,
-        lyrics=None,
+        prompt: str,
+        lyrics: str | None = None,
         model: str = "acemusic/acestep-v1.5-turbo",
-        audio_duration=None,
+        audio_duration: float | None = None,
         audio_format: str = "mp3",
-        bpm=None,
-        key_scale=None,
-        time_signature=None,
-        vocal_language=None,
+        bpm: int | None = None,
+        key_scale: str | None = None,
+        time_signature: str | None = None,
+        vocal_language: str | None = None,
         instrumental: bool = False,
         thinking: bool = False,
         use_format: bool = False,
         batch_size: int = 1,
-        inference_steps=None,
-        guidance_scale=None,
-        seed=None,
-        shift=None,
-        infer_method=None,
-        timesteps=None,
-        task_type=None,
+        inference_steps: int | None = None,
+        guidance_scale: float | None = None,
+        seed: int | None = None,
+        shift: float | None = None,
+        infer_method: str | None = None,
+        timesteps: str | None = None,
+        task_type: str | None = None,
         sample_mode: bool = False,
-        temperature=None,
-        top_p=None,
-        use_cot_caption=None,
-        use_cot_language=None,
-        audio_cover_strength=None,
-        repainting_start=None,
-        repainting_end=None,
-        src_audio_b64=None,
-        src_audio_format=None,
-        reference_audio_b64=None,
-        reference_audio_format=None,
+        temperature: float | None = None,
+        top_p: float | None = None,
+        use_cot_caption: bool | None = None,
+        use_cot_language: bool | None = None,
+        audio_cover_strength: float | None = None,
+        repainting_start: float | None = None,
+        repainting_end: float | None = None,
+        src_audio_b64: str | None = None,
+        src_audio_format: str | None = None,
+        reference_audio_b64: str | None = None,
+        reference_audio_format: str | None = None,
         **kwargs,
     ) -> AsyncIterator[ACEStepStreamEvent]:
         """
@@ -451,7 +465,7 @@ class ACEStepClient:
         headers = {
             "Authorization": f"Bearer {self._key}",
             "Content-Type": "application/json",
-            "Accept": "application/json",
+            "Accept": "text/event-stream",
             "User-Agent": _DEFAULT_USER_AGENT,
         }
 
@@ -497,7 +511,7 @@ class ACEStepClient:
         if self._shared_client is not None:
             client = self._shared_client
         else:
-            client = httpx.AsyncClient(timeout=self._timeout_s)
+            client = httpx.AsyncClient(timeout=self._timeout)
 
         try:
             async with client.stream("POST", url, headers=headers, json=body) as resp:
@@ -562,11 +576,11 @@ class ACEStepClient:
                                     raw=chunk,
                                 )
 
-                        # done 事件
-                        if chunk.get("choices") and chunk["choices"][0].get("finish_reason") == "stop":
+                        # done event (finish_reason)
+                        if chunk.get("choices") and chunk["choices"][0].get("finish_reason") is not None:
                             yield ACEStepStreamEvent(
                                 event_type="done",
-                                finish_reason="stop",
+                                finish_reason=str(chunk["choices"][0].get("finish_reason") or ""),
                                 raw=chunk,
                             )
         finally:
@@ -576,38 +590,38 @@ class ACEStepClient:
     async def generate_and_wait(
         self,
         *,
-        prompt,
-        lyrics=None,
+        prompt: str,
+        lyrics: str | None = None,
         model: str = "acemusic/acestep-v1.5-turbo",
-        audio_duration=None,
+        audio_duration: float | None = None,
         audio_format: str = "mp3",
-        bpm=None,
-        key_scale=None,
-        time_signature=None,
-        vocal_language=None,
+        bpm: int | None = None,
+        key_scale: str | None = None,
+        time_signature: str | None = None,
+        vocal_language: str | None = None,
         instrumental: bool = False,
         thinking: bool = False,
         use_format: bool = False,
         batch_size: int = 1,
-        inference_steps=None,
-        guidance_scale=None,
-        seed=None,
-        shift=None,
-        infer_method=None,
-        timesteps=None,
-        task_type=None,
+        inference_steps: int | None = None,
+        guidance_scale: float | None = None,
+        seed: int | None = None,
+        shift: float | None = None,
+        infer_method: str | None = None,
+        timesteps: str | None = None,
+        task_type: str | None = None,
         sample_mode: bool = False,
-        temperature=None,
-        top_p=None,
-        use_cot_caption=None,
-        use_cot_language=None,
-        audio_cover_strength=None,
-        repainting_start=None,
-        repainting_end=None,
-        src_audio_b64=None,
-        src_audio_format=None,
-        reference_audio_b64=None,
-        reference_audio_format=None,
+        temperature: float | None = None,
+        top_p: float | None = None,
+        use_cot_caption: bool | None = None,
+        use_cot_language: bool | None = None,
+        audio_cover_strength: float | None = None,
+        repainting_start: float | None = None,
+        repainting_end: float | None = None,
+        src_audio_b64: str | None = None,
+        src_audio_format: str | None = None,
+        reference_audio_b64: str | None = None,
+        reference_audio_format: str | None = None,
         **kwargs,
     ) -> ACEStepResult:
         """
@@ -655,7 +669,7 @@ class ACEStepClient:
         if self._shared_client is not None:
             client = self._shared_client
         else:
-            client = httpx.AsyncClient(timeout=self._timeout_s)
+            client = httpx.AsyncClient(timeout=self._timeout)
 
         try:
             resp = await client.get(audio_url)

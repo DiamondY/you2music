@@ -2113,8 +2113,13 @@
       const refAudioInput = document.getElementById("refAudioInput");
       const srcAudioInfo = document.getElementById("srcAudioInfo");
       const refAudioInfo = document.getElementById("refAudioInfo");
+      // Audio upload state:
+      // - In remote mode (FastAPI), we upload to /api/uploads/audio and only send upload_id in provider_params.
+      // - In local mode (stdlib server), we fall back to base64-in-request (but server strips it before persisting).
+      let srcAudioUploadId = null;
       let srcAudioB64 = null;
       let srcAudioFormat = null;
+      let refAudioUploadId = null;
       let refAudioB64 = null;
       let refAudioFormat = null;
       const cpEditorEl = document.getElementById("compositionPlanEditor");
@@ -2782,6 +2787,27 @@
         });
       }
 
+      async function _uploadAudioFile(file) {
+        if (!file) return null;
+        if (!authToken) throw new Error("请先登录再上传音频文件");
+        // Size limit: 20MB
+        if (file.size > 20 * 1024 * 1024) throw new Error("音频文件不能超过 20MB");
+        const fd = new FormData();
+        fd.append("file", file);
+        const res = await fetch("/api/uploads/audio", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${authToken}` },
+          body: fd,
+        });
+        const text = await res.text().catch(() => "");
+        let data = {};
+        try { data = text ? JSON.parse(text) : {}; } catch { data = { raw: text }; }
+        if (!res.ok) {
+          throw new Error(formatApiError(data, text || `HTTP ${res.status}`));
+        }
+        return data;
+      }
+
       function _audioFormatFromFile(file) {
         if (!file) return "mp3";
         const name = file.name.toLowerCase();
@@ -2792,6 +2818,7 @@
 
       function clearAudioInput(which) {
         if (which === "src") {
+          srcAudioUploadId = null;
           srcAudioB64 = null;
           srcAudioFormat = null;
           if (srcAudioInput) srcAudioInput.value = "";
@@ -2800,6 +2827,7 @@
             srcAudioInfo.querySelector(".file-name").textContent = "";
           }
         } else {
+          refAudioUploadId = null;
           refAudioB64 = null;
           refAudioFormat = null;
           if (refAudioInput) refAudioInput.value = "";
@@ -2813,22 +2841,44 @@
       async function handleAudioFileInput(which, file) {
         if (!file) return;
         try {
-          const b64 = await _readAudioAsB64(file);
-          const fmt = _audioFormatFromFile(file);
           const infoEl = (which === "src") ? srcAudioInfo : refAudioInfo;
-          if (which === "src") {
-            srcAudioB64 = b64;
-            srcAudioFormat = fmt;
+          const fmt = _audioFormatFromFile(file);
+          if (localMode) {
+            // Local stdlib mode: no upload endpoint. Send base64 in request body,
+            // server will strip it before persisting job params.
+            const b64 = await _readAudioAsB64(file);
+            if (which === "src") {
+              srcAudioUploadId = null;
+              srcAudioB64 = b64;
+              srcAudioFormat = fmt;
+            } else {
+              refAudioUploadId = null;
+              refAudioB64 = b64;
+              refAudioFormat = fmt;
+            }
           } else {
-            refAudioB64 = b64;
-            refAudioFormat = fmt;
+            // Remote FastAPI mode: upload to server and only keep upload_id.
+            const up = await _uploadAudioFile(file);
+            const uploadId = up && up.upload_id ? String(up.upload_id) : null;
+            const serverFmt = up && up.format ? String(up.format) : fmt;
+            if (!uploadId) throw new Error("上传失败：未返回 upload_id");
+            if (which === "src") {
+              srcAudioUploadId = uploadId;
+              srcAudioB64 = null;
+              srcAudioFormat = serverFmt;
+            } else {
+              refAudioUploadId = uploadId;
+              refAudioB64 = null;
+              refAudioFormat = serverFmt;
+            }
           }
           if (infoEl) {
             infoEl.style.display = "flex";
             infoEl.querySelector(".file-name").textContent = file.name;
           }
         } catch (e) {
-          setError("音频文件读取失败: " + e.message);
+          const msg = (e && e.message) ? e.message : String(e || "");
+          setError("音频文件处理失败: " + msg);
           clearAudioInput(which);
         }
       }
@@ -3554,12 +3604,19 @@
         }
         if (!params.use_composition_plan) delete params.composition_plan_json;
 
-        // Include audio input data if available
-        if (srcAudioB64) {
+        // Include audio input data if available.
+        // Remote mode: upload_id references. Local mode: base64-in-request.
+        if (!localMode && srcAudioUploadId) {
+          params.src_audio_upload_id = srcAudioUploadId;
+          params.src_audio_format = srcAudioFormat || "mp3";
+        } else if (localMode && srcAudioB64) {
           params.src_audio_b64 = srcAudioB64;
           params.src_audio_format = srcAudioFormat || "mp3";
         }
-        if (refAudioB64) {
+        if (!localMode && refAudioUploadId) {
+          params.reference_audio_upload_id = refAudioUploadId;
+          params.reference_audio_format = refAudioFormat || "mp3";
+        } else if (localMode && refAudioB64) {
           params.reference_audio_b64 = refAudioB64;
           params.reference_audio_format = refAudioFormat || "mp3";
         }
@@ -3674,6 +3731,9 @@
             audioUploadSection.classList.add("visible");
           } else {
             audioUploadSection.classList.remove("visible");
+            // Prevent hidden audio inputs from affecting future requests.
+            clearAudioInput("src");
+            clearAudioInput("ref");
           }
         }
       }

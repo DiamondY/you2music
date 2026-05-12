@@ -35,6 +35,7 @@ class AppState:
     settings: Settings
     data_dir: Path
     audio_dir: Path
+    upload_dir: Path
     db_path: Path
     users_db_path: Path
     store: JobStore
@@ -55,8 +56,11 @@ class AppState:
         settings = load_settings()
         data_dir = settings.data_dir
         audio_dir = data_dir / "audio"
+        upload_dir = data_dir / "uploads"
         db_path = data_dir / "app.db"
         users_db_path = data_dir / "users.db"
+        audio_dir.mkdir(parents=True, exist_ok=True)
+        upload_dir.mkdir(parents=True, exist_ok=True)
         store = JobStore(db_path)
         store.init()
         log_store = ApiLogStore(db_path)
@@ -109,6 +113,7 @@ class AppState:
             settings=settings,
             data_dir=data_dir,
             audio_dir=audio_dir,
+            upload_dir=upload_dir,
             db_path=db_path,
             users_db_path=users_db_path,
             store=store,
@@ -187,6 +192,7 @@ class AppState:
             new_settings = load_settings()
             new_data_dir = new_settings.data_dir
             new_audio_dir = new_data_dir / "audio"
+            new_upload_dir = new_data_dir / "uploads"
             new_db_path = new_data_dir / "app.db"
             new_users_db_path = new_data_dir / "users.db"
 
@@ -215,6 +221,9 @@ class AppState:
             if new_db_path != self.db_path:
                 self.data_dir = new_data_dir
                 self.audio_dir = new_audio_dir
+                self.upload_dir = new_upload_dir
+                self.audio_dir.mkdir(parents=True, exist_ok=True)
+                self.upload_dir.mkdir(parents=True, exist_ok=True)
                 self.db_path = new_db_path
                 self.store = JobStore(self.db_path)
                 self.store.init()

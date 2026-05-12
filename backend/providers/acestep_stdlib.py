@@ -10,13 +10,10 @@ from __future__ import annotations
 
 import base64
 import json
-import logging
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from typing import Any
-
-logger = logging.getLogger(__name__)
 
 _DEFAULT_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -79,39 +76,39 @@ class ACEStepClientStdlib:
     def _build_request_body(
         self,
         *,
-        prompt,
-        lyrics=None,
+        prompt: str,
+        lyrics: str | None = None,
         model: str = "acemusic/acestep-v1.5-turbo",
-        audio_duration=None,
+        audio_duration: float | None = None,
         audio_format: str = "mp3",
-        bpm=None,
-        key_scale=None,
-        time_signature=None,
-        vocal_language=None,
+        bpm: int | None = None,
+        key_scale: str | None = None,
+        time_signature: str | None = None,
+        vocal_language: str | None = None,
         instrumental: bool = False,
         thinking: bool = False,
         use_format: bool = False,
         batch_size: int = 1,
-        inference_steps=None,
-        guidance_scale=None,
-        seed=None,
-        shift=None,
-        infer_method=None,
-        timesteps=None,
-        task_type=None,
+        inference_steps: int | None = None,
+        guidance_scale: float | None = None,
+        seed: int | None = None,
+        shift: float | None = None,
+        infer_method: str | None = None,
+        timesteps: str | None = None,
+        task_type: str | None = None,
         sample_mode: bool = False,
-        temperature=None,
-        top_p=None,
-        use_cot_caption=None,
-        use_cot_language=None,
-        audio_cover_strength=None,
-        repainting_start=None,
-        repainting_end=None,
-        src_audio_b64=None,
-        src_audio_format=None,
-        reference_audio_b64=None,
-        reference_audio_format=None,
-        **kwargs,
+        temperature: float | None = None,
+        top_p: float | None = None,
+        use_cot_caption: bool | None = None,
+        use_cot_language: bool | None = None,
+        audio_cover_strength: float | None = None,
+        repainting_start: float | None = None,
+        repainting_end: float | None = None,
+        src_audio_b64: str | None = None,
+        src_audio_format: str | None = None,
+        reference_audio_b64: str | None = None,
+        reference_audio_format: str | None = None,
+        **kwargs: Any,
     ) -> dict[str, Any]:
         """
         构建请求体字典，供 generate 共用
@@ -122,22 +119,33 @@ class ACEStepClientStdlib:
         # 构建消息内容
         text_content = f"{prompt}\n\nLyrics:\n{lyrics}" if lyrics else prompt
 
-        # 音频输入检测
+        effective_task_type = task_type or "text2music"
+        if effective_task_type not in VALID_TASK_TYPES:
+            raise ValueError(f"Invalid task_type '{effective_task_type}', must be one of {sorted(VALID_TASK_TYPES)}")
+
+        # Audio input validation (same contract as async client)
         has_audio = bool(src_audio_b64 or reference_audio_b64)
+        if effective_task_type == "text2music":
+            if src_audio_b64:
+                raise ValueError("task_type=text2music does not accept src_audio; use reference_audio instead.")
+        else:
+            if not src_audio_b64:
+                raise ValueError(f"task_type={effective_task_type} requires src_audio.")
 
         if has_audio:
             content_parts = [{"type": "text", "text": text_content}]
 
-            # 根据任务类型决定音频路由
-            # text2music: 仅 reference_audio
-            # cover/repaint/lego/extract/complete: src_audio 在前，reference_audio 在后
-            if src_audio_b64:
+            # Routing per Openrouter_API_DOC (same as async client)
+            if effective_task_type == "text2music":
+                if reference_audio_b64:
+                    fmt = reference_audio_format or "mp3"
+                    content_parts.append(self._build_audio_part(reference_audio_b64, fmt))
+            else:
                 fmt = src_audio_format or "mp3"
-                content_parts.append(self._build_audio_part(src_audio_b64, fmt))
-
-            if reference_audio_b64:
-                fmt = reference_audio_format or "mp3"
-                content_parts.append(self._build_audio_part(reference_audio_b64, fmt))
+                content_parts.append(self._build_audio_part(src_audio_b64 or "", fmt))
+                if reference_audio_b64:
+                    fmt2 = reference_audio_format or "mp3"
+                    content_parts.append(self._build_audio_part(reference_audio_b64, fmt2))
 
             messages = [{"role": "user", "content": content_parts}]
         else:
@@ -211,12 +219,10 @@ class ACEStepClientStdlib:
             body["timesteps"] = timesteps
 
         # 新 OpenRouter 参数
-        if task_type is not None:
-            if task_type not in VALID_TASK_TYPES:
-                raise ValueError(
-                    f"Invalid task_type '{task_type}', must be one of {VALID_TASK_TYPES}"
-                )
-            body["task_type"] = task_type
+        if effective_task_type != "text2music":
+            body["task_type"] = effective_task_type
+        elif task_type is not None:
+            body["task_type"] = "text2music"
 
         if sample_mode:
             body["sample_mode"] = True

@@ -6,11 +6,12 @@ import os
 import random
 import re
 import time
+import uuid
 from pathlib import Path
 from typing import Any, Callable
 
 import httpx
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi import Query
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -244,6 +245,42 @@ def get_random_sample(current_user: UserRecord = Depends(get_current_user)) -> d
         "key_scale": key_scale,
         "duration": duration,
     }
+
+
+_UPLOAD_MAX_BYTES = 20 * 1024 * 1024
+
+
+def _audio_format_from_filename(name: str) -> str:
+    n = (name or "").lower()
+    if n.endswith(".wav"):
+        return "wav"
+    if n.endswith(".flac"):
+        return "flac"
+    return "mp3"
+
+
+@app.post("/api/uploads/audio")
+async def upload_audio(
+    file: UploadFile = File(...),
+    current_user: UserRecord = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Upload an audio file for ACE-Step audio-input task types.
+
+    Important: We store the file on disk and only keep a small upload_id in job
+    params. Never persist base64 audio blobs in sqlite job params.
+    """
+    filename = str(file.filename or "").strip() or "audio"
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="音频文件为空")
+    if len(data) > _UPLOAD_MAX_BYTES:
+        raise HTTPException(status_code=413, detail="音频文件不能超过 20MB")
+
+    fmt = _audio_format_from_filename(filename)
+    upload_id = uuid.uuid4().hex
+    path = STATE.upload_dir / f"{current_user.id}-{upload_id}.{fmt}"
+    path.write_bytes(data)
+    return {"upload_id": upload_id, "filename": filename, "size_bytes": len(data), "format": fmt}
 
 
 @app.get("/api/admin/config")
@@ -598,6 +635,11 @@ async def generate(req: GenerateRequest, current_user: UserRecord = Depends(get_
         raise HTTPException(status_code=400, detail=f"unknown provider: {provider_name}")
 
     provider_params = req.provider_params or {}
+    # Never accept base64 audio blobs in provider_params; they would be persisted
+    # into sqlite job params and quickly bloat the DB / leak user content.
+    for k in ("src_audio_b64", "reference_audio_b64"):
+        if provider_params.get(k):
+            raise HTTPException(status_code=400, detail="请先上传音频文件（不要直接传 base64）")
     base_prompt = (req.prompt or "").strip()
     if not base_prompt:
         raise HTTPException(status_code=400, detail="prompt is required")
@@ -653,6 +695,9 @@ async def generate_many(req: GenerateManyRequest, current_user: UserRecord = Dep
         raise HTTPException(status_code=400, detail=f"unknown provider: {provider_name}")
 
     provider_params = req.provider_params or {}
+    for k in ("src_audio_b64", "reference_audio_b64"):
+        if provider_params.get(k):
+            raise HTTPException(status_code=400, detail="请先上传音频文件（不要直接传 base64）")
     base_prompt = (req.prompt or "").strip()
     if not base_prompt:
         raise HTTPException(status_code=400, detail="prompt is required")

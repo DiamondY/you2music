@@ -7,6 +7,7 @@ applying rate limits, executing API calls with retry, and updating job status.
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import logging
 import time
@@ -15,7 +16,7 @@ from typing import Any, AsyncIterator
 
 from concurrency import run_with_retry
 from providers.minimax import MiniMaxMusicClient
-from providers.acestep import ACEStepClient, ACEStepStreamEvent
+from providers.acestep import ACEStepClient
 from state import STATE
 
 logger = logging.getLogger(__name__)
@@ -376,16 +377,37 @@ async def _run_job(*, job_id: str, prompt: str, params: dict[str, Any]) -> None:
                 # allow seed=0, reject empty string
                 acestep_kwargs["seed"] = int(seed_val)
 
-            # Audio input: base64-encoded audio for cover/repaint/lego/extract/complete tasks
-            src_audio_b64 = provider_params.get("src_audio_b64")
-            src_audio_format = provider_params.get("src_audio_format") or "mp3"
-            reference_audio_b64 = provider_params.get("reference_audio_b64")
-            reference_audio_format = provider_params.get("reference_audio_format") or "mp3"
-            if src_audio_b64:
-                acestep_kwargs["src_audio_b64"] = src_audio_b64
+            # Audio input: use upload_id references (never persist base64 blobs).
+            def _load_upload_b64(*, user_id: int, upload_id: str, fmt: str) -> str:
+                safe_id = str(upload_id or "").strip()
+                if not safe_id:
+                    raise RuntimeError("缺少上传的音频文件 (upload_id)")
+                safe_fmt = (fmt or "mp3").strip().lower()
+                if safe_fmt not in ("mp3", "wav", "flac"):
+                    safe_fmt = "mp3"
+                path = STATE.upload_dir / f"{user_id}-{safe_id}.{safe_fmt}"
+                if not path.exists():
+                    raise RuntimeError("上传的音频文件不存在或已过期，请重新上传")
+                raw = path.read_bytes()
+                return base64.b64encode(raw).decode("ascii")
+
+            src_upload_id = provider_params.get("src_audio_upload_id")
+            src_audio_format = str(provider_params.get("src_audio_format") or "mp3")
+            ref_upload_id = provider_params.get("reference_audio_upload_id")
+            reference_audio_format = str(provider_params.get("reference_audio_format") or "mp3")
+            if src_upload_id:
+                acestep_kwargs["src_audio_b64"] = _load_upload_b64(
+                    user_id=int(rec.user_id),
+                    upload_id=str(src_upload_id),
+                    fmt=src_audio_format,
+                )
                 acestep_kwargs["src_audio_format"] = src_audio_format
-            if reference_audio_b64:
-                acestep_kwargs["reference_audio_b64"] = reference_audio_b64
+            if ref_upload_id:
+                acestep_kwargs["reference_audio_b64"] = _load_upload_b64(
+                    user_id=int(rec.user_id),
+                    upload_id=str(ref_upload_id),
+                    fmt=reference_audio_format,
+                )
                 acestep_kwargs["reference_audio_format"] = reference_audio_format
 
             # Build log body (audio_config + dual-write flat params)
@@ -422,11 +444,13 @@ async def _run_job(*, job_id: str, prompt: str, params: dict[str, Any]) -> None:
                 val = acestep_kwargs.get(k)
                 if val is not None:
                     log_body[k] = val
-            # Redact base64 audio data from logs (too large, may contain sensitive content)
-            if src_audio_b64:
-                log_body["src_audio_b64"] = f"<redacted:{len(src_audio_b64)} chars>"
-            if reference_audio_b64:
-                log_body["reference_audio_b64"] = f"<redacted:{len(reference_audio_b64)} chars>"
+            # Audio upload references (never log base64)
+            if src_upload_id:
+                log_body["src_audio_upload_id"] = str(src_upload_id)
+                log_body["src_audio_format"] = src_audio_format
+            if ref_upload_id:
+                log_body["reference_audio_upload_id"] = str(ref_upload_id)
+                log_body["reference_audio_format"] = reference_audio_format
             # Task type indicator in log
             task_type = acestep_kwargs.get("task_type", "text2music")
             if task_type != "text2music":
@@ -445,6 +469,9 @@ async def _run_job(*, job_id: str, prompt: str, params: dict[str, Any]) -> None:
                     _stream_bytes: bytes | None = None
                     _stream_ex: Exception | None = None
                     _got_audio = False
+                    owner_user_id = int(rec.user_id) if rec.user_id is not None else None
+                    last_emit = 0.0
+                    last_content = ""
                     try:
                         async for evt in client.generate_stream(
                             prompt=acestep_prompt,
@@ -456,16 +483,21 @@ async def _run_job(*, job_id: str, prompt: str, params: dict[str, Any]) -> None:
                             **acestep_kwargs,
                         ):
                             if evt.event_type == "content" and evt.content:
-                                # Publish progress to frontend via event hub
-                                _rec = STATE.store.get(job_id)
-                                _uid = getattr(_rec, "user_id", None) if _rec else None
-                                if _uid is not None:
-                                    await STATE.event_hub.publish(int(_uid), {
-                                        "type": "job_progress",
-                                        "job_id": job_id,
-                                        "provider": "acestep",
-                                        "content": evt.content,
-                                    })
+                                # Publish progress (throttled) to frontend via event hub.
+                                if owner_user_id is not None:
+                                    now = time.monotonic()
+                                    last_content = evt.content
+                                    if (now - last_emit) >= 0.25:
+                                        last_emit = now
+                                        await STATE.event_hub.publish(
+                                            owner_user_id,
+                                            {
+                                                "type": "job_progress",
+                                                "job_id": job_id,
+                                                "provider": "acestep",
+                                                "content": last_content,
+                                            },
+                                        )
                             elif evt.event_type == "audio" and evt.audio_bytes:
                                 _stream_bytes = evt.audio_bytes
                                 _got_audio = True
@@ -475,6 +507,20 @@ async def _run_job(*, job_id: str, prompt: str, params: dict[str, Any]) -> None:
                     except Exception as stream_ex:
                         _stream_ex = stream_ex
                         logger.warning("ACE-Step stream failed, falling back to non-stream: %s", stream_ex)
+                    finally:
+                        if owner_user_id is not None and last_content:
+                            try:
+                                await STATE.event_hub.publish(
+                                    owner_user_id,
+                                    {
+                                        "type": "job_progress",
+                                        "job_id": job_id,
+                                        "provider": "acestep",
+                                        "content": last_content,
+                                    },
+                                )
+                            except Exception:
+                                pass
 
                     # Fallback to non-streaming if streaming produced no audio
                     if not _got_audio:
