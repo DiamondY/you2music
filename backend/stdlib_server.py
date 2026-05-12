@@ -303,7 +303,9 @@ class AppState:
                 acestep_kwargs: dict[str, Any] = {}
                 for k in ("bpm", "key_scale", "time_signature", "vocal_language",
                            "thinking", "use_format", "inference_steps", "guidance_scale",
-                           "shift", "infer_method", "timesteps"):
+                           "shift", "infer_method", "timesteps", "task_type", "sample_mode",
+                           "temperature", "top_p", "use_cot_caption", "use_cot_language",
+                           "audio_cover_strength", "repainting_start", "repainting_end"):
                     val = provider_params.get(k)
                     if val is not None and val != "":
                         acestep_kwargs[k] = val
@@ -315,6 +317,18 @@ class AppState:
                 if seed_val is not None and seed_val != "":
                     # allow seed=0, reject empty string
                     acestep_kwargs["seed"] = int(seed_val)
+
+                # Audio input: base64-encoded audio for cover/repaint/lego/extract/complete tasks
+                src_audio_b64 = provider_params.get("src_audio_b64")
+                src_audio_format = provider_params.get("src_audio_format") or "mp3"
+                reference_audio_b64 = provider_params.get("reference_audio_b64")
+                reference_audio_format = provider_params.get("reference_audio_format") or "mp3"
+                if src_audio_b64:
+                    acestep_kwargs["src_audio_b64"] = src_audio_b64
+                    acestep_kwargs["src_audio_format"] = src_audio_format
+                if reference_audio_b64:
+                    acestep_kwargs["reference_audio_b64"] = reference_audio_b64
+                    acestep_kwargs["reference_audio_format"] = reference_audio_format
 
                 result = client.generate(
                     prompt=acestep_prompt,

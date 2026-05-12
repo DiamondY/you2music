@@ -638,6 +638,101 @@
         font-size: 13px;
       }
 
+      /* ========================================
+         Audio Upload Section
+         ======================================== */
+      .audio-upload-section {
+        background: var(--color-bg-subtle);
+        border-radius: var(--radius-md);
+        padding: var(--space-md);
+        margin-top: var(--space-md);
+        display: none;
+      }
+      .audio-upload-section.visible {
+        display: block;
+      }
+      .audio-upload-section h4 {
+        margin: 0 0 var(--space-sm) 0;
+        font-size: 14px;
+        color: var(--color-text-primary);
+      }
+      .audio-upload-section p {
+        margin: 0 0 var(--space-md) 0;
+        font-size: 12px;
+        color: var(--color-text-muted);
+      }
+      .audio-upload-row {
+        display: flex;
+        gap: var(--space-md);
+        flex-wrap: wrap;
+      }
+      .audio-upload-item {
+        flex: 1;
+        min-width: 200px;
+      }
+      .audio-upload-item label {
+        display: block;
+        font-size: 13px;
+        color: var(--color-text-secondary);
+        margin-bottom: var(--space-xs);
+      }
+      .audio-drop-zone {
+        border: 2px dashed var(--color-border);
+        border-radius: var(--radius-md);
+        padding: var(--space-md);
+        text-align: center;
+        cursor: pointer;
+        transition: border-color 0.2s, background 0.2s;
+        position: relative;
+        min-height: 60px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+      }
+      .audio-drop-zone:hover,
+      .audio-drop-zone.drag-over {
+        border-color: var(--color-primary);
+        background: rgba(var(--color-primary-rgb, 99, 102, 241), 0.05);
+      }
+      .audio-drop-zone input[type="file"] {
+        position: absolute;
+        inset: 0;
+        opacity: 0;
+        cursor: pointer;
+      }
+      .audio-drop-zone .drop-text {
+        font-size: 13px;
+        color: var(--color-text-muted);
+      }
+      .audio-drop-zone .drop-text strong {
+        color: var(--color-primary);
+      }
+      .audio-file-info {
+        margin-top: var(--space-xs);
+        font-size: 12px;
+        color: var(--color-text-secondary);
+        display: flex;
+        align-items: center;
+        gap: var(--space-xs);
+      }
+      .audio-file-info .file-name {
+        max-width: 180px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .audio-file-info .remove-btn {
+        cursor: pointer;
+        color: var(--color-error);
+        font-size: 14px;
+        line-height: 1;
+        padding: 0 4px;
+      }
+      .audio-file-info .remove-btn:hover {
+        opacity: 0.7;
+      }
+
       .provider-desc {
         display: -webkit-box;
         -webkit-line-clamp: 2;
@@ -1619,6 +1714,36 @@
           <div class="muted">Provider 参数加载中…</div>
         </div>
 
+        <!-- Audio Upload (for ACE-Step audio tasks) -->
+        <div id="audioUploadSection" class="audio-upload-section">
+          <h4>音频上传</h4>
+          <p>cover/repaint/lego/extract/complete 任务需要上传音频文件。支持 MP3、WAV、FLAC 格式，最大 20MB。</p>
+          <div class="audio-upload-row">
+            <div class="audio-upload-item">
+              <label>源音频 (src_audio)</label>
+              <div class="audio-drop-zone" id="srcAudioDrop">
+                <input type="file" accept="audio/*,.mp3,.wav,.flac" id="srcAudioInput">
+                <span class="drop-text"><strong>点击选择</strong> 或拖拽音频文件</span>
+              </div>
+              <div id="srcAudioInfo" class="audio-file-info" style="display:none;">
+                <span class="file-name"></span>
+                <span class="remove-btn" onclick="clearAudioInput('src')">&times;</span>
+              </div>
+            </div>
+            <div class="audio-upload-item">
+              <label>参考音频 (reference_audio)</label>
+              <div class="audio-drop-zone" id="refAudioDrop">
+                <input type="file" accept="audio/*,.mp3,.wav,.flac" id="refAudioInput">
+                <span class="drop-text"><strong>点击选择</strong> 或拖拽音频文件</span>
+              </div>
+              <div id="refAudioInfo" class="audio-file-info" style="display:none;">
+                <span class="file-name"></span>
+                <span class="remove-btn" onclick="clearAudioInput('ref')">&times;</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- Composition Plan Editor -->
         <div id="compositionPlanEditor" class="cp-editor">
           <h4>Composition Plan 编辑器</h4>
@@ -1983,6 +2108,15 @@
       const providerEl = document.getElementById("provider");
       const advancedEl = document.getElementById("advanced");
       const providerFieldsEl = document.getElementById("providerFields");
+      const audioUploadSection = document.getElementById("audioUploadSection");
+      const srcAudioInput = document.getElementById("srcAudioInput");
+      const refAudioInput = document.getElementById("refAudioInput");
+      const srcAudioInfo = document.getElementById("srcAudioInfo");
+      const refAudioInfo = document.getElementById("refAudioInfo");
+      let srcAudioB64 = null;
+      let srcAudioFormat = null;
+      let refAudioB64 = null;
+      let refAudioFormat = null;
       const cpEditorEl = document.getElementById("compositionPlanEditor");
       const durationSlider = document.getElementById("duration");
       const durationValue = document.getElementById("durationValue");
@@ -2188,6 +2322,28 @@
           const jid = payload.job_id;
           if (jid && Array.isArray(currentJobs) && currentJobs.includes(jid)) {
             refreshJobs(currentJobs).catch(() => {});
+          }
+        } else if (evtType === "job_progress") {
+          // ACE-Step streaming progress — show content in the generating card
+          const jid = payload.job_id;
+          const content = payload.content || "";
+          if (jid && content) {
+            const card = document.querySelector(`[data-job-id="${jid}"]`);
+            if (card) {
+              let prog = card.querySelector(".job-progress-text");
+              if (!prog) {
+                prog = document.createElement("p");
+                prog.className = "job-progress-text";
+                prog.style.cssText = "margin:6px 0 0;font-size:12px;color:var(--muted,#888);white-space:pre-wrap;max-height:80px;overflow:hidden;";
+                const status = card.querySelector(".job-status") || card.querySelector(".status");
+                if (status && status.nextSibling) {
+                  status.parentNode.insertBefore(prog, status.nextSibling);
+                } else {
+                  card.appendChild(prog);
+                }
+              }
+              prog.textContent = content.length > 200 ? content.slice(0, 200) + "…" : content;
+            }
           }
         }
       }
@@ -2599,6 +2755,82 @@
           if (values[k] !== cond[k]) return false;
         }
         return true;
+      }
+
+      function _readAudioAsB64(file) {
+        return new Promise((resolve, reject) => {
+          if (!file) return resolve(null);
+          // Size limit: 20MB
+          if (file.size > 20 * 1024 * 1024) {
+            reject(new Error("音频文件不能超过 20MB"));
+            return;
+          }
+          const reader = new FileReader();
+          reader.onload = () => {
+            // reader.result is data:audio/mpeg;base64,...
+            const dataUrl = reader.result;
+            const commaIdx = dataUrl.indexOf(",");
+            if (commaIdx < 0) {
+              reject(new Error("无法读取音频文件"));
+              return;
+            }
+            const b64 = dataUrl.substring(commaIdx + 1);
+            resolve(b64);
+          };
+          reader.onerror = () => reject(new Error("读取音频文件失败"));
+          reader.readAsDataURL(file);
+        });
+      }
+
+      function _audioFormatFromFile(file) {
+        if (!file) return "mp3";
+        const name = file.name.toLowerCase();
+        if (name.endsWith(".wav")) return "wav";
+        if (name.endsWith(".flac")) return "flac";
+        return "mp3";
+      }
+
+      function clearAudioInput(which) {
+        if (which === "src") {
+          srcAudioB64 = null;
+          srcAudioFormat = null;
+          if (srcAudioInput) srcAudioInput.value = "";
+          if (srcAudioInfo) {
+            srcAudioInfo.style.display = "none";
+            srcAudioInfo.querySelector(".file-name").textContent = "";
+          }
+        } else {
+          refAudioB64 = null;
+          refAudioFormat = null;
+          if (refAudioInput) refAudioInput.value = "";
+          if (refAudioInfo) {
+            refAudioInfo.style.display = "none";
+            refAudioInfo.querySelector(".file-name").textContent = "";
+          }
+        }
+      }
+
+      async function handleAudioFileInput(which, file) {
+        if (!file) return;
+        try {
+          const b64 = await _readAudioAsB64(file);
+          const fmt = _audioFormatFromFile(file);
+          const infoEl = (which === "src") ? srcAudioInfo : refAudioInfo;
+          if (which === "src") {
+            srcAudioB64 = b64;
+            srcAudioFormat = fmt;
+          } else {
+            refAudioB64 = b64;
+            refAudioFormat = fmt;
+          }
+          if (infoEl) {
+            infoEl.style.display = "flex";
+            infoEl.querySelector(".file-name").textContent = file.name;
+          }
+        } catch (e) {
+          setError("音频文件读取失败: " + e.message);
+          clearAudioInput(which);
+        }
       }
 
       function parseFieldValue(field, raw) {
@@ -3321,6 +3553,17 @@
           params[field.key] = parseFieldValue(field, raw);
         }
         if (!params.use_composition_plan) delete params.composition_plan_json;
+
+        // Include audio input data if available
+        if (srcAudioB64) {
+          params.src_audio_b64 = srcAudioB64;
+          params.src_audio_format = srcAudioFormat || "mp3";
+        }
+        if (refAudioB64) {
+          params.reference_audio_b64 = refAudioB64;
+          params.reference_audio_format = refAudioFormat || "mp3";
+        }
+
         return params;
       }
 
@@ -3421,6 +3664,18 @@
         updateLyricsUi();
         updateRandomButtonsVisibility();
         _updatePromptBadge();
+
+        // Show/hide audio upload section based on provider capabilities and task_type
+        if (audioUploadSection) {
+          const caps = meta.capabilities || {};
+          const taskTypeEl = providerFieldsEl.querySelector('[data-key="task_type"]');
+          const taskType = taskTypeEl ? taskTypeEl.value : "text2music";
+          if (caps.supports_audio_input && taskType !== "text2music") {
+            audioUploadSection.classList.add("visible");
+          } else {
+            audioUploadSection.classList.remove("visible");
+          }
+        }
       }
 
       async function initProviders() {
@@ -4370,6 +4625,18 @@
 
       providerEl.addEventListener("change", () => renderProviderFields());
       advancedEl.addEventListener("change", () => renderProviderFields());
+
+      // Audio file input handlers
+      if (srcAudioInput) {
+        srcAudioInput.addEventListener("change", function() {
+          if (this.files && this.files[0]) handleAudioFileInput("src", this.files[0]);
+        });
+      }
+      if (refAudioInput) {
+        refAudioInput.addEventListener("change", function() {
+          if (this.files && this.files[0]) handleAudioFileInput("ref", this.files[0]);
+        });
+      }
 
       historyLimit = loadHistoryPageSizePref();
       if (historyPageSizeEl) {
