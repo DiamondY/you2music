@@ -241,6 +241,8 @@ async def _run_job(*, job_id: str, prompt: str, params: dict[str, Any]) -> None:
     provider_name = str(params.get("provider") or "minimax")
     key_pool = STATE.key_pools.get(provider_name)
     api_key: str | None = None
+    job_rec = STATE.store.get(job_id)
+    owner_user_id = int(job_rec.user_id) if job_rec and job_rec.user_id is not None else None
     try:
         STATE.audio_dir.mkdir(parents=True, exist_ok=True)
 
@@ -396,15 +398,19 @@ async def _run_job(*, job_id: str, prompt: str, params: dict[str, Any]) -> None:
             ref_upload_id = provider_params.get("reference_audio_upload_id")
             reference_audio_format = str(provider_params.get("reference_audio_format") or "mp3")
             if src_upload_id:
+                if owner_user_id is None:
+                    raise RuntimeError("job missing owner user_id for audio upload")
                 acestep_kwargs["src_audio_b64"] = _load_upload_b64(
-                    user_id=int(rec.user_id),
+                    user_id=owner_user_id,
                     upload_id=str(src_upload_id),
                     fmt=src_audio_format,
                 )
                 acestep_kwargs["src_audio_format"] = src_audio_format
             if ref_upload_id:
+                if owner_user_id is None:
+                    raise RuntimeError("job missing owner user_id for audio upload")
                 acestep_kwargs["reference_audio_b64"] = _load_upload_b64(
-                    user_id=int(rec.user_id),
+                    user_id=owner_user_id,
                     upload_id=str(ref_upload_id),
                     fmt=reference_audio_format,
                 )
@@ -469,7 +475,6 @@ async def _run_job(*, job_id: str, prompt: str, params: dict[str, Any]) -> None:
                     _stream_bytes: bytes | None = None
                     _stream_ex: Exception | None = None
                     _got_audio = False
-                    owner_user_id = int(rec.user_id) if rec.user_id is not None else None
                     last_emit = 0.0
                     last_content = ""
                     try:
