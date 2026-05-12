@@ -10,11 +10,13 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from typing import Any
 
+logger = logging.getLogger(__name__)
 
 _DEFAULT_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -22,10 +24,13 @@ _DEFAULT_USER_AGENT = (
     "Chrome/124.0.0.0 Safari/537.36"
 )
 
+VALID_TASK_TYPES = {"text2music", "cover", "repaint", "lego", "extract", "complete"}
+
 
 @dataclass(frozen=True)
 class ACEStepStdlibResult:
     """ACE-Step generation result."""
+
     audio_bytes: bytes
     task_id: str
     audio_url: str | None = None
@@ -55,7 +60,192 @@ class ACEStepClientStdlib:
         """Map friendly model names to API model IDs."""
         return self.MODEL_MAP.get(model, model)
 
-    def _request_json(self, method: str, url: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    @staticmethod
+    def _build_audio_part(audio_b64: str, audio_format: str) -> dict[str, Any]:
+        """
+        构建音频片段的 content part
+        :param audio_b64: base64 编码的音频数据
+        :param audio_format: 音频格式，如 "mp3", "wav"
+        :return: OpenAI 兼容的 audio content part 字典
+        """
+        return {
+            "type": "input_audio",
+            "input_audio": {
+                "data": audio_b64,
+                "format": audio_format,
+            },
+        }
+
+    def _build_request_body(
+        self,
+        *,
+        prompt,
+        lyrics=None,
+        model: str = "acemusic/acestep-v1.5-turbo",
+        audio_duration=None,
+        audio_format: str = "mp3",
+        bpm=None,
+        key_scale=None,
+        time_signature=None,
+        vocal_language=None,
+        instrumental: bool = False,
+        thinking: bool = False,
+        use_format: bool = False,
+        batch_size: int = 1,
+        inference_steps=None,
+        guidance_scale=None,
+        seed=None,
+        shift=None,
+        infer_method=None,
+        timesteps=None,
+        task_type=None,
+        sample_mode: bool = False,
+        temperature=None,
+        top_p=None,
+        use_cot_caption=None,
+        use_cot_language=None,
+        audio_cover_strength=None,
+        repainting_start=None,
+        repainting_end=None,
+        src_audio_b64=None,
+        src_audio_format=None,
+        reference_audio_b64=None,
+        reference_audio_format=None,
+        **kwargs,
+    ) -> dict[str, Any]:
+        """
+        构建请求体字典，供 generate 共用
+        :return: OpenAI Chat Completions 格式的请求体
+        """
+        model_id = self._get_model_id(model)
+
+        # 构建消息内容
+        text_content = f"{prompt}\n\nLyrics:\n{lyrics}" if lyrics else prompt
+
+        # 音频输入检测
+        has_audio = bool(src_audio_b64 or reference_audio_b64)
+
+        if has_audio:
+            content_parts = [{"type": "text", "text": text_content}]
+
+            # 根据任务类型决定音频路由
+            # text2music: 仅 reference_audio
+            # cover/repaint/lego/extract/complete: src_audio 在前，reference_audio 在后
+            if src_audio_b64:
+                fmt = src_audio_format or "mp3"
+                content_parts.append(self._build_audio_part(src_audio_b64, fmt))
+
+            if reference_audio_b64:
+                fmt = reference_audio_format or "mp3"
+                content_parts.append(self._build_audio_part(reference_audio_b64, fmt))
+
+            messages = [{"role": "user", "content": content_parts}]
+        else:
+            messages = [{"role": "user", "content": text_content}]
+
+        body: dict[str, Any] = {
+            "model": model_id,
+            "messages": messages,
+        }
+
+        # audio_config 嵌套对象（OpenRouter 格式）
+        audio_config: dict[str, Any] = {}
+        if audio_duration is not None:
+            audio_config["duration"] = int(audio_duration)
+        if audio_format:
+            audio_config["format"] = audio_format
+        if bpm is not None:
+            audio_config["bpm"] = int(bpm)
+        if key_scale:
+            audio_config["key_scale"] = key_scale
+        if time_signature:
+            audio_config["time_signature"] = time_signature
+        if vocal_language and vocal_language != "auto":
+            audio_config["vocal_language"] = vocal_language
+        if instrumental:
+            audio_config["instrumental"] = True
+        if audio_config:
+            body["audio_config"] = audio_config
+
+        # Dual-write 平展参数（兼容旧版与新版 API）
+        if audio_duration is not None:
+            body["duration"] = int(audio_duration)
+        if audio_format:
+            body["audio_format"] = audio_format
+        if bpm is not None:
+            body["bpm"] = int(bpm)
+        if key_scale:
+            body["key_scale"] = key_scale
+        if time_signature:
+            body["time_signature"] = time_signature
+        if vocal_language and vocal_language != "auto":
+            body["vocal_language"] = vocal_language
+        if instrumental:
+            body["instrumental"] = True
+
+        # 歌词（顶层，OpenRouter 格式）
+        if lyrics:
+            body["lyrics"] = str(lyrics).strip()
+
+        # 生成控制（顶层）
+        if thinking:
+            body["thinking"] = True
+        if use_format:
+            body["use_format"] = True
+        if batch_size and batch_size > 1:
+            body["batch_size"] = int(batch_size)
+
+        # 高级参数（顶层）
+        if inference_steps is not None:
+            body["inference_steps"] = int(inference_steps)
+        if guidance_scale is not None:
+            body["guidance_scale"] = float(guidance_scale)
+        if seed is not None and seed >= 0:
+            body["seed"] = int(seed)
+            body["use_random_seed"] = False
+        if shift is not None:
+            body["shift"] = float(shift)
+        if infer_method:
+            body["infer_method"] = infer_method
+        if timesteps:
+            body["timesteps"] = timesteps
+
+        # 新 OpenRouter 参数
+        if task_type is not None:
+            if task_type not in VALID_TASK_TYPES:
+                raise ValueError(
+                    f"Invalid task_type '{task_type}', must be one of {VALID_TASK_TYPES}"
+                )
+            body["task_type"] = task_type
+
+        if sample_mode:
+            body["sample_mode"] = True
+
+        if temperature is not None:
+            body["temperature"] = float(temperature)
+        if top_p is not None:
+            body["top_p"] = float(top_p)
+        if use_cot_caption is not None:
+            body["use_cot_caption"] = bool(use_cot_caption)
+        if use_cot_language is not None:
+            body["use_cot_language"] = bool(use_cot_language)
+        if audio_cover_strength is not None:
+            body["audio_cover_strength"] = float(audio_cover_strength)
+        if repainting_start is not None:
+            body["repainting_start"] = float(repainting_start)
+        if repainting_end is not None:
+            body["repainting_end"] = float(repainting_end)
+
+        # kwargs 透传（排除 poll_interval_s, max_wait_s 等内部参数）
+        for k, v in kwargs.items():
+            if v is not None and k not in ("poll_interval_s", "max_wait_s"):
+                body[k] = v
+
+        return body
+
+    def _request_json(
+        self, method: str, url: str, body: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         """Make HTTP request and return JSON response."""
         data_bytes = json.dumps(body, ensure_ascii=False).encode("utf-8") if body is not None else None
         headers = {
@@ -113,6 +303,19 @@ class ACEStepClientStdlib:
         shift: float | None = None,
         infer_method: str | None = None,
         timesteps: str | None = None,
+        task_type=None,
+        sample_mode: bool = False,
+        temperature=None,
+        top_p=None,
+        use_cot_caption=None,
+        use_cot_language=None,
+        audio_cover_strength=None,
+        repainting_start=None,
+        repainting_end=None,
+        src_audio_b64=None,
+        src_audio_format=None,
+        reference_audio_b64=None,
+        reference_audio_format=None,
         **kwargs: Any,
     ) -> ACEStepStdlibResult:
         """Generate music using ACE-Step 1.5 model (OpenAI-compatible API).
@@ -137,91 +340,60 @@ class ACEStepClientStdlib:
             shift: 时间步偏移因子 1.0-5.0 (仅 base 模型)
             infer_method: 推理方法 "ode" 或 "sde"
             timesteps: 自定义时间步 (逗号分隔)
+            task_type: 任务类型 (text2music, cover, repaint, lego, extract, complete)
+            sample_mode: 采样模式
+            temperature: 采样温度
+            top_p: Top-p 采样
+            use_cot_caption: 使用思维链标题
+            use_cot_language: 使用思维链语言
+            audio_cover_strength: 音频覆盖强度
+            repainting_start: 重绘开始时间
+            repainting_end: 重绘结束时间
+            src_audio_b64: 源音频 base64
+            src_audio_format: 源音频格式
+            reference_audio_b64: 参考音频 base64
+            reference_audio_format: 参考音频格式
 
         Returns:
             ACEStepStdlibResult with audio_bytes
         """
         url = f"{self._base}/v1/chat/completions"
 
-        # Build the prompt content (lyrics embedded in messages.content for dual-write compat)
-        content = prompt
-        if lyrics:
-            content = f"{prompt}\n\nLyrics:\n{lyrics}"
-
-        # Map model name if needed
-        model_id = self._get_model_id(model)
-
-        body: dict[str, Any] = {
-            "model": model_id,
-            "messages": [
-                {"role": "user", "content": content}
-            ],
-        }
-
-        # --- audio_config: nested object (OpenRouter format) ---
-        audio_config: dict[str, Any] = {}
-        if audio_duration is not None:
-            audio_config["duration"] = int(audio_duration)
-        if audio_format:
-            audio_config["format"] = audio_format
-        if bpm is not None:
-            audio_config["bpm"] = int(bpm)
-        if key_scale:
-            audio_config["key_scale"] = key_scale
-        if time_signature:
-            audio_config["time_signature"] = time_signature
-        if vocal_language and vocal_language != "auto":
-            audio_config["vocal_language"] = vocal_language
-        if instrumental:
-            audio_config["instrumental"] = True
-        if audio_config:
-            body["audio_config"] = audio_config
-
-        # --- Dual-write: top-level flat params (backward compat) ---
-        if audio_duration is not None:
-            body["duration"] = int(audio_duration)
-        if audio_format:
-            body["audio_format"] = audio_format
-        if bpm is not None:
-            body["bpm"] = int(bpm)
-        if key_scale:
-            body["key_scale"] = key_scale
-        if time_signature:
-            body["time_signature"] = time_signature
-        if vocal_language and vocal_language != "auto":
-            body["vocal_language"] = vocal_language
-
-        # --- lyrics: top-level field (OpenRouter format) ---
-        if lyrics:
-            body["lyrics"] = str(lyrics).strip()
-
-        # Generation control (top-level)
-        if thinking:
-            body["thinking"] = True
-        if use_format:
-            body["use_format"] = True
-        if batch_size and batch_size > 1:
-            body["batch_size"] = int(batch_size)
-
-        # Advanced generation parameters (top-level)
-        if inference_steps is not None:
-            body["inference_steps"] = int(inference_steps)
-        if guidance_scale is not None:
-            body["guidance_scale"] = float(guidance_scale)
-        if seed is not None and seed >= 0:
-            body["seed"] = int(seed)
-            body["use_random_seed"] = False
-        if shift is not None:
-            body["shift"] = float(shift)
-        if infer_method:
-            body["infer_method"] = infer_method
-        if timesteps:
-            body["timesteps"] = timesteps
-
-        # Add any additional parameters
-        for k, v in kwargs.items():
-            if v is not None and k not in ("poll_interval_s", "max_wait_s"):
-                body[k] = v
+        body = self._build_request_body(
+            prompt=prompt,
+            lyrics=lyrics,
+            model=model,
+            audio_duration=audio_duration,
+            audio_format=audio_format,
+            bpm=bpm,
+            key_scale=key_scale,
+            time_signature=time_signature,
+            vocal_language=vocal_language,
+            instrumental=instrumental,
+            thinking=thinking,
+            use_format=use_format,
+            batch_size=batch_size,
+            inference_steps=inference_steps,
+            guidance_scale=guidance_scale,
+            seed=seed,
+            shift=shift,
+            infer_method=infer_method,
+            timesteps=timesteps,
+            task_type=task_type,
+            sample_mode=sample_mode,
+            temperature=temperature,
+            top_p=top_p,
+            use_cot_caption=use_cot_caption,
+            use_cot_language=use_cot_language,
+            audio_cover_strength=audio_cover_strength,
+            repainting_start=repainting_start,
+            repainting_end=repainting_end,
+            src_audio_b64=src_audio_b64,
+            src_audio_format=src_audio_format,
+            reference_audio_b64=reference_audio_b64,
+            reference_audio_format=reference_audio_format,
+            **kwargs,
+        )
 
         data = self._request_json("POST", url, body)
 
@@ -236,36 +408,43 @@ class ACEStepClientStdlib:
         if not audio_list:
             raise RuntimeError(f"ACE-Step API returned no audio: {data}")
 
-        # Generate a pseudo task_id from response
-        task_id = data.get("id", "acestep-sync")
+        # 解析第一个音频块（data URL 格式: data:audio/mpeg;base64,...）
+        first_audio = audio_list[0]
+        audio_data_url = first_audio.get("audio_url", {}).get("url", "")
+        if not audio_data_url:
+            raise RuntimeError(f"ACE-Step API returned no audio URL: {first_audio}")
+        if not audio_data_url.startswith("data:"):
+            raise RuntimeError(f"ACE-Step returned non-data URL: {audio_data_url[:50]}...")
+        _, b64_part = audio_data_url.split(",", 1)
+        audio_bytes = base64.b64decode(b64_part)
 
-        def _decode_audio_item(item: dict) -> bytes:
-            audio_url = item.get("audio_url", {}).get("url", "")
-            if not audio_url:
-                raise RuntimeError(f"ACE-Step API returned no audio URL: {item}")
-            if not audio_url.startswith("data:"):
-                raise RuntimeError(f"ACE-Step returned non-data URL: {audio_url[:50]}...")
-            _, data_part = audio_url.split(",", 1)
-            return base64.b64decode(data_part)
-
-        # Primary audio
-        audio_bytes = _decode_audio_item(audio_list[0])
-
-        # Batch: extract additional audios
+        # 提取额外音频（如果有，如批量生成）
         extra_audios: list[bytes] | None = None
         if len(audio_list) > 1:
-            extra_audios = [_decode_audio_item(item) for item in audio_list[1:]]
+            extra_audios = []
+            for audio_item in audio_list[1:]:
+                data_url = audio_item.get("audio_url", {}).get("url", "")
+                if data_url and "," in data_url:
+                    _, b64 = data_url.split(",", 1)
+                    extra_audios.append(base64.b64decode(b64))
+                elif data_url:
+                    extra_audios.append(base64.b64decode(data_url))
+
+        # 任务 ID
+        task_id = data.get("id", "acestep-sync")
+
+        # metadata
+        metadata = {
+            "model": data.get("model", model),
+            "usage": data.get("usage", {}),
+            "finish_reason": choices[0].get("finish_reason"),
+        }
 
         return ACEStepStdlibResult(
             audio_bytes=audio_bytes,
             task_id=task_id,
-            metadata={
-                "model": model_id,
-                "prompt": prompt,
-                "lyrics": lyrics,
-                "duration": audio_duration,
-                "format": audio_format,
-            },
+            audio_url=None,
+            metadata=metadata,
             extra_audios=extra_audios,
         )
 
@@ -291,6 +470,19 @@ class ACEStepClientStdlib:
         shift: float | None = None,
         infer_method: str | None = None,
         timesteps: str | None = None,
+        task_type=None,
+        sample_mode: bool = False,
+        temperature=None,
+        top_p=None,
+        use_cot_caption=None,
+        use_cot_language=None,
+        audio_cover_strength=None,
+        repainting_start=None,
+        repainting_end=None,
+        src_audio_b64=None,
+        src_audio_format=None,
+        reference_audio_b64=None,
+        reference_audio_format=None,
         **kwargs: Any,
     ) -> ACEStepStdlibResult:
         """Generate music and return result (synchronous API)."""
@@ -314,6 +506,19 @@ class ACEStepClientStdlib:
             shift=shift,
             infer_method=infer_method,
             timesteps=timesteps,
+            task_type=task_type,
+            sample_mode=sample_mode,
+            temperature=temperature,
+            top_p=top_p,
+            use_cot_caption=use_cot_caption,
+            use_cot_language=use_cot_language,
+            audio_cover_strength=audio_cover_strength,
+            repainting_start=repainting_start,
+            repainting_end=repainting_end,
+            src_audio_b64=src_audio_b64,
+            src_audio_format=src_audio_format,
+            reference_audio_b64=reference_audio_b64,
+            reference_audio_format=reference_audio_format,
             **kwargs,
         )
 

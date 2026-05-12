@@ -98,6 +98,9 @@ ACE-Step 1.5 开源音乐生成模型，通过 acemusic.ai 云服务调用，质
 | 人声支持 | ✅ 是 |
 | 歌词支持 | ✅ 50+ 语言 |
 | 最大时长 | 600 秒（10 分钟）|
+| 任务类型 | text2music, cover, repaint, lego, extract, complete |
+| 音频输入 | ✅ 支持上传源音频/参考音频 |
+| 流式进度 | ✅ SSE 实时显示生成进度 |
 
 ### 获取步骤
 
@@ -136,6 +139,7 @@ ACE-Step 1.5 开源音乐生成模型，通过 acemusic.ai 云服务调用，质
 | 参数 | 说明 | 默认值 |
 |------|------|--------|
 | `model` | 模型版本 | `acemusic/acestep-v1.5-turbo` |
+| `task_type` | 任务类型（见下表）| `text2music` |
 | `audio_duration` | 时长（秒，3-600）| 30 |
 | `audio_format` | 输出格式（mp3/wav/flac）| `mp3` |
 | `vocal_language` | 歌词语言（zh/en/ja/ko/auto）| `zh` |
@@ -145,8 +149,22 @@ ACE-Step 1.5 开源音乐生成模型，通过 acemusic.ai 云服务调用，质
 | `instrumental` | 纯音乐模式（无人声）| `false` |
 | `thinking` | 思考模式（5Hz LM 增强质量）| `false` |
 | `use_format` | 格式增强（LM 优化描述和歌词）| `false` |
+| `sample_mode` | 自然语言模式（LLM 自动生成 prompt 和歌词）| `false` |
 
-#### 高级生成控制参数（高级模式）
+#### 任务类型（task_type）
+
+| 类型 | 说明 | 需要音频输入 |
+|------|------|-------------|
+| `text2music` | 文本生乐（默认）| 否 |
+| `cover` | 翻唱 | ✅ 源音频 |
+| `repaint` | 局部重绘 | ✅ 源音频 |
+| `lego` | 拼接 | ✅ 源音频 |
+| `extract` | 提取 | ✅ 源音频 |
+| `complete` | 续写 | ✅ 源音频 |
+
+> **音频输入**: cover/repaint/lego/extract/complete 任务需要上传源音频（src_audio）。可在 UI 中通过拖拽或点击上传区域添加。参考音频（reference_audio）对所有任务类型可选。
+
+#### 生成控制参数（高级模式）
 
 | 参数 | 说明 | 默认值 |
 |------|------|--------|
@@ -156,12 +174,23 @@ ACE-Step 1.5 开源音乐生成模型，通过 acemusic.ai 云服务调用，质
 | `shift` | 时间步偏移因子 1.0-5.0（仅 base 模型）| 3.0 |
 | `infer_method` | 推理方法（ode=确定性, sde=随机）| `ode` |
 | `timesteps` | 自定义时间步（逗号分隔）| 自动 |
+| `temperature` | LM 采样温度（越高越随机）| 0.85 |
+| `top_p` | Nucleus sampling | 0.9 |
+| `use_cot_caption` | 思维链改写/增强音乐描述 | `true` |
+| `use_cot_language` | 思维链自动检测歌词语言 | `true` |
+| `audio_cover_strength` | 翻唱强度（0.0-1.0，cover 任务）| 1.0 |
+| `repainting_start` | 重绘区域起始位置（秒，repaint 任务）| — |
+| `repainting_end` | 重绘区域结束位置（秒，repaint 任务）| — |
 
 > **参数传递机制**: 音乐属性参数（duration/bpm/format/vocal_language/key_scale/time_signature/instrumental）通过 `audio_config` 嵌套对象传递，符合 OpenRouter API 规范。同时以顶层平铺参数双写，确保向后兼容。歌词通过 `lyrics` 顶层字段独立传递（同时保留在 `messages.content` 中）。
 
 > **instrumental 说明**: 关闭人声（UI 中 vocals=false）时自动启用 `instrumental=true`，此时不生成人声轨道。
 
 > **seed 说明**: 前端全局 seed 输入框的值会传递给 ACE-Step API。设置相同 seed 可获得更一致的结果。
+
+> **音频输入说明**: 当上传源音频或参考音频时，`messages.content` 变为多模态数组，包含 `text` 和 `input_audio` 两种类型的 part。text2music 任务仅使用 reference_audio；cover/repaint/lego/extract/complete 任务将 src_audio 放在第一位，reference_audio（可选）放在第二位。
+
+> **SSE 流式进度**: ACE-Step 使用 `stream: true` 进行流式生成。worker 通过 `generate_stream()` 异步迭代 SSE 事件，实时将 `content` 类型事件发布为 `job_progress` 到前端 event hub，前端在对应 job 卡片中显示生成进度文本。流式完成后解析音频数据；如流式失败则自动降级为非流式 `generate()`。
 
 ### 相关链接
 
@@ -225,7 +254,10 @@ export AI_MUSIC_PROVIDER_DEFAULT="acestep"
 | 质量 | 高 | 介于 Suno v4.5 和 v5 |
 | 国内访问 | ✅ 直连 | ✅ 直连 |
 | 最大时长 | 240 秒 | 600 秒 |
-| 推荐场景 | 国内稳定方案 | 免费测试、高质量 |
+| 任务类型 | 文本生乐 | text2music, cover, repaint, lego, extract, complete |
+| 音频输入 | ❌ | ✅ 源音频/参考音频 |
+| 流式进度 | ❌ | ✅ SSE 实时进度 |
+| 推荐场景 | 国内稳定方案 | 免费测试、高质量、翻唱/重绘 |
 
 ---
 
@@ -237,4 +269,4 @@ export AI_MUSIC_PROVIDER_DEFAULT="acestep"
 
 ---
 
-*最后更新: 2026-05-11*
+*最后更新: 2026-05-12*

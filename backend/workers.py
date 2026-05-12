@@ -15,7 +15,7 @@ from typing import Any, AsyncIterator
 
 from concurrency import run_with_retry
 from providers.minimax import MiniMaxMusicClient
-from providers.acestep import ACEStepClient
+from providers.acestep import ACEStepClient, ACEStepStreamEvent
 from state import STATE
 
 logger = logging.getLogger(__name__)
@@ -361,7 +361,9 @@ async def _run_job(*, job_id: str, prompt: str, params: dict[str, Any]) -> None:
             acestep_kwargs: dict[str, Any] = {}
             for k in ("bpm", "key_scale", "time_signature", "vocal_language",
                        "thinking", "use_format", "inference_steps", "guidance_scale",
-                       "shift", "infer_method", "timesteps"):
+                       "shift", "infer_method", "timesteps", "task_type", "sample_mode",
+                       "temperature", "top_p", "use_cot_caption", "use_cot_language",
+                       "audio_cover_strength", "repainting_start", "repainting_end"):
                 val = provider_params.get(k)
                 if val is not None and val != "":
                     acestep_kwargs[k] = val
@@ -373,6 +375,18 @@ async def _run_job(*, job_id: str, prompt: str, params: dict[str, Any]) -> None:
             if seed_val is not None and seed_val != "":
                 # allow seed=0, reject empty string
                 acestep_kwargs["seed"] = int(seed_val)
+
+            # Audio input: base64-encoded audio for cover/repaint/lego/extract/complete tasks
+            src_audio_b64 = provider_params.get("src_audio_b64")
+            src_audio_format = provider_params.get("src_audio_format") or "mp3"
+            reference_audio_b64 = provider_params.get("reference_audio_b64")
+            reference_audio_format = provider_params.get("reference_audio_format") or "mp3"
+            if src_audio_b64:
+                acestep_kwargs["src_audio_b64"] = src_audio_b64
+                acestep_kwargs["src_audio_format"] = src_audio_format
+            if reference_audio_b64:
+                acestep_kwargs["reference_audio_b64"] = reference_audio_b64
+                acestep_kwargs["reference_audio_format"] = reference_audio_format
 
             # Build log body (audio_config + dual-write flat params)
             log_body: dict[str, Any] = {
@@ -401,10 +415,22 @@ async def _run_job(*, job_id: str, prompt: str, params: dict[str, Any]) -> None:
                 log_body["audio_format"] = audio_format
             for k in ("bpm", "key_scale", "time_signature", "vocal_language",
                        "thinking", "use_format", "inference_steps", "guidance_scale",
-                       "seed", "shift", "infer_method", "timesteps"):
+                       "seed", "shift", "infer_method", "timesteps", "task_type",
+                       "sample_mode", "temperature", "top_p", "use_cot_caption",
+                       "use_cot_language", "audio_cover_strength", "repainting_start",
+                       "repainting_end"):
                 val = acestep_kwargs.get(k)
                 if val is not None:
                     log_body[k] = val
+            # Redact base64 audio data from logs (too large, may contain sensitive content)
+            if src_audio_b64:
+                log_body["src_audio_b64"] = f"<redacted:{len(src_audio_b64)} chars>"
+            if reference_audio_b64:
+                log_body["reference_audio_b64"] = f"<redacted:{len(reference_audio_b64)} chars>"
+            # Task type indicator in log
+            task_type = acestep_kwargs.get("task_type", "text2music")
+            if task_type != "text2music":
+                log_body["task_type"] = task_type
             req_body = json.dumps(log_body, ensure_ascii=False)
 
             async with _log_api_call(
@@ -415,20 +441,63 @@ async def _run_job(*, job_id: str, prompt: str, params: dict[str, Any]) -> None:
                 api_key_hint=key_hint,
             ) as log_info:
                 try:
-                    result = await client.generate(
-                        prompt=acestep_prompt,
-                        lyrics=str(lyrics).strip() if lyrics else None,
-                        model=model,
-                        audio_duration=audio_duration,
-                        audio_format=audio_format,
-                        instrumental=instrumental,
-                        **acestep_kwargs,
-                    )
+                    _stream_task_id = "acestep-stream"
+                    _stream_bytes: bytes | None = None
+                    _stream_ex: Exception | None = None
+                    _got_audio = False
+                    try:
+                        async for evt in client.generate_stream(
+                            prompt=acestep_prompt,
+                            lyrics=str(lyrics).strip() if lyrics else None,
+                            model=model,
+                            audio_duration=audio_duration,
+                            audio_format=audio_format,
+                            instrumental=instrumental,
+                            **acestep_kwargs,
+                        ):
+                            if evt.event_type == "content" and evt.content:
+                                # Publish progress to frontend via event hub
+                                _rec = STATE.store.get(job_id)
+                                _uid = getattr(_rec, "user_id", None) if _rec else None
+                                if _uid is not None:
+                                    await STATE.event_hub.publish(int(_uid), {
+                                        "type": "job_progress",
+                                        "job_id": job_id,
+                                        "provider": "acestep",
+                                        "content": evt.content,
+                                    })
+                            elif evt.event_type == "audio" and evt.audio_bytes:
+                                _stream_bytes = evt.audio_bytes
+                                _got_audio = True
+                            elif evt.event_type == "done":
+                                if evt.finish_reason:
+                                    _stream_task_id = f"acestep-{evt.finish_reason}"
+                    except Exception as stream_ex:
+                        _stream_ex = stream_ex
+                        logger.warning("ACE-Step stream failed, falling back to non-stream: %s", stream_ex)
+
+                    # Fallback to non-streaming if streaming produced no audio
+                    if not _got_audio:
+                        result = await client.generate(
+                            prompt=acestep_prompt,
+                            lyrics=str(lyrics).strip() if lyrics else None,
+                            model=model,
+                            audio_duration=audio_duration,
+                            audio_format=audio_format,
+                            instrumental=instrumental,
+                            **acestep_kwargs,
+                        )
+                        _stream_bytes = result.audio_bytes
+                        _stream_task_id = result.task_id
+
+                    if _stream_ex and not _stream_bytes:
+                        raise _stream_ex
+
                     log_info["http_status"] = 200
                     log_info["response_body"] = json.dumps({
-                        "task_id": result.task_id,
-                    }, ensure_ascii=False) if result else None
-                    out_bytes = result.audio_bytes
+                        "task_id": _stream_task_id,
+                    }, ensure_ascii=False)
+                    out_bytes = _stream_bytes
                     out_ext = audio_format
                 except Exception as e:
                     log_info["http_status"] = _extract_http_status(str(e))
