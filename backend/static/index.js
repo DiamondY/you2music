@@ -76,6 +76,11 @@
       const refAudioInput = document.getElementById("refAudioInput");
       const srcAudioInfo = document.getElementById("srcAudioInfo");
       const refAudioInfo = document.getElementById("refAudioInfo");
+      const audioUploadSectionMobile = document.getElementById("audioUploadSectionMobile");
+      const srcAudioInputMobile = document.getElementById("srcAudioInputMobile");
+      const refAudioInputMobile = document.getElementById("refAudioInputMobile");
+      const srcAudioInfoMobile = document.getElementById("srcAudioInfoMobile");
+      const refAudioInfoMobile = document.getElementById("refAudioInfoMobile");
       let srcAudioUploadId = null;
       let srcAudioB64 = null;
       let srcAudioFormat = null;
@@ -520,10 +525,47 @@
       function _readAudioAsB64(file) { return new Promise((resolve, reject) => { if (!file) return resolve(null); if (file.size > 20 * 1024 * 1024) { reject(new Error("音频文件不能超过 20MB")); return; } const reader = new FileReader(); reader.onload = () => { const dataUrl = reader.result; const commaIdx = dataUrl.indexOf(","); if (commaIdx < 0) { reject(new Error("无法读取音频文件")); return; } const b64 = dataUrl.substring(commaIdx + 1); resolve(b64); }; reader.onerror = () => reject(new Error("读取音频文件失败")); reader.readAsDataURL(file); }); }
       async function _uploadAudioFile(file) { if (!file) return null; if (!authToken) throw new Error("请先登录再上传音频文件"); if (file.size > 20 * 1024 * 1024) throw new Error("音频文件不能超过 20MB"); const fd = new FormData(); fd.append("file", file); const res = await fetch("/api/uploads/audio", { method: "POST", headers: { Authorization: "Bearer " + authToken }, body: fd }); const text = await res.text().catch(() => ""); let data = {}; try { data = text ? JSON.parse(text) : {}; } catch { data = { raw: text }; } if (!res.ok) { throw new Error(formatApiError(data, text || "HTTP " + res.status)); } return data; }
       function _audioFormatFromFile(file) { if (!file) return "mp3"; const name = file.name.toLowerCase(); if (name.endsWith(".wav")) return "wav"; if (name.endsWith(".flac")) return "flac"; return "mp3"; }
-      function clearAudioInput(which) { if (which === "src") { srcAudioUploadId = null; srcAudioB64 = null; srcAudioFormat = null; if (srcAudioInput) srcAudioInput.value = ""; if (srcAudioInfo) { srcAudioInfo.style.display = "none"; srcAudioInfo.querySelector(".file-name").textContent = ""; } } else { refAudioUploadId = null; refAudioB64 = null; refAudioFormat = null; if (refAudioInput) refAudioInput.value = ""; if (refAudioInfo) { refAudioInfo.style.display = "none"; refAudioInfo.querySelector(".file-name").textContent = ""; } } }
+      function clearAudioInput(which) {
+        if (which === "src") {
+          srcAudioUploadId = null; srcAudioB64 = null; srcAudioFormat = null;
+          if (srcAudioInput) srcAudioInput.value = "";
+          if (srcAudioInputMobile) srcAudioInputMobile.value = "";
+          if (srcAudioInfo) { srcAudioInfo.style.display = "none"; srcAudioInfo.querySelector(".file-name").textContent = ""; }
+          if (srcAudioInfoMobile) { srcAudioInfoMobile.style.display = "none"; srcAudioInfoMobile.querySelector(".file-name").textContent = ""; }
+        } else {
+          refAudioUploadId = null; refAudioB64 = null; refAudioFormat = null;
+          if (refAudioInput) refAudioInput.value = "";
+          if (refAudioInputMobile) refAudioInputMobile.value = "";
+          if (refAudioInfo) { refAudioInfo.style.display = "none"; refAudioInfo.querySelector(".file-name").textContent = ""; }
+          if (refAudioInfoMobile) { refAudioInfoMobile.style.display = "none"; refAudioInfoMobile.querySelector(".file-name").textContent = ""; }
+        }
+      }
       async function handleAudioFileInput(which, file) {
         if (!file) return;
-        try { const infoEl = (which === "src") ? srcAudioInfo : refAudioInfo; const fmt = _audioFormatFromFile(file); if (localMode) { const b64 = await _readAudioAsB64(file); if (which === "src") { srcAudioUploadId = null; srcAudioB64 = b64; srcAudioFormat = fmt; } else { refAudioUploadId = null; refAudioB64 = b64; refAudioFormat = fmt; } } else { const up = await _uploadAudioFile(file); const uploadId = up && up.upload_id ? String(up.upload_id) : null; const serverFmt = up && up.format ? String(up.format) : fmt; if (!uploadId) throw new Error("上传失败：未返回 upload_id"); if (which === "src") { srcAudioUploadId = uploadId; srcAudioB64 = null; srcAudioFormat = serverFmt; } else { refAudioUploadId = uploadId; refAudioB64 = null; refAudioFormat = serverFmt; } } if (infoEl) { infoEl.style.display = "flex"; infoEl.querySelector(".file-name").textContent = file.name; } } catch (e) { const msg = (e && e.message) ? e.message : String(e || ""); setError("音频文件处理失败: " + msg); clearAudioInput(which); } }
+        try {
+          const infoEl = (which === "src") ? srcAudioInfo : refAudioInfo;
+          const infoElMobile = (which === "src") ? srcAudioInfoMobile : refAudioInfoMobile;
+          const fmt = _audioFormatFromFile(file);
+          if (localMode) {
+            const b64 = await _readAudioAsB64(file);
+            if (which === "src") { srcAudioUploadId = null; srcAudioB64 = b64; srcAudioFormat = fmt; }
+            else { refAudioUploadId = null; refAudioB64 = b64; refAudioFormat = fmt; }
+          } else {
+            const up = await _uploadAudioFile(file);
+            const uploadId = up && up.upload_id ? String(up.upload_id) : null;
+            const serverFmt = up && up.format ? String(up.format) : fmt;
+            if (!uploadId) throw new Error("上传失败：未返回 upload_id");
+            if (which === "src") { srcAudioUploadId = uploadId; srcAudioB64 = null; srcAudioFormat = serverFmt; }
+            else { refAudioUploadId = uploadId; refAudioB64 = null; refAudioFormat = serverFmt; }
+          }
+          if (infoEl) { infoEl.style.display = "flex"; infoEl.querySelector(".file-name").textContent = file.name; }
+          if (infoElMobile) { infoElMobile.style.display = "flex"; infoElMobile.querySelector(".file-name").textContent = file.name; }
+        } catch (e) {
+          const msg = (e && e.message) ? e.message : String(e || "");
+          setError("音频文件处理失败: " + msg);
+          clearAudioInput(which);
+        }
+      }
       function parseFieldValue(field, raw) { if (field.kind === "boolean") return toBool(raw); if (field.kind === "integer") return raw === "" || raw === null ? null : parseInt(raw, 10); if (field.kind === "number") return raw === "" || raw === null ? null : parseFloat(raw); if (field.kind === "json") { if (raw === "" || raw === null) return null; try { return JSON.parse(raw); } catch { return raw; } } return raw === "" ? null : raw; }
       function _ensureFieldBadge(labelEl, kind) { if (!labelEl) return; const existing = labelEl.querySelector(".field-badge"); if (existing) existing.remove(); const badge = document.createElement("span"); badge.className = "field-badge " + kind; badge.textContent = (kind === "required") ? "必填" : "可选"; labelEl.appendChild(badge); }
       function _decorateStaticBadges() { const mapping = [{ id: "advanced", kind: "optional" }, { id: "duration", kind: "required" }, { id: "vocals", kind: "required" }, { id: "lyrics", kind: "optional" }, { id: "seed", kind: "optional" }]; for (const m of mapping) { const label = document.querySelector("label[for=\"" + m.id + "\"]"); _ensureFieldBadge(label, m.kind); } const promptLabel = document.querySelector("label[for=\"prompt\"]"); _ensureFieldBadge(promptLabel, "required"); }
@@ -760,7 +802,15 @@
         for (const field of (meta.fields || [])) { const el = providerFieldsEl.querySelector("[data-key=\"" + field.key + "\"]"); if (!el) continue; const v = values[field.key]; if (el.tagName === "INPUT" && el.type === "checkbox") { el.checked = toBool(v); } else if (v !== null && v !== undefined) { el.value = String(v); } }
         providerFieldsEl.querySelectorAll("input,select,textarea").forEach(el => { el.addEventListener("change", () => { renderProviderFields(); }); });
         updateLyricsUi(); updateRandomButtonsVisibility(); _updatePromptBadge();
-        if (audioUploadSection) { const caps = meta.capabilities || {}; const taskTypeEl = providerFieldsEl.querySelector("[data-key=\"task_type\"]"); const taskType = taskTypeEl ? taskTypeEl.value : "text2music"; if (caps.supports_audio_input && taskType !== "text2music") { audioUploadSection.classList.add("visible"); } else { audioUploadSection.classList.remove("visible"); clearAudioInput("src"); clearAudioInput("ref"); } }
+        if (audioUploadSection || audioUploadSectionMobile) {
+          const caps = meta.capabilities || {};
+          const taskTypeEl = providerFieldsEl.querySelector("[data-key=\"task_type\"]");
+          const taskType = taskTypeEl ? taskTypeEl.value : "text2music";
+          const show = caps.supports_audio_input && taskType !== "text2music";
+          if (audioUploadSection) audioUploadSection.classList.toggle("visible", show);
+          if (audioUploadSectionMobile) audioUploadSectionMobile.classList.toggle("visible", show);
+          if (!show) { clearAudioInput("src"); clearAudioInput("ref"); }
+        }
         // In original/simple mode, keep the UI focused on required fields only.
         const seedEl = document.getElementById("seed");
         if (seedEl) {
@@ -923,6 +973,8 @@
       advancedEl.addEventListener("change", () => renderProviderFields());
       if (srcAudioInput) { srcAudioInput.addEventListener("change", function() { if (this.files && this.files[0]) handleAudioFileInput("src", this.files[0]); }); }
       if (refAudioInput) { refAudioInput.addEventListener("change", function() { if (this.files && this.files[0]) handleAudioFileInput("ref", this.files[0]); }); }
+      if (srcAudioInputMobile) { srcAudioInputMobile.addEventListener("change", function() { if (this.files && this.files[0]) handleAudioFileInput("src", this.files[0]); }); }
+      if (refAudioInputMobile) { refAudioInputMobile.addEventListener("change", function() { if (this.files && this.files[0]) handleAudioFileInput("ref", this.files[0]); }); }
       historyLimit = loadHistoryPageSizePref();
       if (historyPageSizeEl) { historyPageSizeEl.value = String(historyLimit); historyPageSizeEl.addEventListener("change", () => { const n = parseInt(String(historyPageSizeEl.value || "20"), 10); historyLimit = (Number.isFinite(n) && n > 0) ? n : 20; saveHistoryPageSizePref(); loadHistoryPage(0).catch(e => setError(errorMessage(e))); }); }
       if (historyPageSizeEl2) { historyPageSizeEl2.value = String(historyLimit); historyPageSizeEl2.addEventListener("change", () => { const n = parseInt(String(historyPageSizeEl2.value || "20"), 10); historyLimit = (Number.isFinite(n) && n > 0) ? n : 20; saveHistoryPageSizePref(); loadHistoryPage(0).catch(e => setError(errorMessage(e))); }); }

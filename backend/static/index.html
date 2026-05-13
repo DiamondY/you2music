@@ -403,6 +403,39 @@
               </div>
             </div>
             <div id="providerFieldsMobile" class="provider-fields"><div class="muted">ACE-Step 参数加载中…</div></div>
+
+            <div id="audioUploadSectionMobile" class="audio-upload-section" style="margin-top:var(--space-md);">
+              <h4>音频上传</h4>
+              <p class="muted" style="margin:0 0 var(--space-sm) 0;">用于二创任务（cover/repaint/lego/extract/complete）。支持 MP3/WAV/FLAC，最大 20MB。</p>
+              <div class="audio-upload-row" style="grid-template-columns:1fr;gap:var(--space-sm);">
+                <div class="audio-upload-item">
+                  <label>源音频</label>
+                  <div class="audio-drop-zone" id="srcAudioDropMobile">
+                    <input type="file" accept="audio/*,.mp3,.wav,.flac" id="srcAudioInputMobile">
+                    <span class="drop-text"><strong>点击选择</strong> 或拖拽</span>
+                  </div>
+                  <div id="srcAudioInfoMobile" class="audio-file-info" style="display:none;">
+                    <span class="file-name"></span>
+                    <span class="remove-btn" onclick="clearAudioInput('src')">&times;</span>
+                  </div>
+                </div>
+                <div class="audio-upload-item">
+                  <label>参考音频（可选）</label>
+                  <div class="audio-drop-zone" id="refAudioDropMobile">
+                    <input type="file" accept="audio/*,.mp3,.wav,.flac" id="refAudioInputMobile">
+                    <span class="drop-text"><strong>点击选择</strong> 或拖拽</span>
+                  </div>
+                  <div id="refAudioInfoMobile" class="audio-file-info" style="display:none;">
+                    <span class="file-name"></span>
+                    <span class="remove-btn" onclick="clearAudioInput('ref')">&times;</span>
+                  </div>
+                </div>
+              </div>
+              <div class="muted" style="margin-top:var(--space-sm);font-size:12px;line-height:1.35;">
+                说明：上传后会得到“音频ID”，用于让服务端在生成时读取你上传的音频（不会暴露原文件路径）。
+              </div>
+            </div>
+
             <div class="form-group" style="margin-top:var(--space-md);">
               <label for="lyricsMobile">歌词（可选）</label>
               <textarea id="lyricsMobile" placeholder="留空自动生成"></textarea>
@@ -523,6 +556,6 @@
       </div>
     </div>
     
-<script src="/static/index.js?v=20260513_14" defer></script>
+<script src="/static/index.js?v=20260513_15" defer></script>
 </body>
 </html>
