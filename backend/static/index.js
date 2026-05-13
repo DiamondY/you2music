@@ -662,9 +662,16 @@
         const advancedMode = advancedEl.value === "advanced";
         // Composition plan editor is for a provider flow we don't support on the backend today.
         cpEditorEl.classList.remove("visible");
-        const values = {}; for (const field of (meta.fields || [])) { values[field.key] = field.default != null ? field.default : null; }
+        const values = {};
+        for (const field of (meta.fields || [])) {
+          const raw = field.default != null ? field.default : null;
+          values[field.key] = (field.kind === "boolean") ? toBool(raw) : raw;
+        }
         if (!reset) {
-          for (const field of (meta.fields || [])) { const existing = providerFieldsEl.querySelector("[data-key=\"" + field.key + "\"]"); if (existing) { values[field.key] = (existing.type === "checkbox") ? existing.checked : existing.value; } }
+          for (const field of (meta.fields || [])) {
+            const existing = providerFieldsEl.querySelector("[data-key=\"" + field.key + "\"]");
+            if (existing) { values[field.key] = (existing.type === "checkbox") ? Boolean(existing.checked) : existing.value; }
+          }
         }
         // Mode-based behavior:
         // - Original/simple: hide all optional provider params and force task_type=text2music.
@@ -675,11 +682,16 @@
         const effectiveTaskType = String(values.task_type || "text2music");
 
         let html = "";
+        const isMobileViewport = !_isDesktopViewport();
         const showMetaBlock = !_isOriginalSimpleMode();
         if (showMetaBlock) {
-          html += '<div class="provider-desc" style="font-size:13px;color:var(--color-text-secondary);margin-bottom:var(--space-sm);">' + (meta.description || "") + '</div>';
+          const descRaw = meta.description || "";
+          const desc = isMobileViewport ? _shortText(descRaw, 80) : descRaw;
+          html += '<div class="provider-desc" style="font-size:13px;color:var(--color-text-secondary);margin-bottom:var(--space-sm);word-break:break-word;line-height:1.35;">' + desc + '</div>';
           if (meta.ready === false) { html += '<div class="err">未配置该 provider 的密钥：<span class="mono">' + JSON.stringify(meta.missing_env || []) + '</span></div>'; }
-          html += '<div style="font-size:12px;color:var(--color-text-muted);margin-top:var(--space-xs);">Capabilities: <span class="mono">' + JSON.stringify(meta.capabilities || {}) + '</span></div>';
+          if (!isMobileViewport) {
+            html += '<div style="font-size:12px;color:var(--color-text-muted);margin-top:var(--space-xs);">能力信息：<span class="mono">' + JSON.stringify(meta.capabilities || {}) + '</span></div>';
+          }
         }
 
         let fields = (meta.fields || []).filter(f => advancedMode || !f.advanced);
@@ -715,7 +727,7 @@
           if (!shouldShowField(field, values)) continue;
           html += '<label>' + field.label + '<span class="field-badge ' + (field.required ? "required" : "optional") + '">' + (field.required ? "必填" : "可选") + '</span></label>';
           if (field.kind === "enum" && Array.isArray(field.enum)) {
-            const _enumLabels = { "zh": "中文 (zh)", "en": "English (en)", "ja": "日本語 (ja)", "ko": "한국어 (ko)", "auto": "自动检测" };
+            const _enumLabels = { "zh": "中文 (zh)", "en": "英文 (en)", "ja": "日语 (ja)", "ko": "韩语 (ko)", "auto": "自动识别" };
             const enumVals = (field.key === "task_type" && _isRemixMode())
               ? field.enum.filter(x => String(x) !== "text2music")
               : field.enum;
@@ -728,7 +740,7 @@
             html += '</select>';
           } else if (field.kind === "boolean") {
             const checked = values[field.key] ? "checked" : "";
-            html += '<div style="display:flex;align-items:center;gap:var(--space-sm);margin-top:var(--space-xs);"><input type="checkbox" data-key="' + field.key + '" ' + checked + '> <span style="font-size:13px;color:var(--color-text-secondary);">' + (field.help || "") + '</span></div>';
+            html += '<div style="display:flex;align-items:flex-start;gap:var(--space-sm);margin-top:var(--space-xs);"><input type="checkbox" data-key="' + field.key + '" ' + checked + '> <span style="font-size:13px;color:var(--color-text-secondary);line-height:1.35;flex:1;word-break:break-word;">' + (field.help || "") + '</span></div>';
             continue;
           } else if (field.kind === "json") {
             html += '<textarea data-key="' + field.key + '" placeholder="粘贴 JSON（高级）"></textarea>';
@@ -742,10 +754,10 @@
           if (field.help && field.kind !== "boolean") html += '<div style="font-size:12px;color:var(--color-text-muted);margin-top:var(--space-xs);">' + field.help + '</div>';
         }
         providerFieldsEl.innerHTML = html;
-        if (providerFieldsMobileEl) { providerFieldsMobileEl.innerHTML = html; providerFieldsMobileEl.style.display = html.trim() ? "" : "none"; for (const field of (meta.fields || [])) { const el = providerFieldsMobileEl.querySelector("[data-key=\"" + field.key + "\"]"); if (!el) continue; const v = values[field.key]; if (el.tagName === "INPUT" && el.type === "checkbox") { el.checked = Boolean(v); } else if (v !== null && v !== undefined) { el.value = String(v); } } providerFieldsMobileEl.querySelectorAll("input,select,textarea").forEach(el => { el.addEventListener("change", () => { renderProviderFields(); }); }); }
+        if (providerFieldsMobileEl) { providerFieldsMobileEl.innerHTML = html; providerFieldsMobileEl.style.display = html.trim() ? "" : "none"; for (const field of (meta.fields || [])) { const el = providerFieldsMobileEl.querySelector("[data-key=\"" + field.key + "\"]"); if (!el) continue; const v = values[field.key]; if (el.tagName === "INPUT" && el.type === "checkbox") { el.checked = toBool(v); } else if (v !== null && v !== undefined) { el.value = String(v); } } providerFieldsMobileEl.querySelectorAll("input,select,textarea").forEach(el => { el.addEventListener("change", () => { renderProviderFields(); }); }); }
         // Hide the whole section when it's empty (e.g. original/simple mode).
         providerFieldsEl.style.display = html.trim() ? "" : "none";
-        for (const field of (meta.fields || [])) { const el = providerFieldsEl.querySelector("[data-key=\"" + field.key + "\"]"); if (!el) continue; const v = values[field.key]; if (el.tagName === "INPUT" && el.type === "checkbox") { el.checked = Boolean(v); } else if (v !== null && v !== undefined) { el.value = String(v); } }
+        for (const field of (meta.fields || [])) { const el = providerFieldsEl.querySelector("[data-key=\"" + field.key + "\"]"); if (!el) continue; const v = values[field.key]; if (el.tagName === "INPUT" && el.type === "checkbox") { el.checked = toBool(v); } else if (v !== null && v !== undefined) { el.value = String(v); } }
         providerFieldsEl.querySelectorAll("input,select,textarea").forEach(el => { el.addEventListener("change", () => { renderProviderFields(); }); });
         updateLyricsUi(); updateRandomButtonsVisibility(); _updatePromptBadge();
         if (audioUploadSection) { const caps = meta.capabilities || {}; const taskTypeEl = providerFieldsEl.querySelector("[data-key=\"task_type\"]"); const taskType = taskTypeEl ? taskTypeEl.value : "text2music"; if (caps.supports_audio_input && taskType !== "text2music") { audioUploadSection.classList.add("visible"); } else { audioUploadSection.classList.remove("visible"); clearAudioInput("src"); clearAudioInput("ref"); } }
@@ -756,8 +768,14 @@
           if (seedGroup) seedGroup.style.display = _isOriginalSimpleMode() ? "none" : "";
           if (_isOriginalSimpleMode()) seedEl.value = "";
         }
+        if (seedMobileEl) {
+          const seedGroup = seedMobileEl.closest(".form-group");
+          if (seedGroup) seedGroup.style.display = _isOriginalSimpleMode() ? "none" : "";
+          if (_isOriginalSimpleMode()) seedMobileEl.value = "";
+        }
         const advancedGroup = advancedEl ? advancedEl.closest(".form-group") : null;
-        if (advancedGroup) advancedGroup.style.display = (_isOriginalAdvancedMode() && creationMode === "original") ? "" : (_isOriginalSimpleMode() ? "none" : "none");
+        // Original advanced mode already implies "show all options", so the extra mode selector is redundant.
+        if (advancedGroup) advancedGroup.style.display = "none";
 
         // Simple mode: enforce defaults and hide non-essential knobs outside provider fields.
         const countEl = document.getElementById("count");
@@ -765,7 +783,17 @@
           if (_isOriginalSimpleMode()) { countEl.value = "1"; }
           countEl.style.display = _isOriginalSimpleMode() ? "none" : "";
         }
+        if (countMobileEl) {
+          if (_isOriginalSimpleMode()) { countMobileEl.value = "1"; }
+          countMobileEl.style.display = _isOriginalSimpleMode() ? "none" : "";
+        }
         if (_isOriginalSimpleMode() && lyricsEl) lyricsEl.value = "";
+        if (_isOriginalSimpleMode() && lyricsMobileEl) lyricsMobileEl.value = "";
+        if (lyricsMobileEl) {
+          const lyricsGroup = lyricsMobileEl.closest(".form-group");
+          const show = !_isOriginalSimpleMode() && shouldShowLyricsInputForProvider(getSelectedProviderId());
+          if (lyricsGroup) lyricsGroup.style.display = show ? "" : "none";
+        }
       }
       async function initProviders() {
         try {
@@ -958,8 +986,6 @@
         if (vocalsMobileEl) document.getElementById("vocals").value = vocalsMobileEl.value;
         if (seedMobileEl) document.getElementById("seed").value = seedMobileEl.value;
         if (countMobileEl) document.getElementById("count").value = countMobileEl.value;
-        const advMobile = document.getElementById("advancedMobile");
-        if (advMobile) advancedEl.value = advMobile.value;
         if (providerFieldsMobileEl && providerFieldsEl) {
           providerFieldsMobileEl.querySelectorAll("[data-key]").forEach(mEl => {
             const dEl = providerFieldsEl.querySelector("[data-key=\"" + mEl.dataset.key + "\"]");
@@ -978,8 +1004,7 @@
       if (durationMobileSlider && durationMobileValue) {
         durationMobileSlider.addEventListener("input", () => { durationMobileValue.textContent = durationMobileSlider.value + " 秒"; });
       }
-      const advancedMobileEl = document.getElementById("advancedMobile");
-      if (advancedMobileEl) { advancedMobileEl.addEventListener("change", () => { advancedEl.value = advancedMobileEl.value; renderProviderFields(); }); }
+      // Mobile original simple/advanced mode is driven by the sub-tabs (creationSubMode).
       const quickGenreTagsMobileEl = document.getElementById("quickGenreTagsMobile");
       if (quickGenreTagsMobileEl) {
         quickGenreTagsMobileEl.addEventListener("click", (e) => { const tag = e.target.closest(".tag"); if (tag && promptMobileEl) { const genre = tag.dataset.genre; if (promptMobileEl.value.trim()) { promptMobileEl.value = promptMobileEl.value.trim() + "，" + genre; } else { promptMobileEl.value = genre; } quickGenreTagsMobileEl.querySelectorAll(".tag").forEach(t => t.classList.remove("active")); tag.classList.add("active"); setTimeout(() => tag.classList.remove("active"), 500); } });
