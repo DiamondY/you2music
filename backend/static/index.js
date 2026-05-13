@@ -456,6 +456,7 @@
       }
       async function login() { setAuthError(""); const username = document.getElementById("loginUsername").value.trim(); const password = document.getElementById("loginPassword").value; const data = await fetchJson("/api/auth/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ username, password }) }); console.log("Login succeeded, token:", data.token ? "present" : "missing"); setSession(data.token, data.user); await initProviders(); await loadHistoryPage(0); startEventStream(); }
       async function registerAccount() { setAuthError(""); const username = document.getElementById("registerUsername").value.trim(); const password = document.getElementById("registerPassword").value; const invite_code = document.getElementById("registerInvite").value.trim(); const data = await fetchJson("/api/auth/register", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ username, password, invite_code }) }); setSession(data.token, data.user); await initProviders(); await loadHistoryPage(0); startEventStream(); }
+      function _isRegisterModeNow() { return !(registerPanel && registerPanel.classList.contains("hidden")); }
       async function loadCommunity() {
         // Desktop shows `communityList2`, mobile shows `communityList`.
         const el = _pickContainer(communityListEl2, communityListEl);
@@ -1073,10 +1074,60 @@
       if (cpEditorEl) { ["input", "change", "click", "keyup"].forEach(evt => { cpEditorEl.addEventListener(evt, () => _updatePromptBadge()); }); }
       document.getElementById("loginBtn").addEventListener("click", () => { login().catch(e => setAuthError(errorMessage(e))); });
       document.getElementById("registerBtn").addEventListener("click", () => { registerAccount().catch(e => setAuthError(errorMessage(e))); });
+      const loginUsernameEl = document.getElementById("loginUsername");
+      const loginPasswordEl = document.getElementById("loginPassword");
+      const registerUsernameEl = document.getElementById("registerUsername");
+      const registerPasswordEl = document.getElementById("registerPassword");
+      const registerInviteEl = document.getElementById("registerInvite");
+      if (loginUsernameEl && loginPasswordEl) {
+        loginUsernameEl.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); loginPasswordEl.focus(); } });
+      }
+      if (loginPasswordEl) {
+        loginPasswordEl.addEventListener("keydown", (e) => {
+          if (e.key !== "Enter") return;
+          e.preventDefault();
+          if (_isRegisterModeNow()) return;
+          login().catch(err => setAuthError(errorMessage(err)));
+        });
+      }
+      if (registerUsernameEl && registerPasswordEl) {
+        registerUsernameEl.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); registerPasswordEl.focus(); } });
+      }
+      if (registerPasswordEl && registerInviteEl) {
+        registerPasswordEl.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); registerInviteEl.focus(); } });
+      }
+      if (registerInviteEl) {
+        registerInviteEl.addEventListener("keydown", (e) => {
+          if (e.key !== "Enter") return;
+          e.preventDefault();
+          if (!_isRegisterModeNow()) return;
+          registerAccount().catch(err => setAuthError(errorMessage(err)));
+        });
+      }
       showLoginBtn.addEventListener("click", () => showAuthMode("login"));
       showRegisterBtn.addEventListener("click", () => showAuthMode("register"));
       const showAuthBtnEl = document.getElementById("showAuthBtn");
       if (showAuthBtnEl) { showAuthBtnEl.addEventListener("click", () => { showAuthMode(registerPanel.classList.contains("hidden") ? "register" : "login"); }); }
+
+      const clearPromptBtnEl = document.getElementById("clearPromptBtn");
+      if (clearPromptBtnEl) {
+        clearPromptBtnEl.addEventListener("click", () => {
+          if (promptEl) promptEl.value = "";
+          document.querySelectorAll("#quickGenreTags .tag").forEach(t => t.classList.remove("active"));
+          setStatus("已清空描述", "ok");
+        });
+      }
+      const clearPromptBtnMobileEl = document.getElementById("clearPromptBtnMobile");
+      if (clearPromptBtnMobileEl) {
+        clearPromptBtnMobileEl.addEventListener("click", () => {
+          if (promptMobileEl) promptMobileEl.value = "";
+          if (promptEl) promptEl.value = "";
+          const quickGenreTagsMobileEl = document.getElementById("quickGenreTagsMobile");
+          if (quickGenreTagsMobileEl) quickGenreTagsMobileEl.querySelectorAll(".tag").forEach(t => t.classList.remove("active"));
+          document.querySelectorAll("#quickGenreTags .tag").forEach(t => t.classList.remove("active"));
+          setStatus("已清空描述", "ok");
+        });
+      }
       document.getElementById("logoutBtn").addEventListener("click", () => { setSession("", null); stopEventStream(); providersMeta = null; historyJobs = []; listEl.innerHTML = ""; list2El.innerHTML = ""; revokeAudioBlobUrls(); setMainPlayerAudio(null); });
       const logoutBtnMobile = document.getElementById("logoutBtnMobile");
       if (logoutBtnMobile) { logoutBtnMobile.addEventListener("click", () => { setSession("", null); stopEventStream(); providersMeta = null; historyJobs = []; listEl.innerHTML = ""; list2El.innerHTML = ""; revokeAudioBlobUrls(); setMainPlayerAudio(null); }); }

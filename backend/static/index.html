@@ -154,6 +154,9 @@
 
               <div class="form-group">
                 <label for="prompt">描述你想创作的音乐</label>
+                <div style="display:flex;align-items:center;justify-content:flex-end;margin-top:var(--space-xs);">
+                  <button id="clearPromptBtn" class="btn btn-secondary btn-sm" type="button">清空</button>
+                </div>
                 <div style="display: flex; gap: var(--space-sm); align-items: stretch;">
                   <textarea id="prompt" style="flex: 1;" placeholder="例如：一首温柔的中文流行歌，女声演唱，副歌很抓耳，主题是夜晚的城市灯火，带一点合成器。"></textarea>
                   <button id="randomPromptBtn" class="btn btn-secondary btn-sm" style="white-space: nowrap; display: none;">
@@ -400,6 +403,9 @@
             <div class="info-message">提示：描述中写 with vocals, singing 可产生更好的唱歌效果</div>
             <div class="form-group">
               <label for="promptMobile">描述</label>
+              <div style="display:flex;align-items:center;justify-content:flex-end;margin-top:var(--space-xs);">
+                <button id="clearPromptBtnMobile" class="btn btn-secondary btn-sm" type="button">清空</button>
+              </div>
               <textarea id="promptMobile" style="min-height:80px;" placeholder="例如：一首温柔的中文流行歌"></textarea>
             </div>
             <div class="quick-tags-label">快速风格</div>
@@ -582,6 +588,6 @@
       </div>
     </div>
     
-<script src="/static/index.js?v=20260513_18" defer></script>
+<script src="/static/index.js?v=20260513_19" defer></script>
 </body>
 </html>
