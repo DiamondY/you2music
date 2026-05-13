@@ -69,7 +69,6 @@
       const historyNextBtn2 = document.getElementById("historyNextBtn2");
       const historyInfoEl = document.getElementById("historyInfo");
       const historyInfoEl2 = document.getElementById("historyInfo2");
-      const providerEl = document.getElementById("provider");
       const advancedEl = document.getElementById("advanced");
       const providerFieldsEl = document.getElementById("providerFields");
       const audioUploadSection = document.getElementById("audioUploadSection");
@@ -124,6 +123,7 @@
       let localMode = false;
       let pollTimer = null;
       let providersMeta = null;
+      const DEFAULT_PROVIDER_ID = "acestep";
       let historyOffset = 0;
       let historyLimit = 20;
       let historyTotal = 0;
@@ -151,7 +151,6 @@
       const promptMobileEl = document.getElementById("promptMobile");
       const durationMobileSlider = document.getElementById("durationMobile");
       const durationMobileValue = document.getElementById("durationValueMobile");
-      const providerMobileEl = document.getElementById("providerMobile");
       const providerFieldsMobileEl = document.getElementById("providerFieldsMobile");
       const lyricsMobileEl = document.getElementById("lyricsMobile");
       const vocalsMobileEl = document.getElementById("vocalsMobile");
@@ -502,7 +501,10 @@
         const off = Math.max(0, parseInt(String(offset || "0"), 10) || 0); historyOffset = off; updateHistoryPagerUi();
         try { const data = await fetchJson("/api/jobs/history?offset=" + historyOffset + "&limit=" + historyLimit); historyJobs = data.jobs || []; historyTotal = parseInt(String(data.total || "0"), 10) || 0; historyOffset = parseInt(String(data.offset || historyOffset), 10) || historyOffset; historyLimit = parseInt(String(data.limit || historyLimit), 10) || historyLimit; if (historyPageSizeEl) historyPageSizeEl.value = String(historyLimit); if (historyPageSizeEl2) historyPageSizeEl2.value = String(historyLimit); renderList(historyJobs); } finally { updateHistoryPagerUi(); }
       }
-      function getSelectedProviderId() { return (providerEl.value || "").trim(); }
+      function getSelectedProviderId() {
+        const def = providersMeta && providersMeta.default_provider ? String(providersMeta.default_provider) : "";
+        return (def || DEFAULT_PROVIDER_ID).trim();
+      }
       function getProviderMeta(id) { if (!providersMeta || !providersMeta.providers) return null; return providersMeta.providers.find(p => p.id === id) || null; }
       function toBool(v) { if (v === true || v === false) return v; if (typeof v === "string") return v === "true" || v === "1" || v === "on"; return Boolean(v); }
       function shouldShowField(field, values) {
@@ -524,8 +526,8 @@
         try { const infoEl = (which === "src") ? srcAudioInfo : refAudioInfo; const fmt = _audioFormatFromFile(file); if (localMode) { const b64 = await _readAudioAsB64(file); if (which === "src") { srcAudioUploadId = null; srcAudioB64 = b64; srcAudioFormat = fmt; } else { refAudioUploadId = null; refAudioB64 = b64; refAudioFormat = fmt; } } else { const up = await _uploadAudioFile(file); const uploadId = up && up.upload_id ? String(up.upload_id) : null; const serverFmt = up && up.format ? String(up.format) : fmt; if (!uploadId) throw new Error("上传失败：未返回 upload_id"); if (which === "src") { srcAudioUploadId = uploadId; srcAudioB64 = null; srcAudioFormat = serverFmt; } else { refAudioUploadId = uploadId; refAudioB64 = null; refAudioFormat = serverFmt; } } if (infoEl) { infoEl.style.display = "flex"; infoEl.querySelector(".file-name").textContent = file.name; } } catch (e) { const msg = (e && e.message) ? e.message : String(e || ""); setError("音频文件处理失败: " + msg); clearAudioInput(which); } }
       function parseFieldValue(field, raw) { if (field.kind === "boolean") return toBool(raw); if (field.kind === "integer") return raw === "" || raw === null ? null : parseInt(raw, 10); if (field.kind === "number") return raw === "" || raw === null ? null : parseFloat(raw); if (field.kind === "json") { if (raw === "" || raw === null) return null; try { return JSON.parse(raw); } catch { return raw; } } return raw === "" ? null : raw; }
       function _ensureFieldBadge(labelEl, kind) { if (!labelEl) return; const existing = labelEl.querySelector(".field-badge"); if (existing) existing.remove(); const badge = document.createElement("span"); badge.className = "field-badge " + kind; badge.textContent = (kind === "required") ? "必填" : "可选"; labelEl.appendChild(badge); }
-      function _decorateStaticBadges() { const mapping = [{ id: "provider", kind: "required" }, { id: "advanced", kind: "optional" }, { id: "duration", kind: "required" }, { id: "vocals", kind: "required" }, { id: "lyrics", kind: "optional" }, { id: "seed", kind: "optional" }]; for (const m of mapping) { const label = document.querySelector("label[for=\"" + m.id + "\"]"); _ensureFieldBadge(label, m.kind); } const promptLabel = document.querySelector("label[for=\"prompt\"]"); _ensureFieldBadge(promptLabel, "required"); }
-      function _isCompositionPlanProvidedNow() { if (getSelectedProviderId() !== "elevenlabs") return false; if (!advancedEl || advancedEl.value !== "advanced") return false; const usePlan = providerFieldsEl.querySelector("[data-key=\"use_composition_plan\"]"); const planEl = providerFieldsEl.querySelector("[data-key=\"composition_plan_json\"]"); if (usePlan && usePlan.type === "checkbox" && usePlan.checked) { const raw = planEl ? String(planEl.value || "").trim() : ""; if (raw) return true; } try { return Boolean(buildCompositionPlan()); } catch { return false; } }
+      function _decorateStaticBadges() { const mapping = [{ id: "advanced", kind: "optional" }, { id: "duration", kind: "required" }, { id: "vocals", kind: "required" }, { id: "lyrics", kind: "optional" }, { id: "seed", kind: "optional" }]; for (const m of mapping) { const label = document.querySelector("label[for=\"" + m.id + "\"]"); _ensureFieldBadge(label, m.kind); } const promptLabel = document.querySelector("label[for=\"prompt\"]"); _ensureFieldBadge(promptLabel, "required"); }
+      function _isCompositionPlanProvidedNow() { return false; }
       function _updatePromptBadge() { const label = document.querySelector("label[for=\"prompt\"]"); const optional = _isCompositionPlanProvidedNow(); _ensureFieldBadge(label, optional ? "optional" : "required"); }
       function _clearValidationUi() { document.querySelectorAll(".field-error-msg").forEach(n => n.remove()); document.querySelectorAll(".input-error").forEach(n => n.classList.remove("input-error")); }
       function _setFieldError(el, msg, opts) { if (!el) return; el.classList.add("input-error"); const m = document.createElement("div"); m.className = "field-error-msg"; m.textContent = msg; const anchor = (opts && opts.anchor) ? opts.anchor : el; anchor.insertAdjacentElement("afterend", m); }
@@ -536,12 +538,11 @@
         const meta = providerId ? getProviderMeta(providerId) : null;
         const errors = []; let firstEl = null;
         function fail(el, msg, extra) { errors.push(msg); if (!firstEl && el) firstEl = el; _setFieldError(el, msg, extra); }
-        if (!providerId) { fail(providerEl, "请选择 Provider（必填）。"); }
-        else if (!meta) { setError("Provider 列表尚未加载完成，请稍后再试。"); setStatus(""); _focusField(providerEl); return false; }
+        if (!providerId) { setError("Provider 尚未初始化，请刷新页面后重试。"); setStatus(""); return false; }
+        if (!meta) { setError("Provider 列表尚未加载完成，请稍后再试。"); setStatus(""); return false; }
         if (meta && meta.ready === false) { const missing = Array.isArray(meta.missing_env) ? meta.missing_env.join(", ") : ""; setError("该 provider 未配置密钥，无法生成。\n缺少：" + (missing || "(unknown)")); setStatus(""); return false; }
         const promptVal = String(payload.prompt || "").trim();
-        const hasCompositionPlan = Boolean(providerId === "elevenlabs" && payload.provider_params && (payload.provider_params.use_composition_plan === true || payload.provider_params.composition_plan_json) && payload.provider_params.composition_plan_json);
-        if (!promptVal && !hasCompositionPlan) { fail(promptEl, "请填写 Prompt（必填）。"); }
+        if (!promptVal) { fail(promptEl, "请填写 Prompt（必填）。"); }
         const duration = parseInt(String(payload.duration_sec != null ? payload.duration_sec : ""), 10);
         if (!Number.isFinite(duration) || duration < 3 || duration > 600) { const anchor = durationSlider ? durationSlider.parentElement : null; fail(durationSlider, "时长建议 3–600 秒。", { anchor: anchor || durationSlider }); }
         const seedEl = document.getElementById("seed"); const seedRaw = seedEl ? String(seedEl.value || "").trim() : "";
@@ -766,7 +767,23 @@
         }
         if (_isOriginalSimpleMode() && lyricsEl) lyricsEl.value = "";
       }
-      async function initProviders() { try { providersMeta = await fetchJson("/api/providers"); const ps = providersMeta.providers || []; const optionsHtml = ps.map(p => { const disabled = (p.ready === false) ? "disabled" : ""; const suffix = (p.ready === false) ? " (未配置)" : ""; return '<option value="' + p.id + '" ' + disabled + '>' + p.name + suffix + '</option>'; }).join(""); providerEl.innerHTML = optionsHtml; if (providerMobileEl) providerMobileEl.innerHTML = optionsHtml; const readyFirst = ps.find(p => p.ready !== false); const def = providersMeta.default_provider || (readyFirst ? readyFirst.id : (ps[0] ? ps[0].id : "")); providerEl.value = def; if (providerMobileEl) providerMobileEl.value = def; _syncModeDataset(); renderProviderFields({ reset: true }); updateLyricsUi(); renderSections(); } catch (e) { providerFieldsEl.innerHTML = '<div class="err">加载 provider 失败：' + String(e) + '</div>'; } }
+      async function initProviders() {
+        try {
+          providersMeta = await fetchJson("/api/providers");
+          const ps = providersMeta.providers || [];
+          const def = (providersMeta && providersMeta.default_provider) ? String(providersMeta.default_provider) : "";
+          const expected = def || DEFAULT_PROVIDER_ID;
+          const meta = ps.find(p => p && p.id === expected) || ps.find(p => p && p.id === DEFAULT_PROVIDER_ID) || ps[0] || null;
+          if (!meta || !meta.id) throw new Error("未找到可用 provider");
+          providersMeta.default_provider = String(meta.id);
+          _syncModeDataset();
+          renderProviderFields({ reset: true });
+          updateLyricsUi();
+          renderSections();
+        } catch (e) {
+          providerFieldsEl.innerHTML = '<div class="err">加载 provider 失败：' + String(e) + '</div>';
+        }
+      }
       function _shortText(s, maxLen) { const n = Number.isFinite(maxLen) ? maxLen : 80; const t = String(s || "").replace(/\s+/g, " ").trim(); if (!t) return ""; return t.length > n ? (t.slice(0, n) + "...") : t; }
       function _coerceInt(v, fallback) { const n = parseInt(String(v != null ? v : ""), 10); return Number.isFinite(n) ? n : fallback; }
       function _normalizeVocalsFlag(v) { if (v === true) return true; if (v === false) return false; return Boolean(v); }
@@ -789,9 +806,6 @@
         const seed = (typeof params.seed === "number") ? params.seed : null;
         const lines = ["将用该生成记录的参数覆盖当前表单设置：", "- provider: " + (providerId || "(unknown)"), "- duration_sec: " + durationSec, "- vocals: " + (vocals ? "on" : "off"), "- seed: " + (seed === null ? "(null)" : seed), "- prompt: " + (_shortText(basePrompt, 80) || "(empty)"), "- lyrics: " + (lyrics ? "有" : "无"), "", "继续恢复？"];
         const ok = window.confirm(lines.join("\n")); if (!ok) return;
-        if (providerId) providerEl.value = providerId;
-        const compositionPlan = (providerId === "elevenlabs" && ((providerParams && providerParams.use_composition_plan) === true || (providerParams && providerParams.composition_plan_json))) ? _tryParseJsonObject(providerParams && providerParams.composition_plan_json) : null;
-        if (providerId === "elevenlabs") { advancedEl.value = compositionPlan ? "advanced" : "simple"; }
         renderProviderFields();
         if (durationSlider) { const clamped = Math.max(3, Math.min(600, durationSec)); durationSlider.value = String(clamped); durationValue.textContent = String(clamped) + " 秒"; }
         const vocalsEl = document.getElementById("vocals"); if (vocalsEl && !vocalsEl.disabled) vocalsEl.value = vocals ? "on" : "off";
@@ -800,7 +814,6 @@
         const meta = getProviderMeta(getSelectedProviderId()); const normalizedProviderParams = { ...(providerParams || {}) };
         if (normalizedProviderParams.output_format == null && params.output_format != null) { normalizedProviderParams.output_format = params.output_format; }
         if (meta && Array.isArray(meta.fields) && meta.fields.length > 0) { for (const field of meta.fields) { const el = providerFieldsEl.querySelector("[data-key=\"" + field.key + "\"]"); if (!el) continue; const v = normalizedProviderParams[field.key]; if (el.tagName === "INPUT" && el.type === "checkbox") { el.checked = Boolean(v); continue; } if (field.kind === "json") { if (v === null || v === undefined || v === "") { el.value = ""; } else if (typeof v === "string") { el.value = v; } else { try { el.value = JSON.stringify(v, null, 2); } catch { el.value = String(v); } } continue; } el.value = (v === null || v === undefined) ? "" : String(v); } renderProviderFields(); }
-        if (compositionPlan) { _restoreCompositionPlanFromObject(compositionPlan); }
         setStatus("已恢复参数（来自生成记录）", "ok");
       }
       function renderList(jobs, opts) {
@@ -879,7 +892,6 @@
       if (randomPromptBtnEl) { randomPromptBtnEl.addEventListener("click", () => { fillRandomPrompt().catch(e => console.error("fillRandomPrompt error:", e)); }); }
       if (randomLyricsBtnEl) { randomLyricsBtnEl.addEventListener("click", () => { fillRandomLyrics().catch(e => console.error("fillRandomLyrics error:", e)); }); }
       if (randomFillAllBtnEl) { randomFillAllBtnEl.addEventListener("click", () => { fillRandomAll().catch(e => console.error("fillRandomAll error:", e)); }); }
-      providerEl.addEventListener("change", () => renderProviderFields());
       advancedEl.addEventListener("change", () => renderProviderFields());
       if (srcAudioInput) { srcAudioInput.addEventListener("change", function() { if (this.files && this.files[0]) handleAudioFileInput("src", this.files[0]); }); }
       if (refAudioInput) { refAudioInput.addEventListener("change", function() { if (this.files && this.files[0]) handleAudioFileInput("ref", this.files[0]); }); }
@@ -948,7 +960,6 @@
         if (countMobileEl) document.getElementById("count").value = countMobileEl.value;
         const advMobile = document.getElementById("advancedMobile");
         if (advMobile) advancedEl.value = advMobile.value;
-        if (providerMobileEl) providerEl.value = providerMobileEl.value;
         if (providerFieldsMobileEl && providerFieldsEl) {
           providerFieldsMobileEl.querySelectorAll("[data-key]").forEach(mEl => {
             const dEl = providerFieldsEl.querySelector("[data-key=\"" + mEl.dataset.key + "\"]");
@@ -966,9 +977,6 @@
       }
       if (durationMobileSlider && durationMobileValue) {
         durationMobileSlider.addEventListener("input", () => { durationMobileValue.textContent = durationMobileSlider.value + " 秒"; });
-      }
-      if (providerMobileEl) {
-        providerMobileEl.addEventListener("change", () => { providerEl.value = providerMobileEl.value; renderProviderFields(); });
       }
       const advancedMobileEl = document.getElementById("advancedMobile");
       if (advancedMobileEl) { advancedMobileEl.addEventListener("change", () => { advancedEl.value = advancedMobileEl.value; renderProviderFields(); }); }
