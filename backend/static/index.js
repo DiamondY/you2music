@@ -280,6 +280,8 @@
           navCreate.classList.toggle("active", view === "create");
           navDiscover.classList.toggle("active", view === "discover");
         }
+        // Ensure the visible content starts at the top when switching views.
+        try { window.scrollTo({ top: 0, left: 0, behavior: "auto" }); } catch { try { window.scrollTo(0, 0); } catch {} }
         if (view === "discover") loadCommunity().catch(e => setError(String(e)));
         if (!isPC) showMobileTab(view === "discover" ? "discover" : currentMobileTab);
       }
@@ -287,6 +289,8 @@
       function showMobileTab(tab) {
         currentMobileTab = tab;
         if (!mobileTabBar) return;
+        // Reset scroll so newly shown panel starts at a sane position.
+        try { window.scrollTo({ top: 0, left: 0, behavior: "auto" }); } catch { try { window.scrollTo(0, 0); } catch {} }
         mobileTabBar.querySelectorAll(".tab-item").forEach(t => t.classList.toggle("active", t.dataset.tab === tab));
         document.querySelectorAll(".mobile-panel").forEach(p => p.classList.remove("active"));
         const panelMap = { create: "panelCreate", history: "panelHistory", discover: "panelDiscover" };
@@ -379,7 +383,8 @@
       async function login() { setAuthError(""); const username = document.getElementById("loginUsername").value.trim(); const password = document.getElementById("loginPassword").value; const data = await fetchJson("/api/auth/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ username, password }) }); console.log("Login succeeded, token:", data.token ? "present" : "missing"); setSession(data.token, data.user); await initProviders(); await loadHistoryPage(0); startEventStream(); }
       async function registerAccount() { setAuthError(""); const username = document.getElementById("registerUsername").value.trim(); const password = document.getElementById("registerPassword").value; const invite_code = document.getElementById("registerInvite").value.trim(); const data = await fetchJson("/api/auth/register", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ username, password, invite_code }) }); setSession(data.token, data.user); await initProviders(); await loadHistoryPage(0); startEventStream(); }
       async function loadCommunity() {
-        const el = _pickContainer(communityListEl, communityListEl2);
+        // Desktop shows `communityList2`, mobile shows `communityList`.
+        const el = _pickContainer(communityListEl2, communityListEl);
         if (!el) return;
         el.innerHTML = '<div class="muted">加载中…</div>';
         let jobs = [];
