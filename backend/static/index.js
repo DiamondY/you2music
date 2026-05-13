@@ -125,6 +125,13 @@
       let currentView = "create";
       let currentMobileTab = "create";
 
+      function _isDesktopViewport() { return window.innerWidth >= 1024; }
+      function _pickContainer(pcEl, mobileEl) {
+        // Prefer viewport-based decision; do not rely on .style.display because we hide panels via CSS classes.
+        if (_isDesktopViewport()) return pcEl || mobileEl;
+        return mobileEl || pcEl;
+      }
+
       function setStatus(msg, kind) {
         statusEl.textContent = msg || "";
         statusEl.className = kind === "ok" ? "status-text success" : (kind === "err" ? "status-text error" : "status-text");
@@ -371,7 +378,53 @@
       }
       async function login() { setAuthError(""); const username = document.getElementById("loginUsername").value.trim(); const password = document.getElementById("loginPassword").value; const data = await fetchJson("/api/auth/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ username, password }) }); console.log("Login succeeded, token:", data.token ? "present" : "missing"); setSession(data.token, data.user); await initProviders(); await loadHistoryPage(0); startEventStream(); }
       async function registerAccount() { setAuthError(""); const username = document.getElementById("registerUsername").value.trim(); const password = document.getElementById("registerPassword").value; const invite_code = document.getElementById("registerInvite").value.trim(); const data = await fetchJson("/api/auth/register", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ username, password, invite_code }) }); setSession(data.token, data.user); await initProviders(); await loadHistoryPage(0); startEventStream(); }
-      async function loadCommunity() { const el = communityListEl2.style.display !== "none" ? communityListEl2 : communityListEl; el.innerHTML = '<div class="muted">加载中…</div>'; let jobs = []; if (localMode) { const data = await fetchJson("/api/jobs/recent?limit=30"); jobs = data.jobs || []; } else { const data = await fetchJson("/api/community"); jobs = data.jobs || []; } if (!jobs.length) { el.innerHTML = localMode ? '<div class="muted">暂无历史记录。</div>' : '<div class="muted">暂无公开作品。</div>'; return; } el.innerHTML = ""; for (const job of jobs) { const item = document.createElement("div"); item.className = "community-item"; const title = document.createElement("div"); title.style.fontWeight = "600"; title.textContent = _shortText(job.prompt || "未命名作品", 90); item.appendChild(title); const meta = document.createElement("div"); meta.className = "muted"; meta.textContent = (localMode ? (job.provider || "-") + " · " + (job.status || "-") : (job.provider || "-") + " · " + (job.share_permission === "downloadable" ? "可下载" : "仅试听")); item.appendChild(meta); if (job.audio_url) { const audio = document.createElement("audio"); audio.controls = true; audio.preload = "metadata"; audio.src = job.audio_url; audio.style.marginTop = "8px"; item.appendChild(audio); } if (!localMode && job.download_url) { const link = document.createElement("a"); link.href = job.download_url; link.className = "btn btn-accent btn-sm"; link.style.marginTop = "8px"; link.textContent = "下载"; item.appendChild(link); } el.appendChild(item); } }
+      async function loadCommunity() {
+        const el = _pickContainer(communityListEl, communityListEl2);
+        if (!el) return;
+        el.innerHTML = '<div class="muted">加载中…</div>';
+        let jobs = [];
+        if (localMode) {
+          const data = await fetchJson("/api/jobs/recent?limit=30");
+          jobs = data.jobs || [];
+        } else {
+          const data = await fetchJson("/api/community");
+          jobs = data.jobs || [];
+        }
+        if (!jobs.length) {
+          el.innerHTML = localMode ? '<div class="muted">暂无历史记录。</div>' : '<div class="muted">暂无公开作品。</div>';
+          return;
+        }
+        el.innerHTML = "";
+        for (const job of jobs) {
+          const item = document.createElement("div");
+          item.className = "community-item";
+          const title = document.createElement("div");
+          title.style.fontWeight = "600";
+          title.textContent = _shortText(job.prompt || "未命名作品", 90);
+          item.appendChild(title);
+          const meta = document.createElement("div");
+          meta.className = "muted";
+          meta.textContent = (localMode ? (job.provider || "-") + " · " + (job.status || "-") : (job.provider || "-") + " · " + (job.share_permission === "downloadable" ? "可下载" : "仅试听"));
+          item.appendChild(meta);
+          if (job.audio_url) {
+            const audio = document.createElement("audio");
+            audio.controls = true;
+            audio.preload = "metadata";
+            audio.src = job.audio_url;
+            audio.style.marginTop = "8px";
+            item.appendChild(audio);
+          }
+          if (!localMode && job.download_url) {
+            const link = document.createElement("a");
+            link.href = job.download_url;
+            link.className = "btn btn-accent btn-sm";
+            link.style.marginTop = "8px";
+            link.textContent = "下载";
+            item.appendChild(link);
+          }
+          el.appendChild(item);
+        }
+      }
       function loadHistoryPageSizePref() { try { const raw = localStorage.getItem(HISTORY_PAGE_SIZE_KEY); const n = parseInt(String(raw || ""), 10); if (Number.isFinite(n) && n > 0) return n; } catch {} return 20; }
       function saveHistoryPageSizePref() { try { localStorage.setItem(HISTORY_PAGE_SIZE_KEY, String(historyLimit)); } catch {} }
       function updateHistoryPagerUi() { const totalPages = historyLimit > 0 ? Math.max(1, Math.ceil((historyTotal || 0) / historyLimit)) : 1; const page = historyLimit > 0 ? Math.floor(historyOffset / historyLimit) + 1 : 1; const from = historyTotal === 0 ? 0 : (historyOffset + 1); const to = Math.min(historyOffset + historyLimit, historyTotal); if (historyInfoEl) historyInfoEl.textContent = from + "-" + to + " / " + historyTotal + "（第 " + page + "/" + totalPages + " 页）"; if (historyInfoEl2) historyInfoEl2.textContent = from + "-" + to + " / " + historyTotal + "（第 " + page + "/" + totalPages + " 页）"; if (historyPrevBtn) historyPrevBtn.disabled = historyOffset <= 0; if (historyNextBtn) historyNextBtn.disabled = (historyOffset + historyLimit) >= historyTotal; if (historyPrevBtn2) historyPrevBtn2.disabled = historyOffset <= 0; if (historyNextBtn2) historyNextBtn2.disabled = (historyOffset + historyLimit) >= historyTotal; }
@@ -670,7 +723,8 @@
       }
       function renderList(jobs, opts) {
         const incremental = opts && opts.incremental;
-        const targetList = listEl;
+        const targetList = _pickContainer(list2El, listEl);
+        if (!targetList) return;
         if (!jobs || jobs.length === 0) { if (!incremental) targetList.innerHTML = ""; return; }
         if (incremental) {
           const existingIds = new Set(); for (const child of targetList.children) { if (child.dataset && child.dataset.jobId) existingIds.add(child.dataset.jobId); }
