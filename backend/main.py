@@ -604,7 +604,7 @@ def admin_get_api_logs(
 
 
 @app.post("/api/admin/jobs/{job_id}/cancel")
-def admin_cancel_job(
+async def admin_cancel_job(
     job_id: str,
     current_user: UserRecord = Depends(require_admin),
 ) -> dict[str, Any]:
@@ -689,21 +689,44 @@ async def generate(req: GenerateRequest, current_user: UserRecord = Depends(get_
             msg = "今日配额已用完"
         raise HTTPException(status_code=429, detail=msg) from e
 
-    job_id = STATE.store.create_job(
-        provider=provider_name,
-        prompt=prompt,
-        params=params,
-        kind="generate",
-        user_id=current_user.id,
-    )
+    job_id: str | None = None
+    submitted = False
+    try:
+        job_id = STATE.store.create_job(
+            provider=provider_name,
+            prompt=prompt,
+            params=params,
+            kind="generate",
+            user_id=current_user.id,
+        )
 
-    await STATE.event_hub.publish(
-        int(current_user.id),
-        {"type": "job_created", "job_id": job_id, "status": "queued", "provider": provider_name},
-    )
+        # Realtime events should not be on the critical path of job creation.
+        try:
+            await STATE.event_hub.publish(
+                int(current_user.id),
+                {"type": "job_created", "job_id": job_id, "status": "queued", "provider": provider_name},
+            )
+        except Exception:
+            pass
 
-    # Submit to provider queue (job starts in "queued" status, worker picks it up)
-    await STATE.provider_queues[provider_name].submit(job_id)
+        # Submit to provider queue (job starts in "queued" status, worker picks it up).
+        await STATE.provider_queues[provider_name].submit(job_id)
+        submitted = True
+    except Exception:
+        # Only refund quota when the job was NOT successfully submitted.
+        if not submitted:
+            STATE.user_store.refund_quota(user_id=current_user.id, amount=1)
+            if job_id:
+                STATE.store.set_status(job_id, status="failed", error="提交生成任务失败")
+                try:
+                    await STATE.event_hub.publish(
+                        int(current_user.id),
+                        {"type": "job_updated", "job_id": job_id, "status": "failed"},
+                    )
+                except Exception:
+                    pass
+        raise
+    assert job_id is not None
     return {"job_id": job_id, "quota": quota}
 
 
@@ -719,7 +742,7 @@ async def generate_many(req: GenerateManyRequest, current_user: UserRecord = Dep
             raise HTTPException(status_code=400, detail="请先上传音频文件（不要直接传 base64）")
     base_prompt = (req.prompt or "").strip()
     if not base_prompt:
-        raise HTTPException(status_code=400, detail="prompt is required")
+        raise HTTPException(status_code=400, detail="请填写歌曲描述（prompt）")
 
     params: dict[str, Any] = {
         "base_prompt": req.prompt,
@@ -749,21 +772,45 @@ async def generate_many(req: GenerateManyRequest, current_user: UserRecord = Dep
         raise HTTPException(status_code=429, detail=msg) from e
 
     job_ids: list[str] = []
-    for _ in range(req.count):
-        job_id = STATE.store.create_job(
-            provider=provider_name,
-            prompt=prompt,
-            params=params,
-            kind="variation",
-            user_id=current_user.id,
-        )
-        job_ids.append(job_id)
-        await STATE.event_hub.publish(
-            int(current_user.id),
-            {"type": "job_created", "job_id": job_id, "status": "queued", "provider": provider_name},
-        )
-        # Submit to provider queue (job starts in "queued" status, worker picks it up)
-        await STATE.provider_queues[provider_name].submit(job_id)
+    submitted_count = 0
+    try:
+        for _ in range(req.count):
+            job_id = STATE.store.create_job(
+                provider=provider_name,
+                prompt=prompt,
+                params=params,
+                kind="variation",
+                user_id=current_user.id,
+            )
+            job_ids.append(job_id)
+
+            try:
+                await STATE.event_hub.publish(
+                    int(current_user.id),
+                    {"type": "job_created", "job_id": job_id, "status": "queued", "provider": provider_name},
+                )
+            except Exception:
+                pass
+
+            # Submit to provider queue (job starts in "queued" status, worker picks it up)
+            await STATE.provider_queues[provider_name].submit(job_id)
+            submitted_count += 1
+    except Exception:
+        # Refund only the jobs that were never submitted.
+        refund = req.count - submitted_count
+        if refund > 0:
+            STATE.user_store.refund_quota(user_id=current_user.id, amount=refund)
+        # Mark any created-but-not-submitted jobs as failed (avoid "ghost queued" records).
+        for job_id in job_ids[submitted_count:]:
+            STATE.store.set_status(job_id, status="failed", error="提交生成任务失败")
+            try:
+                await STATE.event_hub.publish(
+                    int(current_user.id),
+                    {"type": "job_updated", "job_id": job_id, "status": "failed"},
+                )
+            except Exception:
+                pass
+        raise
 
     return {"job_ids": job_ids, "quota": quota}
 
@@ -992,7 +1039,7 @@ def delete_job(job_id: str, current_user: UserRecord = Depends(get_current_user)
 
 
 @app.post("/api/jobs/{job_id}/cancel")
-def cancel_job(job_id: str, current_user: UserRecord = Depends(get_current_user)) -> dict[str, Any]:
+async def cancel_job(job_id: str, current_user: UserRecord = Depends(get_current_user)) -> dict[str, Any]:
     """Cancel a queued job. Only works for jobs still in 'queued' status."""
     rec = STATE.store.get(job_id)
     if not rec:
@@ -1087,7 +1134,9 @@ def get_audio(job_id: str, current_user: UserRecord | None = Depends(_optional_c
     if rec.status != "succeeded" or not rec.output_path:
         raise HTTPException(status_code=404, detail="audio not ready")
 
-    path = Path(rec.output_path)
+    path = Path(rec.output_path).resolve()
+    if not path.is_relative_to(STATE.audio_dir.resolve()):
+        raise HTTPException(status_code=403, detail="invalid audio path")
     if not path.exists():
         raise HTTPException(status_code=404, detail="audio missing on disk")
 

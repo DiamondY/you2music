@@ -155,24 +155,6 @@
       .player-actions { display: flex; flex-wrap: wrap; gap: var(--space-sm); align-items: center; }
       .player-actions a { text-decoration: none; }
       .player-actions input { width: 120px; }
-      .stems-section { margin-top: var(--space-md); padding: var(--space-md); border: 1px solid var(--color-border); border-radius: var(--radius-md); }
-      .stems-section h4 { margin: 0 0 var(--space-sm); font-size: 14px; color: var(--color-text-primary); }
-      .inpaint-section { margin-top: var(--space-md); padding: var(--space-md); border: 1px solid var(--color-border); border-radius: var(--radius-md); }
-      .inpaint-section h4 { margin: 0 0 var(--space-sm); font-size: 14px; color: var(--color-text-primary); }
-      .inpaint-warning { background: rgba(245,158,11,0.1); border: 1px solid rgba(245,158,11,0.3); border-radius: var(--radius-md); padding: var(--space-sm) var(--space-md); margin-bottom: var(--space-md); font-size: 13px; color: var(--color-warning); }
-      .inpaint-actions { display: flex; flex-wrap: wrap; gap: var(--space-sm); margin-top: var(--space-sm); }
-      .inpaint-sections { margin-top: var(--space-md); }
-      .inpaint-source-section { display: flex; align-items: center; gap: var(--space-sm); padding: var(--space-sm) var(--space-md); border: 1px solid var(--color-border); border-radius: var(--radius-md); margin-top: var(--space-xs); font-size: 13px; }
-      .inpaint-source-section.keep { background: rgba(34,197,94,0.05); }
-      .inpaint-source-section.regenerate { background: rgba(239,68,68,0.05); }
-      .inpaint-toggle { cursor: pointer; padding: var(--space-xs) var(--space-sm); border-radius: var(--radius-sm); font-size: 12px; border: none; }
-      .inpaint-toggle.keep { background: rgba(34,197,94,0.2); color: var(--color-success); }
-      .inpaint-toggle.regenerate { background: rgba(239,68,68,0.1); color: var(--color-error); }
-      .inpaint-editor { display: none; margin-top: var(--space-md); padding: var(--space-md); background: var(--color-bg-hover); border-radius: var(--radius-md); }
-      .inpaint-editor.visible { display: block; }
-      .inpaint-field { margin-top: var(--space-sm); }
-      .inpaint-field label { font-size: 13px; margin: var(--space-xs) 0; }
-      .inpaint-field input, .inpaint-field textarea { font-size: 13px; padding: var(--space-sm); }
       .store-toggle { display: flex; align-items: center; gap: var(--space-sm); margin-top: var(--space-sm); }
       .store-toggle label { margin: 0; font-weight: normal; color: var(--color-text-secondary); font-size: 13px; }
       .history-items-list { display: flex; flex-direction: column; gap: var(--space-sm); max-height: 500px; overflow-y: auto; }
@@ -199,6 +181,7 @@
       .community-item { border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: var(--space-md); background: var(--color-bg-card-solid); }
       .share-control { display: inline-flex; align-items: center; gap: var(--space-xs); flex-wrap: wrap; }
       .share-control select { width: auto; min-height: 32px; padding: 4px 8px; }
+      #toastContainer { position: fixed; top: var(--space-lg); right: var(--space-lg); z-index: 9999; display: flex; flex-direction: column; gap: var(--space-sm); pointer-events: none; }
       .toast { background: var(--color-bg-card-solid); border: 1px solid var(--glass-border); border-radius: var(--radius-md); padding: var(--space-sm) var(--space-md); font-size: 13px; color: var(--color-text-primary); box-shadow: var(--glass-shadow); transition: opacity 0.2s, transform 0.2s; pointer-events: auto; }
       .toast-success { border-left: 3px solid var(--color-success); }
       .toast-error { border-left: 3px solid var(--color-error); }
@@ -275,6 +258,10 @@
       .mobile-panels { display: none; padding: var(--space-md); padding-top: calc(var(--topbar-height) + var(--space-md)); padding-bottom: calc(var(--mobile-tab-height) + var(--space-md) + 80px); }
       .mobile-panel { display: none; }
       .mobile-panel.active { display: block; }
+      .profile-info-mobile { display: flex; flex-direction: column; gap: var(--space-md); margin-bottom: var(--space-lg); }
+      .profile-row { display: flex; justify-content: space-between; align-items: center; padding: var(--space-sm) 0; border-bottom: 1px solid var(--color-border); }
+      .profile-label { color: var(--color-text-secondary); font-size: 14px; }
+      .profile-actions-mobile { display: flex; flex-direction: column; gap: var(--space-sm); }
       .sticky-player-bar { position: fixed; bottom: var(--mobile-tab-height); left: 0; right: 0; background: var(--glass-bg); backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur); border-top: 1px solid var(--glass-border); padding: var(--space-sm) var(--space-md); display: none; align-items: center; gap: var(--space-md); z-index: 90; }
       .sticky-player-bar.playing { display: flex; }
       .sticky-player-bar audio { flex: 1; height: 36px; border-radius: var(--radius-md); }
@@ -294,7 +281,9 @@
       .modal-content .form-actions { margin-top: var(--space-lg); }
       .hidden { display: none !important; }
       .muted { color: var(--color-text-muted); font-size: 13px; }
-      @media (min-width: 1024px) {
+      /* Treat only true desktop layouts as "pc". Tablets (e.g. iPad 1024px wide) behave
+         more like mobile for this UI. */
+      @media (min-width: 1100px) {
         .mobile-panels, .mobile-tab-bar, .sticky-player-bar { display: none !important; }
         .discover-page.hidden { display: none; }
         /* Desktop discover view should not end up "below the fold" due to prior scroll position.
@@ -310,15 +299,21 @@
           z-index: 50;
         }
       }
-      @media (max-width: 1023px) {
+      @media (max-width: 1099px) {
         .top-bar { display: none; }
-        .app-layout { padding-top: 0; }
+        /* Mobile Safari has long-standing scroll/viewport bugs with fixed bars and
+           textarea focus/restore that can land the page near the bottom on load.
+           Collapsing the outer app wrapper to height:0 (while keeping overflow visible)
+           matches the previous stable behavior in this project. */
+        .app-layout { padding-top: 0; min-height: 0; height: 0; overflow: visible; }
         .pc-layout { display: none; }
-        .mobile-panels { display: block; }
+        .mobile-panels { display: block; padding-top: var(--space-md); }
         .mobile-tab-bar { display: flex; }
         .discover-page { display: none !important; }
         .create-form-content { max-height: none; overflow-y: visible; }
         .create-form-footer { position: fixed; bottom: var(--mobile-tab-height); left: 0; right: 0; padding: var(--space-md); background: var(--glass-bg); backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur); border-top: 1px solid var(--glass-border); z-index: 80; }
+        body:has(.sticky-player-bar.playing) .create-form-footer { bottom: calc(var(--mobile-tab-height) + 52px); }
+        body:has(.sticky-player-bar.playing) .mobile-panels { padding-bottom: calc(var(--mobile-tab-height) + var(--space-md) + 132px); }
       }
       @media (max-width: 640px) {
         .auth-card { margin: var(--space-md); padding: var(--space-lg); }

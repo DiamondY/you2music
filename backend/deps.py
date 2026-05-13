@@ -158,6 +158,17 @@ def _can_access_job(rec: Any, user: UserRecord | None) -> bool:
 # Job serialization
 # ---------------------------------------------------------------------------
 
+def _safe_json_loads(s: str | None) -> Any:
+    if not s:
+        return {}
+    try:
+        value = json.loads(s)
+        # Keep API contract stable: params should always be an object/dict.
+        return value if isinstance(value, dict) else {}
+    except (json.JSONDecodeError, TypeError):
+        return {}
+
+
 def _serialize_job(rec: Any, *, include_download: bool = True) -> dict[str, Any]:
     audio_url = None
     download_url = None
@@ -172,7 +183,7 @@ def _serialize_job(rec: Any, *, include_download: bool = True) -> dict[str, Any]
         "updated_at_ms": rec.updated_at_ms,
         "provider": rec.provider,
         "prompt": rec.prompt,
-        "params": json.loads(rec.params_json),
+        "params": _safe_json_loads(rec.params_json),
         "audio_url": audio_url,
         "download_url": download_url,
         "error": rec.error,

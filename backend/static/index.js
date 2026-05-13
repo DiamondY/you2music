@@ -15,15 +15,33 @@
         return '<svg class="icon ' + (sizeClass || '') + '" viewBox="0 0 24 24">' + svg + '</svg>';
       }
 
+      // Global error handler:
+      // - Do NOT spam end users with low-signal messages like "Script error. at line 0"
+      //   (often caused by cross-origin errors where the browser hides details).
+      // - Provide a debug UI only when explicitly enabled.
+      const _debugUiErrors = (() => {
+        try { return new URLSearchParams(location.search).has("debug"); } catch { return false; }
+      })();
       window.onerror = function(msg, url, line, col, error) {
-        var el = document.getElementById('js-error-display');
-        if (!el) {
-          el = document.createElement('div');
-          el.id = 'js-error-display';
-          el.style.cssText = 'position:fixed;z-index:99999;top:0;left:0;right:0;padding:16px;background:rgba(239,68,68,0.95);color:white;white-space:pre-wrap;font-family:monospace;font-size:13px;max-height:200px;overflow:auto;box-shadow:0 4px 20px rgba(0,0,0,0.4);';
-          if (document.body) document.body.appendChild(el);
-        }
-        if (el) el.textContent += 'JS Error: ' + msg + ' at line ' + line + '\n';
+        try {
+          const m = String(msg || "");
+          const isGenericScriptError = (m === "Script error." || m === "Script error") && (!url || line === 0);
+          if (isGenericScriptError) return false;
+          if (!_debugUiErrors) return false;
+
+          var el = document.getElementById("js-error-display");
+          if (!el) {
+            el = document.createElement("div");
+            el.id = "js-error-display";
+            el.style.cssText = "position:fixed;z-index:99999;top:0;left:0;right:0;padding:16px;background:rgba(239,68,68,0.95);color:white;white-space:pre-wrap;font-family:monospace;font-size:13px;max-height:220px;overflow:auto;box-shadow:0 4px 20px rgba(0,0,0,0.4);";
+            if (document.body) document.body.appendChild(el);
+          }
+          if (el) {
+            const where = (url ? (String(url).split("/").slice(-1)[0]) : "") + (line ? (":" + line) : "");
+            const stack = (error && error.stack) ? ("\n" + String(error.stack).slice(0, 1200)) : "";
+            el.textContent += "JS Error: " + m + (where ? (" @ " + where) : "") + stack + "\n";
+          }
+        } catch {}
         return false;
       };
 
@@ -51,11 +69,6 @@
       const historyNextBtn2 = document.getElementById("historyNextBtn2");
       const historyInfoEl = document.getElementById("historyInfo");
       const historyInfoEl2 = document.getElementById("historyInfo2");
-      const stemsSection = document.getElementById("stemsSection");
-      const getStemsBtn = document.getElementById("getStemsBtn");
-      const vocalsLink = document.getElementById("vocalsLink");
-      const instrumentalLink = document.getElementById("instrumentalLink");
-      const stemsStatus = document.getElementById("stemsStatus");
       const providerEl = document.getElementById("provider");
       const advancedEl = document.getElementById("advanced");
       const providerFieldsEl = document.getElementById("providerFields");
@@ -119,27 +132,45 @@
       const audioBlobUrlsByUrl = new Map();
       let cpState = { positive_global_styles: [], negative_global_styles: [], sections: [], bpm: null, key: null };
       let draggedSection = null;
-      let inpaintState = { sourceJobId: null, sourceSongId: null, sourceSections: [], totalDurationMs: 0 };
       let creationMode = "original";
       let creationSubMode = "simple";
       let currentView = "create";
       let currentMobileTab = "create";
 
-      function _isDesktopViewport() { return window.innerWidth >= 1024; }
+      // Keep this in sync with CSS breakpoints in `index.css`.
+      function _isDesktopViewport() { return window.innerWidth >= 1100; }
       function _pickContainer(pcEl, mobileEl) {
         // Prefer viewport-based decision; do not rely on .style.display because we hide panels via CSS classes.
         if (_isDesktopViewport()) return pcEl || mobileEl;
         return mobileEl || pcEl;
       }
 
+      const statusMobileEl = document.getElementById("statusMobile");
+      const errorMobileEl = document.getElementById("errorMobile");
+      const generateBtnMobile = document.getElementById("generateBtnMobile");
+      const promptMobileEl = document.getElementById("promptMobile");
+      const durationMobileSlider = document.getElementById("durationMobile");
+      const durationMobileValue = document.getElementById("durationValueMobile");
+      const providerMobileEl = document.getElementById("providerMobile");
+      const providerFieldsMobileEl = document.getElementById("providerFieldsMobile");
+      const lyricsMobileEl = document.getElementById("lyricsMobile");
+      const vocalsMobileEl = document.getElementById("vocalsMobile");
+      const seedMobileEl = document.getElementById("seedMobile");
+      const countMobileEl = document.getElementById("countMobile");
+      const playerMobile = document.getElementById("playerMobile");
+      const downloadLinkMobile = document.getElementById("downloadLinkMobile");
+      const jobIdMobileEl = document.getElementById("jobIdMobile");
+
       function setStatus(msg, kind) {
         statusEl.textContent = msg || "";
         statusEl.className = kind === "ok" ? "status-text success" : (kind === "err" ? "status-text error" : "status-text");
+        if (statusMobileEl) { statusMobileEl.textContent = msg || ""; statusMobileEl.className = statusEl.className; }
       }
 
       function setError(msg) {
         errorEl.textContent = msg || "";
         errorEl.style.display = msg ? "block" : "none";
+        if (errorMobileEl) { errorMobileEl.textContent = msg || ""; errorMobileEl.style.display = msg ? "block" : "none"; }
       }
 
       function setAuthError(msg) {
@@ -208,6 +239,7 @@
         let data;
         try { data = text ? JSON.parse(text) : {}; } catch { data = { raw: text }; }
         if (!res.ok) {
+          if (res.status === 401) { setSession("", null); stopEventStream(); throw new Error("登录已过期，请重新登录。"); }
           throw new Error(formatApiError(data, text || "HTTP " + res.status));
         }
         return data;
@@ -216,6 +248,17 @@
       let eventAbort = null;
       let eventStreamRunning = false;
       let historyRefreshTimer = null;
+      // Prevent browsers (notably mobile Safari) from restoring a stale scroll
+      // position that makes the first viewport look "empty".
+      try { if ("scrollRestoration" in history) history.scrollRestoration = "manual"; } catch {}
+      function _forceScrollTop() {
+        try { const el = document.activeElement; if (el && typeof el.blur === "function") el.blur(); } catch {}
+        try { window.scrollTo({ top: 0, left: 0, behavior: "auto" }); } catch { try { window.scrollTo(0, 0); } catch {} }
+        try { document.documentElement.scrollTop = 0; } catch {}
+        try { document.body.scrollTop = 0; } catch {}
+      }
+      try { window.addEventListener("pageshow", () => { _forceScrollTop(); setTimeout(_forceScrollTop, 50); setTimeout(_forceScrollTop, 250); }, { passive: true }); } catch {}
+      try { window.addEventListener("load", () => { _forceScrollTop(); setTimeout(_forceScrollTop, 50); }, { passive: true }); } catch {}
       function scheduleHistoryRefresh() {
         if (historyRefreshTimer) return;
         historyRefreshTimer = setTimeout(() => { historyRefreshTimer = null; loadHistoryPage(historyOffset).catch(() => {}); }, 600);
@@ -265,15 +308,15 @@
       function revokeAudioBlobUrls() { for (const url of audioBlobUrlsByUrl.values()) { URL.revokeObjectURL(url); } audioBlobUrlsByUrl.clear(); }
       function attachAuthenticatedAudio(audioEl, url) { audioEl.removeAttribute("src"); audioEl.load(); getAuthenticatedAudioUrl(url).then(src => { audioEl.src = src; }).catch(e => { setError(errorMessage(e)); }); }
       function setMainPlayerAudio(job) {
-        if (!job || !job.audio_url) { player.removeAttribute("src"); player.load(); downloadLink.style.display = "none"; extendGroup.style.display = "none"; return; }
+        if (!job || !job.audio_url) { player.removeAttribute("src"); player.load(); downloadLink.style.display = "none"; extendGroup.style.display = "none"; if (stickyPlayer) { stickyPlayer.removeAttribute("src"); stickyPlayer.load(); } if (stickyPlayerBar) stickyPlayerBar.classList.remove("playing"); if (stickyDownloadLink) stickyDownloadLink.style.display = "none"; if (playerMobile) { playerMobile.removeAttribute("src"); playerMobile.load(); } if (downloadLinkMobile) downloadLinkMobile.style.display = "none"; return; }
         player.removeAttribute("src"); player.load();
-        getAuthenticatedAudioUrl(job.audio_url).then(src => { player.src = src; downloadLink.href = src; downloadLink.setAttribute("download", (job.job_id || "audio") + ".mp3"); downloadLink.style.display = "inline"; extendGroup.style.display = "inline-flex"; }).catch(e => { downloadLink.style.display = "none"; extendGroup.style.display = "none"; setError(errorMessage(e)); });
+        getAuthenticatedAudioUrl(job.audio_url).then(src => { player.src = src; downloadLink.href = src; downloadLink.setAttribute("download", (job.job_id || "audio") + ".mp3"); downloadLink.style.display = "inline"; extendGroup.style.display = "inline-flex"; if (stickyPlayer) { stickyPlayer.src = src; } if (stickyPlayerBar) stickyPlayerBar.classList.add("playing"); if (stickyDownloadLink) { stickyDownloadLink.href = src; stickyDownloadLink.setAttribute("download", (job.job_id || "audio") + ".mp3"); stickyDownloadLink.style.display = "inline"; } if (playerMobile) { playerMobile.src = src; } if (downloadLinkMobile) { downloadLinkMobile.href = src; downloadLinkMobile.setAttribute("download", (job.job_id || "audio") + ".mp3"); downloadLinkMobile.style.display = "inline"; } if (jobIdMobileEl) jobIdMobileEl.textContent = job.job_id || "-"; }).catch(e => { downloadLink.style.display = "none"; extendGroup.style.display = "none"; setError(errorMessage(e)); });
       }
-      function updateQuotaDisplay(user) { const quota = user && user.quota ? user.quota : null; if (!quota) { quotaInfoEl.textContent = "今日配额：-"; return; } quotaInfoEl.textContent = "今日配额：" + quota.used + "/" + quota.limit + "，剩余 " + quota.remaining; }
+      function updateQuotaDisplay(user) { const quota = user && user.quota ? user.quota : null; const text = !quota ? "今日配额：-" : "今日配额：" + quota.used + "/" + quota.limit + "，剩余 " + quota.remaining; quotaInfoEl.textContent = text; const qm = document.getElementById("quotaInfoMobile"); if (qm) qm.textContent = text; }
 
       function showView(view) {
         currentView = view;
-        const isPC = window.innerWidth >= 1024;
+        const isPC = _isDesktopViewport();
         if (isPC) {
           pcLayout.classList.toggle("hidden", view === "discover");
           discoverPage.classList.toggle("hidden", view !== "discover");
@@ -282,8 +325,15 @@
         }
         // Ensure the visible content starts at the top when switching views.
         try { window.scrollTo({ top: 0, left: 0, behavior: "auto" }); } catch { try { window.scrollTo(0, 0); } catch {} }
-        if (view === "discover") loadCommunity().catch(e => setError(String(e)));
-        if (!isPC) showMobileTab(view === "discover" ? "discover" : currentMobileTab);
+        if (view === "discover") loadCommunity().catch(e => setError(errorMessage(e)));
+        if (!isPC) {
+          // Mobile should respect the requested view. Previously this used
+          // `currentMobileTab` for non-discover views, which could keep users on
+          // the Discover tab after login (because logged-out state sets it).
+          if (view === "create") showMobileTab("create");
+          else if (view === "discover") showMobileTab("discover");
+          else showMobileTab(currentMobileTab);
+        }
       }
 
       function showMobileTab(tab) {
@@ -293,10 +343,10 @@
         try { window.scrollTo({ top: 0, left: 0, behavior: "auto" }); } catch { try { window.scrollTo(0, 0); } catch {} }
         mobileTabBar.querySelectorAll(".tab-item").forEach(t => t.classList.toggle("active", t.dataset.tab === tab));
         document.querySelectorAll(".mobile-panel").forEach(p => p.classList.remove("active"));
-        const panelMap = { create: "panelCreate", history: "panelHistory", discover: "panelDiscover" };
+        const panelMap = { create: "panelCreate", history: "panelHistory", discover: "panelDiscover", profile: "panelProfile" };
         const panel = document.getElementById(panelMap[tab]);
         if (panel) panel.classList.add("active");
-        if (tab === "discover") loadCommunity().catch(e => setError(String(e)));
+        if (tab === "discover") loadCommunity().catch(e => setError(errorMessage(e)));
       }
 
       function _syncModeDataset() {
@@ -355,14 +405,29 @@
         const loggedIn = localMode || Boolean(currentUser && authToken);
         authPage.classList.toggle("hidden", loggedIn);
         appLayout.classList.toggle("hidden", !loggedIn);
+        const mobilePanelsEl = document.getElementById("mobilePanels");
+        // Enforce visibility via JS too (not only CSS) so that if breakpoints or
+        // cached CSS ever drift, mobile won't end up with a huge PC layout above it.
+        const isDesktop = _isDesktopViewport();
+        if (pcLayout) pcLayout.style.display = (loggedIn && isDesktop) ? "" : "none";
+        if (mobilePanelsEl) mobilePanelsEl.style.display = (loggedIn && !isDesktop) ? "" : "none";
+        if (mobileTabBar) mobileTabBar.style.display = (loggedIn && !isDesktop) ? "" : "none";
         console.log("setSession: loggedIn=", loggedIn, "authPage.hidden=", authPage.classList.contains("hidden"), "appLayout.hidden=", appLayout.classList.contains("hidden"));
+        // Some mobile browsers restore/retain scroll positions across view toggles.
+        // Force a sane top-of-page baseline when switching auth <-> app.
+        try { window.scrollTo({ top: 0, left: 0, behavior: "auto" }); } catch { try { window.scrollTo(0, 0); } catch {} }
+        try { document.documentElement.scrollTop = 0; } catch {}
+        try { document.body.scrollTop = 0; } catch {}
         if (adminLink) adminLink.style.display = (loggedIn && !localMode && currentUser && currentUser.role === "admin") ? "inline-block" : "none";
+        const adminLinkMobile = document.getElementById("adminLinkMobile");
+        if (adminLinkMobile) adminLinkMobile.style.display = (loggedIn && !localMode && currentUser && currentUser.role === "admin") ? "block" : "none";
+        const accountNameMobile = document.getElementById("accountNameMobile");
         if (loggedIn) {
-          if (localMode) { if (accountNameEl) accountNameEl.textContent = "本地模式"; updateQuotaDisplay(null); }
-          else { if (accountNameEl) accountNameEl.textContent = (currentUser && currentUser.username) ? currentUser.username : "-"; updateQuotaDisplay(currentUser); }
+          if (localMode) { if (accountNameEl) accountNameEl.textContent = "本地模式"; if (accountNameMobile) accountNameMobile.textContent = "本地模式"; updateQuotaDisplay(null); }
+          else { if (accountNameEl) accountNameEl.textContent = (currentUser && currentUser.username) ? currentUser.username : "-"; if (accountNameMobile) accountNameMobile.textContent = (currentUser && currentUser.username) ? currentUser.username : "-"; updateQuotaDisplay(currentUser); }
           if (!localMode && currentUser && currentUser.must_change_password) { showForceChangePwd(); }
           else { showView("create"); }
-        } else { if (accountNameEl) accountNameEl.textContent = "-"; updateQuotaDisplay(null); showView("discover"); }
+        } else { if (accountNameEl) accountNameEl.textContent = "-"; if (accountNameMobile) accountNameMobile.textContent = "-"; updateQuotaDisplay(null); showView("discover"); }
       }
       function showForceChangePwd() { const overlay = document.getElementById("forceChangePwdOverlay"); overlay.classList.add("visible"); document.getElementById("fcpOldPwd").value = ""; document.getElementById("fcpNewPwd").value = ""; document.getElementById("fcpConfirmPwd").value = ""; document.getElementById("fcpError").style.display = "none"; }
       async function submitForceChangePwd() {
@@ -469,7 +534,7 @@
         const hasCompositionPlan = Boolean(providerId === "elevenlabs" && payload.provider_params && (payload.provider_params.use_composition_plan === true || payload.provider_params.composition_plan_json) && payload.provider_params.composition_plan_json);
         if (!promptVal && !hasCompositionPlan) { fail(promptEl, "请填写 Prompt（必填）。"); }
         const duration = parseInt(String(payload.duration_sec != null ? payload.duration_sec : ""), 10);
-        if (!Number.isFinite(duration) || duration < 3 || duration > 300) { const anchor = durationSlider ? durationSlider.parentElement : null; fail(durationSlider, "时长建议 3–300 秒。", { anchor: anchor || durationSlider }); }
+        if (!Number.isFinite(duration) || duration < 3 || duration > 600) { const anchor = durationSlider ? durationSlider.parentElement : null; fail(durationSlider, "时长建议 3–600 秒。", { anchor: anchor || durationSlider }); }
         const seedEl = document.getElementById("seed"); const seedRaw = seedEl ? String(seedEl.value || "").trim() : "";
         if (seedRaw) { const seed = parseInt(seedRaw, 10); if (!Number.isFinite(seed) || seed < 0 || seed > 2147483647) { fail(seedEl, "Seed 必须是 0–2147483647 的整数，或留空。"); } }
         if (meta && Array.isArray(meta.fields)) { for (const field of meta.fields) { if (!field || field.required !== true) continue; const input = providerFieldsEl.querySelector("[data-key=\"" + field.key + "\"]"); if (!input) continue; if (input.tagName === "INPUT" && input.type === "checkbox") { if (!input.checked) fail(input, field.label + "：必填。"); continue; } const raw = String(input.value != null ? input.value : ""); if (!raw.trim()) { fail(input, field.label + "：必填。"); continue; } if (field.kind === "integer") { const n = parseInt(raw, 10); if (!Number.isFinite(n)) fail(input, field.label + "：请输入整数。"); } else if (field.kind === "number") { const n = parseFloat(raw); if (!Number.isFinite(n)) fail(input, field.label + "：请输入数字。"); } else if (field.kind === "json") { try { const parsed = JSON.parse(raw); if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) { fail(input, field.label + "：必须是 JSON 对象。"); } } catch { fail(input, field.label + "：JSON 格式不合法。"); } } } }
@@ -482,12 +547,15 @@
         if (!lyricsRowEl) return;
         const show = !_isOriginalSimpleMode() && shouldShowLyricsInput();
         lyricsRowEl.style.display = show ? "" : "none";
-        if (!lyricsHintEl) return;
-        if (!show) { lyricsHintEl.style.display = "none"; lyricsHintEl.textContent = ""; return; }
+        const hintMobile = document.getElementById("lyricsHintMobile");
+        if (!lyricsHintEl && !hintMobile) return;
+        if (!show) { if (lyricsHintEl) { lyricsHintEl.style.display = "none"; lyricsHintEl.textContent = ""; } if (hintMobile) { hintMobile.style.display = "none"; hintMobile.textContent = ""; } return; }
         const providerId = getSelectedProviderId();
-        if (providerId === "minimax") { lyricsHintEl.style.display = "block"; lyricsHintEl.textContent = "MiniMax：不填歌词时会自动根据描述生成歌词；手动填入歌词则直接使用你写的歌词。"; return; }
-        if (providerId === "acestep") { lyricsHintEl.style.display = "block"; lyricsHintEl.textContent = "ACE-Step：支持 50+ 语言歌词，可用 [Verse] [Chorus] [Bridge] 等标签组织段落结构。"; return; }
-        lyricsHintEl.style.display = "none"; lyricsHintEl.textContent = "";
+        let hintText = "";
+        if (providerId === "minimax") { hintText = "MiniMax：不填歌词时会自动根据描述生成歌词；手动填入歌词则直接使用你写的歌词。"; }
+        else if (providerId === "acestep") { hintText = "ACE-Step：支持 50+ 语言歌词，可用 [Verse] [Chorus] [Bridge] 等标签组织段落结构。"; }
+        if (lyricsHintEl) { lyricsHintEl.style.display = hintText ? "block" : "none"; lyricsHintEl.textContent = hintText; }
+        if (hintMobile) { hintMobile.style.display = hintText ? "block" : "none"; hintMobile.textContent = hintText; }
       }
       function getLyricsPayloadValue(providerOverride) { const pid = providerOverride ? String(providerOverride).trim() : getSelectedProviderId(); if (!shouldShowLyricsInputForProvider(pid)) return null; const val = (lyricsEl && lyricsEl.value ? lyricsEl.value : "").trim(); return val ? val : null; }
       durationSlider.addEventListener("input", () => { durationValue.textContent = durationSlider.value + " 秒"; });
@@ -665,6 +733,7 @@
           if (field.help && field.kind !== "boolean") html += '<div style="font-size:12px;color:var(--color-text-muted);margin-top:var(--space-xs);">' + field.help + '</div>';
         }
         providerFieldsEl.innerHTML = html;
+        if (providerFieldsMobileEl) { providerFieldsMobileEl.innerHTML = html; providerFieldsMobileEl.style.display = html.trim() ? "" : "none"; for (const field of (meta.fields || [])) { const el = providerFieldsMobileEl.querySelector("[data-key=\"" + field.key + "\"]"); if (!el) continue; const v = values[field.key]; if (el.tagName === "INPUT" && el.type === "checkbox") { el.checked = Boolean(v); } else if (v !== null && v !== undefined) { el.value = String(v); } } providerFieldsMobileEl.querySelectorAll("input,select,textarea").forEach(el => { el.addEventListener("change", () => { renderProviderFields(); }); }); }
         // Hide the whole section when it's empty (e.g. original/simple mode).
         providerFieldsEl.style.display = html.trim() ? "" : "none";
         for (const field of (meta.fields || [])) { const el = providerFieldsEl.querySelector("[data-key=\"" + field.key + "\"]"); if (!el) continue; const v = values[field.key]; if (el.tagName === "INPUT" && el.type === "checkbox") { el.checked = Boolean(v); } else if (v !== null && v !== undefined) { el.value = String(v); } }
@@ -689,7 +758,7 @@
         }
         if (_isOriginalSimpleMode() && lyricsEl) lyricsEl.value = "";
       }
-      async function initProviders() { try { providersMeta = await fetchJson("/api/providers"); const ps = providersMeta.providers || []; providerEl.innerHTML = ps.map(p => { const disabled = (p.ready === false) ? "disabled" : ""; const suffix = (p.ready === false) ? " (未配置)" : ""; return '<option value="' + p.id + '" ' + disabled + '>' + p.name + suffix + '</option>'; }).join(""); const readyFirst = ps.find(p => p.ready !== false); const def = providersMeta.default_provider || (readyFirst ? readyFirst.id : (ps[0] ? ps[0].id : "")); providerEl.value = def; _syncModeDataset(); renderProviderFields({ reset: true }); updateLyricsUi(); renderSections(); } catch (e) { providerFieldsEl.innerHTML = '<div class="err">加载 provider 失败：' + String(e) + '</div>'; } }
+      async function initProviders() { try { providersMeta = await fetchJson("/api/providers"); const ps = providersMeta.providers || []; const optionsHtml = ps.map(p => { const disabled = (p.ready === false) ? "disabled" : ""; const suffix = (p.ready === false) ? " (未配置)" : ""; return '<option value="' + p.id + '" ' + disabled + '>' + p.name + suffix + '</option>'; }).join(""); providerEl.innerHTML = optionsHtml; if (providerMobileEl) providerMobileEl.innerHTML = optionsHtml; const readyFirst = ps.find(p => p.ready !== false); const def = providersMeta.default_provider || (readyFirst ? readyFirst.id : (ps[0] ? ps[0].id : "")); providerEl.value = def; if (providerMobileEl) providerMobileEl.value = def; _syncModeDataset(); renderProviderFields({ reset: true }); updateLyricsUi(); renderSections(); } catch (e) { providerFieldsEl.innerHTML = '<div class="err">加载 provider 失败：' + String(e) + '</div>'; } }
       function _shortText(s, maxLen) { const n = Number.isFinite(maxLen) ? maxLen : 80; const t = String(s || "").replace(/\s+/g, " ").trim(); if (!t) return ""; return t.length > n ? (t.slice(0, n) + "...") : t; }
       function _coerceInt(v, fallback) { const n = parseInt(String(v != null ? v : ""), 10); return Number.isFinite(n) ? n : fallback; }
       function _normalizeVocalsFlag(v) { if (v === true) return true; if (v === false) return false; return Boolean(v); }
@@ -716,7 +785,7 @@
         const compositionPlan = (providerId === "elevenlabs" && ((providerParams && providerParams.use_composition_plan) === true || (providerParams && providerParams.composition_plan_json))) ? _tryParseJsonObject(providerParams && providerParams.composition_plan_json) : null;
         if (providerId === "elevenlabs") { advancedEl.value = compositionPlan ? "advanced" : "simple"; }
         renderProviderFields();
-        if (durationSlider) { const clamped = Math.max(3, Math.min(300, durationSec)); durationSlider.value = String(clamped); durationValue.textContent = String(clamped) + " 秒"; }
+        if (durationSlider) { const clamped = Math.max(3, Math.min(600, durationSec)); durationSlider.value = String(clamped); durationValue.textContent = String(clamped) + " 秒"; }
         const vocalsEl = document.getElementById("vocals"); if (vocalsEl && !vocalsEl.disabled) vocalsEl.value = vocals ? "on" : "off";
         const seedEl = document.getElementById("seed"); if (seedEl) seedEl.value = (seed === null || seed === undefined) ? "" : String(seed);
         if (promptEl) promptEl.value = basePrompt || ""; if (lyricsEl) lyricsEl.value = lyrics || ""; updateLyricsUi();
@@ -754,10 +823,10 @@
         line2.appendChild(meta);
         const actions = document.createElement("div"); actions.className = "history-item-actions";
         const restoreBtn = document.createElement("button"); restoreBtn.className = "btn btn-secondary btn-sm"; restoreBtn.innerHTML = '<svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>'; restoreBtn.title = "恢复参数"; restoreBtn.addEventListener("click", (e) => { e.stopPropagation(); restoreJobParams(j); });
-        const deleteBtn = document.createElement("button"); deleteBtn.className = "btn-danger btn-sm"; deleteBtn.innerHTML = '<svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>'; deleteBtn.title = "删除"; deleteBtn.addEventListener("click", async (e) => { e.stopPropagation(); if (!window.confirm("确定删除记录？")) return; try { await fetchJson("/api/jobs/" + j.job_id, { method: "DELETE" }); if (currentJobId === j.job_id) { player.removeAttribute("src"); player.load(); downloadLink.style.display = "none"; extendGroup.style.display = "none"; currentJobId = null; } await loadHistoryPage(historyOffset); } catch (err) { setError("删除失败：" + String(err)); } });
+        const deleteBtn = document.createElement("button"); deleteBtn.className = "btn-danger btn-sm"; deleteBtn.innerHTML = '<svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>'; deleteBtn.title = "删除"; deleteBtn.addEventListener("click", async (e) => { e.stopPropagation(); if (!window.confirm("确定删除记录？")) return; try { await fetchJson("/api/jobs/" + j.job_id, { method: "DELETE" }); if (currentJobId === j.job_id) { player.removeAttribute("src"); player.load(); downloadLink.style.display = "none"; extendGroup.style.display = "none"; currentJobId = null; } await loadHistoryPage(historyOffset); } catch (err) { setError("删除失败：" + errorMessage(err)); } });
         actions.appendChild(restoreBtn);
-        if (j.status === "queued") { const cancelBtn = document.createElement("button"); cancelBtn.className = "btn btn-secondary btn-sm"; cancelBtn.textContent = "取消"; cancelBtn.title = "取消排队"; cancelBtn.addEventListener("click", async (e) => { e.stopPropagation(); if (!window.confirm("确定取消排队？")) return; try { await fetchJson("/api/jobs/" + j.job_id + "/cancel", { method: "POST" }); await loadHistoryPage(historyOffset); } catch (err) { setError("取消排队失败：" + String(err)); } }); actions.appendChild(cancelBtn); }
-        if (j.status === "succeeded") { const shareWrap = document.createElement("span"); shareWrap.className = "share-control"; if (j.visibility === "published") { const unpublishBtn = document.createElement("button"); unpublishBtn.className = "btn btn-secondary btn-sm"; unpublishBtn.textContent = "取消发布"; unpublishBtn.addEventListener("click", async (e) => { e.stopPropagation(); try { await fetchJson("/api/jobs/" + j.job_id + "/unpublish", { method: "POST" }); await loadHistoryPage(historyOffset); loadCommunity().catch(() => {}); } catch (err) { setError("取消发布失败：" + String(err)); } }); shareWrap.appendChild(unpublishBtn); } else { const permSelect = document.createElement("select"); permSelect.innerHTML = '<option value="listen_only">仅试听</option><option value="downloadable">可下载</option>'; const publishBtn = document.createElement("button"); publishBtn.className = "btn btn-secondary btn-sm"; publishBtn.textContent = "发布"; publishBtn.addEventListener("click", async (e) => { e.stopPropagation(); try { await fetchJson("/api/jobs/" + j.job_id + "/publish", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ share_permission: permSelect.value }) }); await loadHistoryPage(historyOffset); loadCommunity().catch(() => {}); } catch (err) { setError("发布失败：" + String(err)); } }); shareWrap.appendChild(permSelect); shareWrap.appendChild(publishBtn); } actions.appendChild(shareWrap); }
+        if (j.status === "queued") { const cancelBtn = document.createElement("button"); cancelBtn.className = "btn btn-secondary btn-sm"; cancelBtn.textContent = "取消"; cancelBtn.title = "取消排队"; cancelBtn.addEventListener("click", async (e) => { e.stopPropagation(); if (!window.confirm("确定取消排队？")) return; try { await fetchJson("/api/jobs/" + j.job_id + "/cancel", { method: "POST" }); await loadHistoryPage(historyOffset); } catch (err) { setError("取消排队失败：" + errorMessage(err)); } }); actions.appendChild(cancelBtn); }
+        if (j.status === "succeeded") { const shareWrap = document.createElement("span"); shareWrap.className = "share-control"; if (j.visibility === "published") { const unpublishBtn = document.createElement("button"); unpublishBtn.className = "btn btn-secondary btn-sm"; unpublishBtn.textContent = "取消发布"; unpublishBtn.addEventListener("click", async (e) => { e.stopPropagation(); try { await fetchJson("/api/jobs/" + j.job_id + "/unpublish", { method: "POST" }); await loadHistoryPage(historyOffset); loadCommunity().catch(() => {}); } catch (err) { setError("取消发布失败：" + errorMessage(err)); } }); shareWrap.appendChild(unpublishBtn); } else { const permSelect = document.createElement("select"); permSelect.innerHTML = '<option value="listen_only">仅试听</option><option value="downloadable">可下载</option>'; const publishBtn = document.createElement("button"); publishBtn.className = "btn btn-secondary btn-sm"; publishBtn.textContent = "发布"; publishBtn.addEventListener("click", async (e) => { e.stopPropagation(); try { await fetchJson("/api/jobs/" + j.job_id + "/publish", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ share_permission: permSelect.value }) }); await loadHistoryPage(historyOffset); loadCommunity().catch(() => {}); } catch (err) { setError("发布失败：" + errorMessage(err)); } }); shareWrap.appendChild(permSelect); shareWrap.appendChild(publishBtn); } actions.appendChild(shareWrap); }
         actions.appendChild(deleteBtn);
         line2.appendChild(actions);
         row.appendChild(line2);
@@ -768,7 +837,7 @@
       async function startGenerate() {
         const btn = document.getElementById("generateBtn"); if (btn.disabled) return; setError(""); const count = parseInt(document.getElementById("count").value, 10);
         setStatus(count > 1 ? "提交 " + count + " 首候选任务中..." : "提交任务中..."); downloadLink.style.display = "none"; refreshBtn.style.display = "none"; extendGroup.style.display = "none"; player.removeAttribute("src"); player.load();
-        btn.disabled = true; btn.innerHTML = '<svg class="icon icon-sm" viewBox="0 0 24 24" style="animation: spin 1s linear infinite;"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg> 生成中...';
+        btn.disabled = true; btn.innerHTML = '<svg class="icon icon-sm" viewBox="0 0 24 24" style="animation: spin 1s linear infinite;"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg> 生成中...'; if (generateBtnMobile) { generateBtnMobile.disabled = true; generateBtnMobile.textContent = "生成中..."; }
         const prompt = document.getElementById("prompt").value.trim(); const lyrics = getLyricsPayloadValue(); const duration = parseInt(document.getElementById("duration").value, 10); const vocals = document.getElementById("vocals").value === "on"; const seedRaw = document.getElementById("seed").value.trim(); const providerId = getSelectedProviderId();
         const payload = { prompt, lyrics: lyrics, duration_sec: duration, vocals, seed: seedRaw ? parseInt(seedRaw, 10) : null, provider: providerId || null, provider_params: collectProviderParams() };
         if (!_validateGenerateCommon(payload)) { btn.disabled = false; _updateGenerateBtnLabel(); return; }
@@ -784,40 +853,18 @@
         if (!anyActive && pollTimer) { clearInterval(pollTimer); pollTimer = null; }
         if (!anyActive) { const btn = document.getElementById("generateBtn"); btn.disabled = false; _updateGenerateBtnLabel(); }
         if (!anyActive && updateStatus) { setTimeout(async () => { await loadHistoryPage(0); renderList(historyJobs || [], { incremental: true }); }, 300); }
-        if (current && current.audio_url) { setMainPlayerAudio(current); if (currentJobProvider === "elevenlabs" && currentJobSongId) { stemsSection.style.display = "block"; vocalsLink.style.display = "none"; instrumentalLink.style.display = "none"; stemsStatus.textContent = ""; showInpaintSection(); } else { stemsSection.style.display = "none"; inpaintSection.style.display = "none"; } } else { downloadLink.style.display = "none"; extendGroup.style.display = "none"; stemsSection.style.display = "none"; }
+        if (current && current.audio_url) { setMainPlayerAudio(current); } else { downloadLink.style.display = "none"; extendGroup.style.display = "none"; }
         if (updateStatus && jobs.length === 1 && jobs[0].status === "failed") { setError(jobs[0].error || "未知错误"); }
-        } catch (e) { setError(String(e)); }
+        } catch (e) { setError(errorMessage(e)); }
       }
-      async function getStems() { if (!currentJobId) return; stemsStatus.textContent = "获取分轨中..."; getStemsBtn.disabled = true; try { const data = await fetchJson("/api/stems/" + currentJobId); if (data.vocals_url) { vocalsLink.href = data.vocals_url; vocalsLink.style.display = "inline"; } if (data.instrumental_url) { instrumentalLink.href = data.instrumental_url; instrumentalLink.style.display = "inline"; } stemsStatus.textContent = data.vocals_url || data.instrumental_url ? "" : "无可用的分轨"; } catch (e) { stemsStatus.textContent = "获取失败: " + String(e); } finally { getStemsBtn.disabled = false; } }
       async function extendCurrent() { setError(""); if (!currentJobId) { setError("没有可延长的 Job。"); return; } const extra = parseInt(document.getElementById("extendSec").value, 10); if (!Number.isFinite(extra) || extra < 3 || extra > 180) { setError("延长秒数建议 3–180。"); return; } setStatus("提交延长任务中..."); const data = await fetchJson("/api/extend", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ job_id: currentJobId, extra_sec: extra, provider: getSelectedProviderId() || null, provider_params: collectProviderParams() }) }); const newJobId = data.job_id; currentJobs = [newJobId]; currentJobId = newJobId; if (data.quota && currentUser) { currentUser.quota = data.quota; updateQuotaDisplay(currentUser); } jobIdEl.textContent = newJobId; refreshBtn.style.display = "inline-flex"; extendGroup.style.display = "none"; loadHistoryPage(0).catch(() => {}); if (pollTimer) clearInterval(pollTimer); pollTimer = setInterval(() => refreshJobs(currentJobs), 1500); await refreshJobs(currentJobs); }
-      const inpaintSection = document.getElementById("inpaintSection"); const inpaintEditor = document.getElementById("inpaintEditor"); const inpaintSections = document.getElementById("inpaintSections"); const openInpaintEditorBtn = document.getElementById("openInpaintEditorBtn"); const generateStoreBtn = document.getElementById("generateStoreBtn"); const executeInpaintBtn = document.getElementById("executeInpaintBtn"); const inpaintStatus = document.getElementById("inpaintStatus"); const storeForInpaintingCb = document.getElementById("storeForInpainting");
-      function showInpaintSection() { if (currentJobProvider === "elevenlabs" && currentJobSongId) { inpaintSection.style.display = "block"; openInpaintEditorBtn.style.display = "inline-flex"; } else { inpaintSection.style.display = "none"; inpaintEditor.classList.remove("visible"); } updateLyricsUi(); }
-      async function generateWithStore() {
-        setError(""); setStatus("生成并存储中...");
-        const prompt = document.getElementById("prompt").value.trim(); const lyrics = getLyricsPayloadValue("elevenlabs"); const duration = parseInt(document.getElementById("duration").value, 10); const vocals = document.getElementById("vocals").value === "on"; const seedRaw = document.getElementById("seed").value.trim(); const modelId = document.getElementById("modelId") ? document.getElementById("modelId").value.trim() : ""; const advancedMode = advancedEl.value === "advanced";
-        const payload = { prompt, lyrics: lyrics, duration_sec: duration, vocals, seed: seedRaw ? parseInt(seedRaw, 10) : null, model_id: modelId || null, provider: "elevenlabs", store_for_inpainting: true, provider_params: collectProviderParams() };
-        if (advancedMode) { const plan = buildCompositionPlan(); if (plan) { payload.provider_params = payload.provider_params || {}; payload.provider_params.use_composition_plan = true; payload.provider_params.composition_plan_json = plan; } }
-        if (!_validateGenerateCommon(payload)) return;
-        try { const data = await fetchJson("/api/generate_store", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) }); currentJobId = data.job_id; currentJobs = [currentJobId]; jobIdEl.textContent = currentJobId; refreshBtn.style.display = "inline-flex"; setStatus("已提交，生成并存储中..."); loadHistoryPage(0).catch(() => {}); if (pollTimer) clearInterval(pollTimer); pollTimer = setInterval(() => refreshJobs(currentJobs), 1500); await refreshJobs(currentJobs); } catch (e) { setError(String(e)); setStatus(""); }
-      }
-      function openInpaintEditor() { if (!currentJobId || !currentJobSongId) { setError("没有可编辑的歌曲。请先生成并存储一首歌曲。"); return; } inpaintState.sourceJobId = currentJobId; inpaintState.sourceSongId = currentJobSongId; const durationSec = parseInt(document.getElementById("duration").value, 10) || 45; inpaintState.totalDurationMs = durationSec * 1000; const numSections = 4; const sectionDuration = inpaintState.totalDurationMs / numSections; const sectionNames = ["Intro", "Verse", "Chorus", "Outro"]; inpaintState.sourceSections = []; for (let i = 0; i < numSections; i++) { inpaintState.sourceSections.push({ start_ms: Math.round(i * sectionDuration), end_ms: Math.round((i + 1) * sectionDuration), name: sectionNames[i] || "段落 " + (i + 1), keep: true }); } renderInpaintSections(); inpaintEditor.classList.add("visible"); }
-      function renderInpaintSections() { inpaintSections.innerHTML = inpaintState.sourceSections.map((sec, i) => '<div class="inpaint-source-section ' + (sec.keep ? "keep" : "regenerate") + '"><span style="flex:1;">' + sec.name + " (" + formatTime(sec.start_ms) + " - " + formatTime(sec.end_ms) + ')</span><button class="inpaint-toggle ' + (sec.keep ? "keep" : "regenerate") + '" onclick="toggleInpaintSection(' + i + ')">' + (sec.keep ? "保留" : "重新生成") + '</button></div>').join(""); }
-      function toggleInpaintSection(i) { inpaintState.sourceSections[i].keep = !inpaintState.sourceSections[i].keep; renderInpaintSections(); }
-      window.toggleInpaintSection = toggleInpaintSection;
-      async function executeInpaint() {
-        if (!inpaintState.sourceSongId) { setError("没有源歌曲 ID。"); return; } inpaintStatus.textContent = "执行 Inpainting 中..."; executeInpaintBtn.disabled = true;
-        const sections = []; const newLyrics = document.getElementById("inpaintNewLyrics").value.trim();
-        for (const sec of inpaintState.sourceSections) { const section = { duration_ms: sec.end_ms - sec.start_ms }; if (sec.keep) { section.source_from = { song_id: inpaintState.sourceSongId, range: { start_ms: sec.start_ms, end_ms: sec.end_ms } }; } else { section.local_styles = ["energetic"]; if (newLyrics) { section.lyrics = newLyrics; } } sections.push(section); }
-        const compositionPlan = { sections: sections, positive_global_styles: cpState.positive_global_styles.length > 0 ? cpState.positive_global_styles : ["pop", "melodic"], negative_global_styles: cpState.negative_global_styles };
-        try { const data = await fetchJson("/api/inpaint", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ source_job_id: inpaintState.sourceJobId, composition_plan: compositionPlan }) }); const newJobId = data.job_id; currentJobs = [newJobId]; currentJobId = newJobId; jobIdEl.textContent = newJobId; refreshBtn.style.display = "inline-flex"; setStatus("Inpainting 任务已提交"); loadHistoryPage(0).catch(() => {}); inpaintStatus.textContent = "任务已提交，生成中..."; inpaintEditor.classList.remove("visible"); if (pollTimer) clearInterval(pollTimer); pollTimer = setInterval(() => refreshJobs(currentJobs), 1500); await refreshJobs(currentJobs); } catch (e) { setError("Inpainting 失败: " + String(e)); inpaintStatus.textContent = ""; } finally { executeInpaintBtn.disabled = false; }
-      }
       async function fetchRandomSample() { try { const data = await fetchJson("/api/random_sample"); return data; } catch (e) { console.error("Failed to fetch random sample:", e); return null; } }
       async function fillRandomPrompt() { const sample = await fetchRandomSample(); if (sample && sample.prompt) { promptEl.value = sample.prompt; setStatus("已随机填充描述", "ok"); } }
       async function fillRandomLyrics() { const sample = await fetchRandomSample(); if (sample && sample.lyrics) { lyricsEl.value = sample.lyrics; setStatus("已随机填充歌词", "ok"); } }
-      async function fillRandomAll() { const sample = await fetchRandomSample(); if (!sample) { setError("获取随机样本失败"); return; } if (sample.prompt) { promptEl.value = sample.prompt; } if (sample.lyrics) { lyricsEl.value = sample.lyrics; } if (sample.duration && durationSlider) { const clamped = Math.max(3, Math.min(300, sample.duration)); durationSlider.value = String(clamped); durationValue.textContent = String(clamped) + " 秒"; } setStatus("已随机填充所有字段", "ok"); }
+      async function fillRandomAll() { const sample = await fetchRandomSample(); if (!sample) { setError("获取随机样本失败"); return; } if (sample.prompt) { promptEl.value = sample.prompt; } if (sample.lyrics) { lyricsEl.value = sample.lyrics; } if (sample.duration && durationSlider) { const clamped = Math.max(3, Math.min(600, sample.duration)); durationSlider.value = String(clamped); durationValue.textContent = String(clamped) + " 秒"; } setStatus("已随机填充所有字段", "ok"); }
       function updateRandomButtonsVisibility() { const showRandomButtons = true; const randomPromptBtn = document.getElementById("randomPromptBtn"); const randomLyricsBtn = document.getElementById("randomLyricsBtn"); const randomFillAllBtn = document.getElementById("randomFillAllBtn"); if (randomPromptBtn) randomPromptBtn.style.display = showRandomButtons ? "inline-flex" : "none"; if (randomLyricsBtn) randomLyricsBtn.style.display = showRandomButtons ? "inline-flex" : "none"; if (randomFillAllBtn) randomFillAllBtn.style.display = showRandomButtons ? "inline-flex" : "none"; }
-      function _updateGenerateBtnLabel() { const count = parseInt(document.getElementById("count").value, 10); const btn = document.getElementById("generateBtn"); btn.innerHTML = count > 1 ? icon("sparkles", "icon-sm") + " 创作 " + count + " 首" : icon("sparkles", "icon-sm") + " 开始创作"; }
-      document.getElementById("generateBtn").addEventListener("click", () => { startGenerate().catch(e => { setError(String(e)); setStatus(""); const btn = document.getElementById("generateBtn"); btn.disabled = false; _updateGenerateBtnLabel(); }); });
+      function _updateGenerateBtnLabel() { const count = parseInt(document.getElementById("count").value, 10); const btn = document.getElementById("generateBtn"); btn.innerHTML = count > 1 ? icon("sparkles", "icon-sm") + " 创作 " + count + " 首" : icon("sparkles", "icon-sm") + " 开始创作"; if (generateBtnMobile) { generateBtnMobile.disabled = btn.disabled; generateBtnMobile.textContent = count > 1 ? "创作 " + count + " 首" : "开始创作"; } }
+      document.getElementById("generateBtn").addEventListener("click", () => { startGenerate().catch(e => { setError(errorMessage(e)); setStatus(""); const btn = document.getElementById("generateBtn"); btn.disabled = false; _updateGenerateBtnLabel(); }); });
       document.getElementById("count").addEventListener("change", _updateGenerateBtnLabel);
       _updateGenerateBtnLabel();
       const randomPromptBtnEl = document.getElementById("randomPromptBtn"); const randomLyricsBtnEl = document.getElementById("randomLyricsBtn"); const randomFillAllBtnEl = document.getElementById("randomFillAllBtn");
@@ -829,15 +876,15 @@
       if (srcAudioInput) { srcAudioInput.addEventListener("change", function() { if (this.files && this.files[0]) handleAudioFileInput("src", this.files[0]); }); }
       if (refAudioInput) { refAudioInput.addEventListener("change", function() { if (this.files && this.files[0]) handleAudioFileInput("ref", this.files[0]); }); }
       historyLimit = loadHistoryPageSizePref();
-      if (historyPageSizeEl) { historyPageSizeEl.value = String(historyLimit); historyPageSizeEl.addEventListener("change", () => { const n = parseInt(String(historyPageSizeEl.value || "20"), 10); historyLimit = (Number.isFinite(n) && n > 0) ? n : 20; saveHistoryPageSizePref(); loadHistoryPage(0).catch(e => setError(String(e))); }); }
-      if (historyPageSizeEl2) { historyPageSizeEl2.value = String(historyLimit); historyPageSizeEl2.addEventListener("change", () => { const n = parseInt(String(historyPageSizeEl2.value || "20"), 10); historyLimit = (Number.isFinite(n) && n > 0) ? n : 20; saveHistoryPageSizePref(); loadHistoryPage(0).catch(e => setError(String(e))); }); }
-      if (historyPrevBtn) { historyPrevBtn.addEventListener("click", () => { const nextOffset = Math.max(0, historyOffset - historyLimit); loadHistoryPage(nextOffset).catch(e => setError(String(e))); }); }
-      if (historyNextBtn) { historyNextBtn.addEventListener("click", () => { const nextOffset = historyOffset + historyLimit; if (nextOffset >= historyTotal) return; loadHistoryPage(nextOffset).catch(e => setError(String(e))); }); }
-      if (historyPrevBtn2) { historyPrevBtn2.addEventListener("click", () => { const nextOffset = Math.max(0, historyOffset - historyLimit); loadHistoryPage(nextOffset).catch(e => setError(String(e))); }); }
-      if (historyNextBtn2) { historyNextBtn2.addEventListener("click", () => { const nextOffset = historyOffset + historyLimit; if (nextOffset >= historyTotal) return; loadHistoryPage(nextOffset).catch(e => setError(String(e))); }); }
+      if (historyPageSizeEl) { historyPageSizeEl.value = String(historyLimit); historyPageSizeEl.addEventListener("change", () => { const n = parseInt(String(historyPageSizeEl.value || "20"), 10); historyLimit = (Number.isFinite(n) && n > 0) ? n : 20; saveHistoryPageSizePref(); loadHistoryPage(0).catch(e => setError(errorMessage(e))); }); }
+      if (historyPageSizeEl2) { historyPageSizeEl2.value = String(historyLimit); historyPageSizeEl2.addEventListener("change", () => { const n = parseInt(String(historyPageSizeEl2.value || "20"), 10); historyLimit = (Number.isFinite(n) && n > 0) ? n : 20; saveHistoryPageSizePref(); loadHistoryPage(0).catch(e => setError(errorMessage(e))); }); }
+      if (historyPrevBtn) { historyPrevBtn.addEventListener("click", () => { const nextOffset = Math.max(0, historyOffset - historyLimit); loadHistoryPage(nextOffset).catch(e => setError(errorMessage(e))); }); }
+      if (historyNextBtn) { historyNextBtn.addEventListener("click", () => { const nextOffset = historyOffset + historyLimit; if (nextOffset >= historyTotal) return; loadHistoryPage(nextOffset).catch(e => setError(errorMessage(e))); }); }
+      if (historyPrevBtn2) { historyPrevBtn2.addEventListener("click", () => { const nextOffset = Math.max(0, historyOffset - historyLimit); loadHistoryPage(nextOffset).catch(e => setError(errorMessage(e))); }); }
+      if (historyNextBtn2) { historyNextBtn2.addEventListener("click", () => { const nextOffset = historyOffset + historyLimit; if (nextOffset >= historyTotal) return; loadHistoryPage(nextOffset).catch(e => setError(errorMessage(e))); }); }
       updateHistoryPagerUi();
       const clearAllBtnEl = document.getElementById("clearAllBtn");
-      if (clearAllBtnEl) { clearAllBtnEl.addEventListener("click", async () => { if (!window.confirm("确定清空所有生成记录？此操作不可恢复。")) return; try { await fetchJson("/api/jobs", { method: "DELETE" }); listEl.innerHTML = ""; list2El.innerHTML = ""; player.removeAttribute("src"); player.load(); downloadLink.style.display = "none"; extendGroup.style.display = "none"; currentJobId = null; currentJobs = []; setStatus("已清空", "ok"); loadHistoryPage(0).catch(() => {}); } catch (err) { setError("清空失败：" + String(err)); } }); }
+      if (clearAllBtnEl) { clearAllBtnEl.addEventListener("click", async () => { if (!window.confirm("确定清空所有生成记录？此操作不可恢复。")) return; try { await fetchJson("/api/jobs", { method: "DELETE" }); listEl.innerHTML = ""; list2El.innerHTML = ""; player.removeAttribute("src"); player.load(); downloadLink.style.display = "none"; extendGroup.style.display = "none"; currentJobId = null; currentJobs = []; setStatus("已清空", "ok"); loadHistoryPage(0).catch(() => {}); } catch (err) { setError("清空失败：" + errorMessage(err)); } }); }
       _decorateStaticBadges(); _updatePromptBadge();
       if (cpEditorEl) { ["input", "change", "click", "keyup"].forEach(evt => { cpEditorEl.addEventListener(evt, () => _updatePromptBadge()); }); }
       document.getElementById("loginBtn").addEventListener("click", () => { login().catch(e => setAuthError(errorMessage(e))); });
@@ -847,25 +894,85 @@
       const showAuthBtnEl = document.getElementById("showAuthBtn");
       if (showAuthBtnEl) { showAuthBtnEl.addEventListener("click", () => { showAuthMode(registerPanel.classList.contains("hidden") ? "register" : "login"); }); }
       document.getElementById("logoutBtn").addEventListener("click", () => { setSession("", null); stopEventStream(); providersMeta = null; historyJobs = []; listEl.innerHTML = ""; list2El.innerHTML = ""; revokeAudioBlobUrls(); setMainPlayerAudio(null); });
+      const logoutBtnMobile = document.getElementById("logoutBtnMobile");
+      if (logoutBtnMobile) { logoutBtnMobile.addEventListener("click", () => { setSession("", null); stopEventStream(); providersMeta = null; historyJobs = []; listEl.innerHTML = ""; list2El.innerHTML = ""; revokeAudioBlobUrls(); setMainPlayerAudio(null); }); }
       document.getElementById("fcpSubmitBtn").addEventListener("click", () => submitForceChangePwd().catch(e => { document.getElementById("fcpError").textContent = errorMessage(e); document.getElementById("fcpError").style.display = "block"; }));
       navCreate.addEventListener("click", (e) => { e.preventDefault(); showView("create"); });
       navDiscover.addEventListener("click", (e) => { e.preventDefault(); showView("discover"); });
-      document.getElementById("refreshCommunityBtn").addEventListener("click", () => { loadCommunity().catch(e => setError(String(e))); });
+      document.getElementById("refreshCommunityBtn").addEventListener("click", () => { loadCommunity().catch(e => setError(errorMessage(e))); });
       refreshCurrentUser();
-      refreshBtn.addEventListener("click", () => { if (!currentJobs || currentJobs.length === 0) return; refreshJobs(currentJobs).catch(e => setError(String(e))); });
-      extendBtn.addEventListener("click", () => { extendCurrent().catch(e => setError(String(e))); });
-      getStemsBtn.addEventListener("click", () => { getStems().catch(e => { stemsStatus.textContent = "获取失败: " + String(e); }); });
+      refreshBtn.addEventListener("click", () => { if (!currentJobs || currentJobs.length === 0) return; refreshJobs(currentJobs).catch(e => setError(errorMessage(e))); });
+      extendBtn.addEventListener("click", () => { extendCurrent().catch(e => setError(errorMessage(e))); });
       document.getElementById("positiveStyleInput").addEventListener("keypress", (e) => { if (e.key === "Enter") { e.preventDefault(); addPositiveStyle(); } });
       document.getElementById("negativeStyleInput").addEventListener("keypress", (e) => { if (e.key === "Enter") { e.preventDefault(); addNegativeStyle(); } });
-      generateStoreBtn.addEventListener("click", () => { generateWithStore().catch(e => { setError(String(e)); setStatus(""); }); });
-      openInpaintEditorBtn.addEventListener("click", () => openInpaintEditor());
-      executeInpaintBtn.addEventListener("click", () => { executeInpaint().catch(e => { setError("Inpainting 失败: " + String(e)); inpaintStatus.textContent = ""; }); });
       document.querySelectorAll(".mode-tab").forEach(btn => { btn.addEventListener("click", () => setCreationMode(btn.dataset.mode)); });
       document.querySelectorAll("#subTabOriginal .sub-tab").forEach(btn => { btn.addEventListener("click", () => setCreationSubMode(btn.dataset.sub)); });
       document.querySelectorAll("#subTabRemix .sub-tab").forEach(btn => { btn.addEventListener("click", () => setCreationSubMode(btn.dataset.sub)); });
       document.querySelectorAll("#subTabOriginalMobile .sub-tab").forEach(btn => { btn.addEventListener("click", () => setCreationSubMode(btn.dataset.sub)); });
       document.querySelectorAll("#subTabRemixMobile .sub-tab").forEach(btn => { btn.addEventListener("click", () => setCreationSubMode(btn.dataset.sub)); });
       document.querySelectorAll("#mobileTabBar .tab-item").forEach(btn => { btn.addEventListener("click", () => showMobileTab(btn.dataset.tab)); });
+
+      // --- Viewport resize: re-render lists into correct container ---
+      let _lastDesktop = _isDesktopViewport();
+      window.addEventListener("resize", () => {
+        const nowDesktop = _isDesktopViewport();
+        if (nowDesktop === _lastDesktop) return;
+        _lastDesktop = nowDesktop;
+        // Keep the correct layout visible when crossing the breakpoint.
+        try {
+          const loggedIn = localMode || Boolean(currentUser && authToken);
+          const mobilePanelsEl = document.getElementById("mobilePanels");
+          if (pcLayout) pcLayout.style.display = (loggedIn && nowDesktop) ? "" : "none";
+          if (mobilePanelsEl) mobilePanelsEl.style.display = (loggedIn && !nowDesktop) ? "" : "none";
+          if (mobileTabBar) mobileTabBar.style.display = (loggedIn && !nowDesktop) ? "" : "none";
+        } catch {}
+        if (historyJobs && historyJobs.length > 0) renderList(historyJobs, { incremental: false });
+        loadCommunity().catch(() => {});
+      });
+
+      // --- Mobile form wiring ---
+      function _syncMobileFormToDesktop() {
+        if (promptMobileEl) promptEl.value = promptMobileEl.value;
+        if (durationMobileSlider) { durationSlider.value = durationMobileSlider.value; durationValue.textContent = durationMobileSlider.value + " 秒"; }
+        if (lyricsMobileEl && lyricsEl) lyricsEl.value = lyricsMobileEl.value;
+        if (vocalsMobileEl) document.getElementById("vocals").value = vocalsMobileEl.value;
+        if (seedMobileEl) document.getElementById("seed").value = seedMobileEl.value;
+        if (countMobileEl) document.getElementById("count").value = countMobileEl.value;
+        const advMobile = document.getElementById("advancedMobile");
+        if (advMobile) advancedEl.value = advMobile.value;
+        if (providerMobileEl) providerEl.value = providerMobileEl.value;
+        if (providerFieldsMobileEl && providerFieldsEl) {
+          providerFieldsMobileEl.querySelectorAll("[data-key]").forEach(mEl => {
+            const dEl = providerFieldsEl.querySelector("[data-key=\"" + mEl.dataset.key + "\"]");
+            if (!dEl) return;
+            if (mEl.type === "checkbox") dEl.checked = mEl.checked;
+            else dEl.value = mEl.value;
+          });
+        }
+      }
+      if (generateBtnMobile) {
+        generateBtnMobile.addEventListener("click", () => {
+          _syncMobileFormToDesktop();
+          startGenerate().catch(e => { setError(errorMessage(e)); setStatus(""); if (generateBtnMobile) { generateBtnMobile.disabled = false; generateBtnMobile.textContent = "开始创作"; } });
+        });
+      }
+      if (durationMobileSlider && durationMobileValue) {
+        durationMobileSlider.addEventListener("input", () => { durationMobileValue.textContent = durationMobileSlider.value + " 秒"; });
+      }
+      if (providerMobileEl) {
+        providerMobileEl.addEventListener("change", () => { providerEl.value = providerMobileEl.value; renderProviderFields(); });
+      }
+      const advancedMobileEl = document.getElementById("advancedMobile");
+      if (advancedMobileEl) { advancedMobileEl.addEventListener("change", () => { advancedEl.value = advancedMobileEl.value; renderProviderFields(); }); }
+      const quickGenreTagsMobileEl = document.getElementById("quickGenreTagsMobile");
+      if (quickGenreTagsMobileEl) {
+        quickGenreTagsMobileEl.addEventListener("click", (e) => { const tag = e.target.closest(".tag"); if (tag && promptMobileEl) { const genre = tag.dataset.genre; if (promptMobileEl.value.trim()) { promptMobileEl.value = promptMobileEl.value.trim() + "，" + genre; } else { promptMobileEl.value = genre; } quickGenreTagsMobileEl.querySelectorAll(".tag").forEach(t => t.classList.remove("active")); tag.classList.add("active"); setTimeout(() => tag.classList.remove("active"), 500); } });
+      }
+      const clearAllBtnMobileEl = document.getElementById("clearAllBtnMobile");
+      if (clearAllBtnMobileEl) { clearAllBtnMobileEl.addEventListener("click", async () => { if (!window.confirm("确定清空所有生成记录？此操作不可恢复。")) return; try { await fetchJson("/api/jobs", { method: "DELETE" }); listEl.innerHTML = ""; list2El.innerHTML = ""; player.removeAttribute("src"); player.load(); downloadLink.style.display = "none"; extendGroup.style.display = "none"; currentJobId = null; currentJobs = []; setMainPlayerAudio(null); setStatus("已清空", "ok"); loadHistoryPage(0).catch(() => {}); } catch (err) { setError("清空失败：" + errorMessage(err)); } }); }
+      const refreshCommunityBtnMobileEl = document.getElementById("refreshCommunityBtnMobile");
+      if (refreshCommunityBtnMobileEl) { refreshCommunityBtnMobileEl.addEventListener("click", () => { loadCommunity().catch(e => setError(errorMessage(e))); }); }
+      // --- End mobile form wiring ---
       userDropdownBtn.addEventListener("click", () => userDropdownMenu.classList.toggle("visible"));
       document.addEventListener("click", (e) => { if (!e.target.closest(".user-dropdown")) userDropdownMenu.classList.remove("visible"); });
       showAuthMode("login");

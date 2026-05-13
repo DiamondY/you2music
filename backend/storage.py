@@ -289,24 +289,24 @@ class JobStore:
                 return cursor.rowcount > 0
 
     def delete_all(self) -> int:
-        """Delete all job records. Returns count of deleted rows."""
+        """Delete all job records except running ones. Returns count of deleted rows."""
         with self._lock:
             with self._connect() as conn:
                 count = int(
-                    conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0] or 0
+                    conn.execute("SELECT COUNT(*) FROM jobs WHERE status != 'running'").fetchone()[0] or 0
                 )
-                conn.execute("DELETE FROM jobs")
+                conn.execute("DELETE FROM jobs WHERE status != 'running'")
                 conn.commit()
         return count
 
     def delete_for_user(self, *, user_id: int) -> int:
-        """Delete all job records for one user. Returns count of deleted rows."""
+        """Delete all job records for one user except running ones. Returns count of deleted rows."""
         with self._lock:
             with self._connect() as conn:
                 count = int(
-                    conn.execute("SELECT COUNT(*) FROM jobs WHERE user_id = ?", (int(user_id),)).fetchone()[0] or 0
+                    conn.execute("SELECT COUNT(*) FROM jobs WHERE user_id = ? AND status != 'running'", (int(user_id),)).fetchone()[0] or 0
                 )
-                conn.execute("DELETE FROM jobs WHERE user_id = ?", (int(user_id),))
+                conn.execute("DELETE FROM jobs WHERE user_id = ? AND status != 'running'", (int(user_id),))
                 conn.commit()
         return count
 

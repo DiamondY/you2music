@@ -9,7 +9,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Righteous&display=swap" rel="stylesheet">
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><defs><linearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'><stop offset='0%25' stop-color='%23F59E0B'/><stop offset='100%25' stop-color='%23F97316'/></linearGradient></defs><rect width='100' height='100' rx='20' fill='url(%23g)'/><path d='M30 30v40M42 20v60M54 35v30M66 25v50M78 40v20' stroke='white' stroke-width='6' stroke-linecap='round'/></svg>" type="image/svg+xml" />
     
-      <link rel="stylesheet" href="/static/index.css?v=20260513_4" />
+      <link rel="stylesheet" href="/static/index.css?v=20260513_11" />
 </head>
   <body>
     <div id="toastContainer"></div>
@@ -162,7 +162,7 @@
               <div class="form-group" style="margin-top: var(--space-lg);">
                 <label for="duration">时长</label>
                 <div class="duration-control">
-                  <input type="range" id="duration" class="duration-slider" min="3" max="300" value="45">
+                  <input type="range" id="duration" class="duration-slider" min="3" max="600" value="45">
                   <span class="duration-value" id="durationValue">45 秒</span>
                 </div>
               </div>
@@ -336,42 +336,6 @@
                 <button id="extendBtn" class="btn btn-secondary btn-sm">延长</button>
               </span>
             </div>
-            <div id="stemsSection" class="stems-section" style="display:none;">
-              <h4>分轨下载</h4>
-              <div class="player-actions" style="margin-top:var(--space-sm);">
-                <button id="getStemsBtn" class="btn btn-secondary btn-sm">获取分轨</button>
-                <a id="vocalsLink" href="#" style="display:none;"><button class="btn btn-outline btn-sm">人声</button></a>
-                <a id="instrumentalLink" href="#" style="display:none;"><button class="btn btn-outline btn-sm">伴奏</button></a>
-                <span id="stemsStatus" class="status-text"></span>
-              </div>
-            </div>
-            <div id="inpaintSection" class="inpaint-section" style="display:none;">
-              <h4>Inpainting 编辑</h4>
-              <div class="inpaint-warning">
-                <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-                Inpainting 是 ElevenLabs Enterprise 功能
-              </div>
-              <div class="store-toggle">
-                <input type="checkbox" id="storeForInpainting">
-                <label for="storeForInpainting">生成时存储</label>
-              </div>
-              <div class="inpaint-actions">
-                <button id="generateStoreBtn" class="btn btn-secondary btn-sm">生成并存储</button>
-                <button id="openInpaintEditorBtn" class="btn btn-secondary btn-sm" style="display:none;">编辑段落</button>
-              </div>
-              <div id="inpaintEditor" class="inpaint-editor">
-                <p style="font-size:13px;color:var(--color-text-secondary);margin-bottom:var(--space-sm);">选择要保留或重新生成的段落</p>
-                <div id="inpaintSections" class="inpaint-sections"></div>
-                <div class="inpaint-field">
-                  <label>新增歌词</label>
-                  <textarea id="inpaintNewLyrics" placeholder="在新段落添加歌词..."></textarea>
-                </div>
-                <div class="inpaint-actions" style="margin-top:var(--space-md);">
-                  <button id="executeInpaintBtn" class="btn btn-accent btn-sm">执行</button>
-                  <span id="inpaintStatus" class="status-text"></span>
-                </div>
-              </div>
-            </div>
           </div>
           <div class="card glass-card card-history">
             <div class="card-header">
@@ -396,7 +360,7 @@
         </div>
       </div>
     </div>
-      <div id="mobilePanels" class="mobile-panels">
+      <div id="mobilePanels" class="mobile-panels" style="display:none;">
         <div class="mobile-panel active" id="panelCreate">
           <div class="create-mode-tabs">
             <div class="mode-tab-group">
@@ -421,14 +385,24 @@
             </div>
             <div class="quick-tags-label">快速风格</div>
             <div class="tag-group" id="quickGenreTagsMobile">
-              <span class="tag" data-genre="流行">流行</span>
-              <span class="tag" data-genre="抒情">抒情</span>
-              <span class="tag" data-genre="电子">电子</span>
+              <span class="tag" data-genre="流行歌曲，节奏明快，旋律优美">流行</span>
+              <span class="tag" data-genre="抒情慢歌，温柔感人，钢琴伴奏">抒情</span>
+              <span class="tag" data-genre="电子舞曲，节奏强劲，合成器音色">电子</span>
+              <span class="tag" data-genre="摇滚风格，电吉他，鼓点强烈">摇滚</span>
+              <span class="tag" data-genre="氛围音乐，空灵飘渺，适合冥想">氛围</span>
+              <span class="tag" data-genre="国风，中国传统乐器（古筝/二胡/笛子），东方旋律，古典氛围">国风</span>
+              <span class="tag" data-genre="民谣，木吉他伴奏，质朴温暖，叙事感强">民谣</span>
+              <span class="tag" data-genre="嘻哈/说唱，鼓点律动，808 低频，flow 清晰">嘻哈</span>
+              <span class="tag" data-genre="R&B，律动丝滑，和声丰富，氛围性感">R&B</span>
+              <span class="tag" data-genre="爵士，swing 节奏，钢琴/贝斯/鼓，萨克斯点缀">爵士</span>
+              <span class="tag" data-genre="古典，钢琴与弦乐，旋律严谨，情绪推进">古典</span>
+              <span class="tag" data-genre="Lo-fi，低保真质感，鼓点松弛，适合学习/放松">Lo-fi</span>
+              <span class="tag" data-genre="影视配乐，管弦与氛围铺垫，情绪电影感">影视</span>
             </div>
             <div class="form-group" style="margin-top:var(--space-md);">
               <label for="durationMobile">时长</label>
               <div class="duration-control">
-                <input type="range" id="durationMobile" min="3" max="300" value="45">
+                <input type="range" id="durationMobile" min="3" max="600" value="45">
                 <span class="duration-value" id="durationValueMobile">45 秒</span>
               </div>
             </div>
@@ -462,7 +436,7 @@
               </div>
             </div>
             <div style="display:flex;gap:var(--space-sm);margin-top:var(--space-md);">
-              <select id="countMobile" style="width:70px;"><option value="1">1首</option><option value="2">2首</option><option value="3">3首</option></select>
+              <select id="countMobile" style="width:70px;"><option value="1">1首</option><option value="2">2首</option><option value="3">3首</option><option value="4">4首</option></select>
               <button id="generateBtnMobile" class="btn btn-accent" style="flex:1;">开始创作</button>
             </div>
             <span id="statusMobile" class="status-text" style="display:block;margin-top:var(--space-sm);"></span>
@@ -504,8 +478,24 @@
             <div id="communityList" class="community-list"></div>
           </div>
         </div>
+        <div class="mobile-panel" id="panelProfile">
+          <div class="card glass-card">
+            <div class="card-header">
+              <span class="card-icon"><svg class="icon icon-lg" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></span>
+              <h2>我的</h2>
+            </div>
+            <div class="profile-info-mobile">
+              <div class="profile-row"><span class="profile-label">用户名</span><span id="accountNameMobile" class="mono">-</span></div>
+              <div class="profile-row"><span class="profile-label">配额</span><span id="quotaInfoMobile">今日配额：-</span></div>
+            </div>
+            <div class="profile-actions-mobile">
+              <a id="adminLinkMobile" href="/admin" class="btn btn-secondary" style="display:none;width:100%;">管理后台</a>
+              <button id="logoutBtnMobile" class="btn btn-danger" style="width:100%;">退出登录</button>
+            </div>
+          </div>
+        </div>
       </div>
-      <nav class="mobile-tab-bar" id="mobileTabBar">
+      <nav class="mobile-tab-bar" id="mobileTabBar" style="display:none;">
         <button class="tab-item active" data-tab="create">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
           创作
@@ -517,6 +507,10 @@
         <button class="tab-item tab-item-weak" data-tab="discover">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg>
           发现
+        </button>
+        <button class="tab-item" data-tab="profile">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+          我的
         </button>
       </nav>
       <div class="sticky-player-bar" id="stickyPlayerBar">
@@ -546,6 +540,6 @@
       </div>
     </div>
     
-      <script src="/static/index.js?v=20260513_4" defer></script>
+      <script src="/static/index.js?v=20260513_11" defer></script>
 </body>
 </html>

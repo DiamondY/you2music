@@ -327,6 +327,19 @@ class UserStore:
                 conn.commit()
         return {"date": date_key, "used": used + amount_int, "limit": int(daily_quota), "remaining": max(0, int(daily_quota) - used - amount_int)}
 
+    def refund_quota(self, *, user_id: int, amount: int, date: str | None = None) -> None:
+        date_key = date or today_key()
+        amount_int = int(amount)
+        if amount_int <= 0:
+            return
+        with self._lock:
+            with self._connect() as conn:
+                conn.execute(
+                    "UPDATE user_quotas SET used_count = MAX(0, used_count - ?) WHERE user_id = ? AND date = ?",
+                    (amount_int, int(user_id), date_key),
+                )
+                conn.commit()
+
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(str(self._db_path))
         conn.execute("PRAGMA journal_mode=WAL;")
