@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 
 from storage import ApiLogStore, JobStore
 
@@ -178,6 +179,40 @@ class TestJobStore:
         # Negative offset → 0
         result = job_store.list_page(offset=-5, limit=200)
         assert len(result) == 3
+
+    def test_audio_upload_metadata_and_expiry(self, job_store: JobStore) -> None:
+        """audio_uploads table stores per-user records and supports expiry listing."""
+        now_ms = int(time.time() * 1000)
+        job_store.create_audio_upload(
+            user_id=1,
+            upload_id="a" * 32,
+            fmt="mp3",
+            filename="a.mp3",
+            size_bytes=123,
+            expires_at_ms=now_ms + 60_000,
+        )
+        rec = job_store.get_audio_upload(user_id=1, upload_id="a" * 32)
+        assert rec is not None
+        assert rec["user_id"] == 1
+        assert rec["upload_id"] == "a" * 32
+        assert rec["fmt"] == "mp3"
+        assert rec["deleted_at_ms"] is None
+
+        # Wrong user cannot see it.
+        assert job_store.get_audio_upload(user_id=2, upload_id="a" * 32) is None
+
+        # Expired listing should include items at/under now.
+        job_store.create_audio_upload(
+            user_id=2,
+            upload_id="b" * 32,
+            fmt="wav",
+            filename="b.wav",
+            size_bytes=456,
+            expires_at_ms=now_ms - 1,
+        )
+        expired = job_store.list_expired_audio_uploads(now_ms=now_ms, limit=10)
+        ids = {(r["user_id"], r["upload_id"]) for r in expired}
+        assert (2, "b" * 32) in ids
 
 
 class TestApiLogStore:

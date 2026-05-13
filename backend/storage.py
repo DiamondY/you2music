@@ -61,8 +61,122 @@ class JobStore:
                 )
                 """
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS audio_uploads (
+                  upload_id TEXT PRIMARY KEY,
+                  user_id INTEGER NOT NULL,
+                  fmt TEXT NOT NULL,
+                  filename TEXT NOT NULL,
+                  size_bytes INTEGER NOT NULL,
+                  created_at_ms INTEGER NOT NULL,
+                  expires_at_ms INTEGER NOT NULL,
+                  deleted_at_ms INTEGER
+                )
+                """
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_audio_uploads_user_expires ON audio_uploads(user_id, expires_at_ms)"
+            )
             self._migrate(conn)
             conn.commit()
+
+    def create_audio_upload(
+        self,
+        *,
+        user_id: int,
+        upload_id: str,
+        fmt: str,
+        filename: str,
+        size_bytes: int,
+        expires_at_ms: int,
+    ) -> None:
+        now = int(time.time() * 1000)
+        with self._lock:
+            with self._connect() as conn:
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO audio_uploads (upload_id, user_id, fmt, filename, size_bytes, created_at_ms, expires_at_ms, deleted_at_ms)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
+                    """,
+                    (upload_id, int(user_id), str(fmt), str(filename), int(size_bytes), now, int(expires_at_ms)),
+                )
+                conn.commit()
+
+    def get_audio_upload(self, *, user_id: int, upload_id: str) -> dict[str, Any] | None:
+        with self._lock:
+            with self._connect() as conn:
+                row = conn.execute(
+                    """
+                    SELECT upload_id, user_id, fmt, filename, size_bytes, created_at_ms, expires_at_ms, deleted_at_ms
+                    FROM audio_uploads
+                    WHERE upload_id = ? AND user_id = ?
+                    """,
+                    (str(upload_id), int(user_id)),
+                ).fetchone()
+        if not row:
+            return None
+        return {
+            "upload_id": str(row[0]),
+            "user_id": int(row[1]),
+            "fmt": str(row[2]),
+            "filename": str(row[3]),
+            "size_bytes": int(row[4]),
+            "created_at_ms": int(row[5]),
+            "expires_at_ms": int(row[6]),
+            "deleted_at_ms": int(row[7]) if row[7] is not None else None,
+        }
+
+    def mark_audio_upload_deleted(self, *, user_id: int, upload_id: str) -> bool:
+        now = int(time.time() * 1000)
+        with self._lock:
+            with self._connect() as conn:
+                cursor = conn.execute(
+                    """
+                    UPDATE audio_uploads
+                    SET deleted_at_ms = ?
+                    WHERE upload_id = ? AND user_id = ? AND deleted_at_ms IS NULL
+                    """,
+                    (now, str(upload_id), int(user_id)),
+                )
+                conn.commit()
+                return cursor.rowcount > 0
+
+    def list_expired_audio_uploads(self, *, now_ms: int, limit: int = 200) -> list[dict[str, Any]]:
+        lim = int(limit) if int(limit) > 0 else 200
+        with self._lock:
+            with self._connect() as conn:
+                rows = conn.execute(
+                    """
+                    SELECT upload_id, user_id, fmt, expires_at_ms
+                    FROM audio_uploads
+                    WHERE deleted_at_ms IS NULL AND expires_at_ms <= ?
+                    ORDER BY expires_at_ms ASC
+                    LIMIT ?
+                    """,
+                    (int(now_ms), lim),
+                ).fetchall()
+        out: list[dict[str, Any]] = []
+        for r in rows:
+            out.append(
+                {
+                    "upload_id": str(r[0]),
+                    "user_id": int(r[1]),
+                    "fmt": str(r[2]),
+                    "expires_at_ms": int(r[3]),
+                }
+            )
+        return out
+
+    def delete_audio_upload_row(self, *, user_id: int, upload_id: str) -> bool:
+        with self._lock:
+            with self._connect() as conn:
+                cursor = conn.execute(
+                    "DELETE FROM audio_uploads WHERE upload_id = ? AND user_id = ?",
+                    (str(upload_id), int(user_id)),
+                )
+                conn.commit()
+                return cursor.rowcount > 0
 
     def create_job(
         self,
@@ -279,6 +393,15 @@ class JobStore:
             conn.execute("ALTER TABLE jobs ADD COLUMN visibility TEXT NOT NULL DEFAULT 'private'")
         if "share_permission" not in cols:
             conn.execute("ALTER TABLE jobs ADD COLUMN share_permission TEXT NOT NULL DEFAULT 'listen_only'")
+
+        # audio_uploads table migrations (best-effort, backward-compatible)
+        try:
+            ucols = {row[1] for row in conn.execute("PRAGMA table_info(audio_uploads)").fetchall()}
+        except Exception:
+            ucols = set()
+        if ucols:
+            if "deleted_at_ms" not in ucols:
+                conn.execute("ALTER TABLE audio_uploads ADD COLUMN deleted_at_ms INTEGER")
 
     def delete(self, job_id: str) -> bool:
         """Delete a single job record. Returns True if found and deleted."""

@@ -27,6 +27,7 @@ class Settings:
     host: str
     port: int
     concurrency_config: dict[str, Any]
+    audio_upload_ttl_hours: int
 
 
 ACESTEP_BASE_URL_DEFAULT = "https://api.acemusic.ai"
@@ -97,6 +98,7 @@ def load_settings() -> Settings:
 
     output_format = os.getenv("AI_MUSIC_OUTPUT_FORMAT", "mp3_44100_192").strip()
     timeout_s = float(os.getenv("AI_MUSIC_REQUEST_TIMEOUT_S", "120"))
+    audio_upload_ttl_hours = int(os.getenv("AI_MUSIC_AUDIO_UPLOAD_TTL_HOURS", "24").strip() or "24")
 
     # Apply JSON config values as defaults (env vars override)
     acestep_api_keys_raw: Any = None
@@ -228,4 +230,5 @@ def load_settings() -> Settings:
         host=host,
         port=port,
         concurrency_config=concurrency_config,
+        audio_upload_ttl_hours=audio_upload_ttl_hours,
     )

@@ -347,10 +347,41 @@ async def _run_job(*, job_id: str, prompt: str, params: dict[str, Any]) -> None:
                 safe_id = str(upload_id or "").strip()
                 if not safe_id:
                     raise RuntimeError("缺少上传的音频文件 (upload_id)")
-                safe_fmt = (fmt or "mp3").strip().lower()
+                # Prevent path traversal: upload_id must look like uuid4 hex.
+                lowered = safe_id.lower()
+                if len(lowered) != 32 or any(c not in "0123456789abcdef" for c in lowered):
+                    raise RuntimeError("上传音频ID格式不合法，请重新上传")
+                # Stronger isolation/expiry: resolve via sqlite metadata (user_id scoped).
+                rec = None
+                try:
+                    rec = STATE.store.get_audio_upload(user_id=int(user_id), upload_id=safe_id)
+                except Exception:
+                    rec = None
+                now_ms = int(time.time() * 1000)
+                if rec:
+                    if rec.get("deleted_at_ms") is not None:
+                        raise RuntimeError("上传的音频文件已被删除，请重新上传")
+                    exp = int(rec.get("expires_at_ms") or 0)
+                    if exp and exp <= now_ms:
+                        # Mark deleted in DB; file cleanup is best-effort elsewhere.
+                        try:
+                            STATE.store.mark_audio_upload_deleted(user_id=int(user_id), upload_id=safe_id)
+                        except Exception:
+                            pass
+                        raise RuntimeError("上传的音频文件已过期，请重新上传")
+                    safe_fmt = str(rec.get("fmt") or "mp3").strip().lower()
+                else:
+                    # Legacy fallback (pre-metadata) for backward compatibility:
+                    safe_fmt = (fmt or "mp3").strip().lower()
+                    if safe_fmt not in ("mp3", "wav", "flac"):
+                        safe_fmt = "mp3"
                 if safe_fmt not in ("mp3", "wav", "flac"):
                     safe_fmt = "mp3"
-                path = STATE.upload_dir / f"{user_id}-{safe_id}.{safe_fmt}"
+                user_dir = STATE.upload_dir / str(int(user_id))
+                path = user_dir / f"{safe_id}.{safe_fmt}"
+                legacy_path = STATE.upload_dir / f"{user_id}-{safe_id}.{safe_fmt}"
+                if not path.exists() and legacy_path.exists():
+                    path = legacy_path
                 if not path.exists():
                     raise RuntimeError("上传的音频文件不存在或已过期，请重新上传")
                 raw = path.read_bytes()

@@ -7,6 +7,7 @@ import random
 import re
 import time
 import uuid
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Callable
@@ -269,6 +270,35 @@ def get_random_sample(current_user: UserRecord = Depends(get_current_user)) -> d
 _UPLOAD_MAX_BYTES = 20 * 1024 * 1024
 
 
+def _cleanup_expired_audio_uploads(*, limit: int = 200) -> int:
+    """Best-effort cleanup for expired uploads (disk + sqlite)."""
+    try:
+        now_ms = int(time.time() * 1000)
+        rows = STATE.store.list_expired_audio_uploads(now_ms=now_ms, limit=int(limit))
+        deleted = 0
+        for r in rows:
+            try:
+                user_id = int(r.get("user_id"))
+                upload_id = str(r.get("upload_id") or "")
+                fmt = str(r.get("fmt") or "mp3").lower()
+                # Try new path first, then legacy.
+                user_dir = STATE.upload_dir / str(user_id)
+                p = user_dir / f"{upload_id}.{fmt}"
+                legacy = STATE.upload_dir / f"{user_id}-{upload_id}.{fmt}"
+                if p.exists():
+                    p.unlink(missing_ok=True)  # py3.8+; on older this will throw.
+                elif legacy.exists():
+                    legacy.unlink(missing_ok=True)
+                STATE.store.mark_audio_upload_deleted(user_id=user_id, upload_id=upload_id)
+                deleted += 1
+            except Exception:
+                # Keep going; cleanup is best-effort.
+                continue
+        return deleted
+    except Exception:
+        return 0
+
+
 def _audio_format_from_filename(name: str) -> str:
     n = (name or "").lower()
     if n.endswith(".wav"):
@@ -295,11 +325,37 @@ async def upload_audio(
     if len(data) > _UPLOAD_MAX_BYTES:
         raise HTTPException(status_code=413, detail="音频文件不能超过 20MB")
 
+    # Best-effort cleanup to limit disk growth.
+    _cleanup_expired_audio_uploads(limit=50)
+
     fmt = _audio_format_from_filename(filename)
     upload_id = uuid.uuid4().hex
-    path = STATE.upload_dir / f"{current_user.id}-{upload_id}.{fmt}"
+    # Stronger isolation: store under per-user directory.
+    user_dir = STATE.upload_dir / str(int(current_user.id))
+    user_dir.mkdir(parents=True, exist_ok=True)
+    path = user_dir / f"{upload_id}.{fmt}"
     path.write_bytes(data)
-    return {"upload_id": upload_id, "filename": filename, "size_bytes": len(data), "format": fmt}
+
+    ttl_h = int(getattr(STATE.settings, "audio_upload_ttl_hours", 24) or 24)
+    if ttl_h < 1:
+        ttl_h = 24
+    now_ms = int(time.time() * 1000)
+    expires_at_ms = now_ms + ttl_h * 3600 * 1000
+    STATE.store.create_audio_upload(
+        user_id=int(current_user.id),
+        upload_id=upload_id,
+        fmt=fmt,
+        filename=filename,
+        size_bytes=len(data),
+        expires_at_ms=expires_at_ms,
+    )
+    return {
+        "upload_id": upload_id,
+        "filename": filename,
+        "size_bytes": len(data),
+        "format": fmt,
+        "expires_at_ms": expires_at_ms,
+    }
 
 
 @app.get("/api/admin/config")
