@@ -303,10 +303,19 @@
         creationSubMode = sub;
         const group = creationMode === "original" ? "#subTabOriginal .sub-tab, #subTabOriginalMobile .sub-tab" : "#subTabRemix .sub-tab, #subTabRemixMobile .sub-tab";
         document.querySelectorAll(group).forEach(t => t.classList.toggle("active", t.dataset.sub === sub));
-        if (creationMode === "original") {
-          advancedEl.value = sub === "advanced" ? "advanced" : "simple";
-          renderProviderFields();
-        }
+        if (creationMode === "original") advancedEl.value = sub === "advanced" ? "advanced" : "simple";
+        renderProviderFields();
+      }
+
+      function _isOriginalSimpleMode() { return creationMode === "original" && creationSubMode === "simple"; }
+      function _isOriginalAdvancedMode() { return creationMode === "original" && creationSubMode === "advanced"; }
+      function _isRemixMode() { return creationMode === "remix"; }
+      function _preferredRemixTaskType() {
+        // Map remix sub-modes to ACE-Step task_type defaults.
+        if (creationSubMode === "style-transfer") return "cover";
+        if (creationSubMode === "section-edit") return "repaint";
+        if (creationSubMode === "audio-process") return "extract";
+        return "cover";
       }
 
       function showToast(message, type, duration) {
@@ -404,7 +413,7 @@
       function shouldShowLyricsInput() { return shouldShowLyricsInputForProvider(getSelectedProviderId()); }
       function updateLyricsUi() {
         if (!lyricsRowEl) return;
-        const show = shouldShowLyricsInput();
+        const show = !_isOriginalSimpleMode() && shouldShowLyricsInput();
         lyricsRowEl.style.display = show ? "" : "none";
         if (!lyricsHintEl) return;
         if (!show) { lyricsHintEl.style.display = "none"; lyricsHintEl.textContent = ""; return; }
@@ -506,19 +515,86 @@
         const caps = meta.capabilities || {}; const vocalsSelect = document.getElementById("vocals");
         if (caps.supports_vocals === false) { vocalsSelect.value = "off"; vocalsSelect.disabled = true; } else { vocalsSelect.disabled = false; }
         const advancedMode = advancedEl.value === "advanced";
-        if (providerId === "elevenlabs" && advancedMode) { cpEditorEl.classList.add("visible"); } else { cpEditorEl.classList.remove("visible"); }
+        // Composition plan editor is for a provider flow we don't support on the backend today.
+        cpEditorEl.classList.remove("visible");
         const values = {}; for (const field of (meta.fields || [])) { values[field.key] = field.default != null ? field.default : null; }
         for (const field of (meta.fields || [])) { const existing = providerFieldsEl.querySelector("[data-key=\"" + field.key + "\"]"); if (existing) { values[field.key] = (existing.type === "checkbox") ? existing.checked : existing.value; } }
-        let html = '<div class="provider-desc" style="font-size:13px;color:var(--color-text-secondary);margin-bottom:var(--space-sm);">' + (meta.description || "") + '</div>';
-        if (meta.ready === false) { html += '<div class="err">未配置该 provider 的密钥：<span class="mono">' + JSON.stringify(meta.missing_env || []) + '</span></div>'; }
-        html += '<div style="font-size:12px;color:var(--color-text-muted);margin-top:var(--space-xs);">Capabilities: <span class="mono">' + JSON.stringify(meta.capabilities || {}) + '</span></div>';
-        const fields = (meta.fields || []).filter(f => advancedMode || !f.advanced);
-        for (const field of fields) { if (!shouldShowField(field, values)) continue; html += '<label>' + field.label + '<span class="field-badge ' + (field.required ? "required" : "optional") + '">' + (field.required ? "必填" : "可选") + '</span></label>'; if (field.kind === "enum" && Array.isArray(field.enum)) { const _enumLabels = { "zh": "中文 (zh)", "en": "English (en)", "ja": "日本語 (ja)", "ko": "한국어 (ko)", "auto": "自动检测" }; html += '<select data-key="' + field.key + '">'; for (const opt of field.enum) { const selected = (String(opt) === String(values[field.key])) ? "selected" : ""; const display = (opt === "") ? "自动推断" : (_enumLabels[opt] || opt); html += '<option value="' + opt + '" ' + selected + '>' + display + '</option>'; } html += '</select>'; } else if (field.kind === "boolean") { const checked = values[field.key] ? "checked" : ""; html += '<div style="display:flex;align-items:center;gap:var(--space-sm);margin-top:var(--space-xs);"><input type="checkbox" data-key="' + field.key + '" ' + checked + '> <span style="font-size:13px;color:var(--color-text-secondary);">' + (field.help || "") + '</span></div>'; continue; } else if (field.kind === "json") { html += '<textarea data-key="' + field.key + '" placeholder="粘贴 JSON（高级）"></textarea>'; } else if (field.kind === "integer") { html += '<input type="number" step="1" data-key="' + field.key + '" value="' + (values[field.key] != null ? values[field.key] : "") + '">'; } else if (field.kind === "number") { html += '<input type="number" step="any" data-key="' + field.key + '" value="' + (values[field.key] != null ? values[field.key] : "") + '">'; } else { html += '<input type="text" data-key="' + field.key + '" value="' + (values[field.key] != null ? values[field.key] : "") + '">'; } if (field.help && field.kind !== "boolean") html += '<div style="font-size:12px;color:var(--color-text-muted);margin-top:var(--space-xs);">' + field.help + '</div>'; }
+        // Mode-based behavior:
+        // - Original/simple: hide all optional provider params and force task_type=text2music.
+        // - Remix: expose task_type (without text2music) and default it based on remix sub-mode.
+        if (_isOriginalSimpleMode()) values.task_type = "text2music";
+        if (_isRemixMode() && (!values.task_type || String(values.task_type).trim() === "text2music")) values.task_type = _preferredRemixTaskType();
+
+        let html = "";
+        const showMetaBlock = !_isOriginalSimpleMode();
+        if (showMetaBlock) {
+          html += '<div class="provider-desc" style="font-size:13px;color:var(--color-text-secondary);margin-bottom:var(--space-sm);">' + (meta.description || "") + '</div>';
+          if (meta.ready === false) { html += '<div class="err">未配置该 provider 的密钥：<span class="mono">' + JSON.stringify(meta.missing_env || []) + '</span></div>'; }
+          html += '<div style="font-size:12px;color:var(--color-text-muted);margin-top:var(--space-xs);">Capabilities: <span class="mono">' + JSON.stringify(meta.capabilities || {}) + '</span></div>';
+        }
+
+        let fields = (meta.fields || []).filter(f => advancedMode || !f.advanced);
+        if (_isOriginalSimpleMode()) fields = fields.filter(f => f.required === true);
+        // task_type is not meaningful for original mode; it's always text2music there.
+        if (!_isRemixMode()) fields = fields.filter(f => f.key !== "task_type");
+        // Remix mode: show task_type even though it's optional, and exclude text2music.
+        if (_isRemixMode()) {
+          const hasTaskType = fields.some(f => f.key === "task_type");
+          if (!hasTaskType) {
+            const fromMeta = (meta.fields || []).find(f => f && f.key === "task_type");
+            if (fromMeta) fields = [fromMeta, ...fields];
+          }
+        }
+
+        for (const field of fields) {
+          if (!shouldShowField(field, values)) continue;
+          html += '<label>' + field.label + '<span class="field-badge ' + (field.required ? "required" : "optional") + '">' + (field.required ? "必填" : "可选") + '</span></label>';
+          if (field.kind === "enum" && Array.isArray(field.enum)) {
+            const _enumLabels = { "zh": "中文 (zh)", "en": "English (en)", "ja": "日本語 (ja)", "ko": "한국어 (ko)", "auto": "自动检测" };
+            const enumVals = (field.key === "task_type" && _isRemixMode())
+              ? field.enum.filter(x => String(x) !== "text2music")
+              : field.enum;
+            html += '<select data-key="' + field.key + '">';
+            for (const opt of enumVals) {
+              const selected = (String(opt) === String(values[field.key])) ? "selected" : "";
+              const display = (opt === "") ? "自动推断" : (_enumLabels[opt] || opt);
+              html += '<option value="' + opt + '" ' + selected + '>' + display + '</option>';
+            }
+            html += '</select>';
+          } else if (field.kind === "boolean") {
+            const checked = values[field.key] ? "checked" : "";
+            html += '<div style="display:flex;align-items:center;gap:var(--space-sm);margin-top:var(--space-xs);"><input type="checkbox" data-key="' + field.key + '" ' + checked + '> <span style="font-size:13px;color:var(--color-text-secondary);">' + (field.help || "") + '</span></div>';
+            continue;
+          } else if (field.kind === "json") {
+            html += '<textarea data-key="' + field.key + '" placeholder="粘贴 JSON（高级）"></textarea>';
+          } else if (field.kind === "integer") {
+            html += '<input type="number" step="1" data-key="' + field.key + '" value="' + (values[field.key] != null ? values[field.key] : "") + '">';
+          } else if (field.kind === "number") {
+            html += '<input type="number" step="any" data-key="' + field.key + '" value="' + (values[field.key] != null ? values[field.key] : "") + '">';
+          } else {
+            html += '<input type="text" data-key="' + field.key + '" value="' + (values[field.key] != null ? values[field.key] : "") + '">';
+          }
+          if (field.help && field.kind !== "boolean") html += '<div style="font-size:12px;color:var(--color-text-muted);margin-top:var(--space-xs);">' + field.help + '</div>';
+        }
         providerFieldsEl.innerHTML = html;
+        // Hide the whole section when it's empty (e.g. original/simple mode).
+        providerFieldsEl.style.display = html.trim() ? "" : "none";
         for (const field of (meta.fields || [])) { const el = providerFieldsEl.querySelector("[data-key=\"" + field.key + "\"]"); if (!el) continue; const v = values[field.key]; if (el.tagName === "INPUT" && el.type === "checkbox") { el.checked = Boolean(v); } else if (v !== null && v !== undefined) { el.value = String(v); } }
         providerFieldsEl.querySelectorAll("input,select,textarea").forEach(el => { el.addEventListener("change", () => { renderProviderFields(); }); });
         updateLyricsUi(); updateRandomButtonsVisibility(); _updatePromptBadge();
         if (audioUploadSection) { const caps = meta.capabilities || {}; const taskTypeEl = providerFieldsEl.querySelector("[data-key=\"task_type\"]"); const taskType = taskTypeEl ? taskTypeEl.value : "text2music"; if (caps.supports_audio_input && taskType !== "text2music") { audioUploadSection.classList.add("visible"); } else { audioUploadSection.classList.remove("visible"); clearAudioInput("src"); clearAudioInput("ref"); } }
+        // In original/simple mode, keep the UI focused on required fields only.
+        const seedEl = document.getElementById("seed");
+        if (seedEl) { const seedGroup = seedEl.closest(".form-group"); if (seedGroup) seedGroup.style.display = _isOriginalSimpleMode() ? "none" : ""; }
+        const advancedGroup = advancedEl ? advancedEl.closest(".form-group") : null;
+        if (advancedGroup) advancedGroup.style.display = (_isOriginalAdvancedMode() && creationMode === "original") ? "" : (_isOriginalSimpleMode() ? "none" : "none");
+
+        // Simple mode: enforce defaults and hide non-essential knobs outside provider fields.
+        const countEl = document.getElementById("count");
+        if (countEl) {
+          if (_isOriginalSimpleMode()) { countEl.value = "1"; }
+          countEl.style.display = _isOriginalSimpleMode() ? "none" : "";
+        }
       }
       async function initProviders() { try { providersMeta = await fetchJson("/api/providers"); const ps = providersMeta.providers || []; providerEl.innerHTML = ps.map(p => { const disabled = (p.ready === false) ? "disabled" : ""; const suffix = (p.ready === false) ? " (未配置)" : ""; return '<option value="' + p.id + '" ' + disabled + '>' + p.name + suffix + '</option>'; }).join(""); const readyFirst = ps.find(p => p.ready !== false); const def = providersMeta.default_provider || (readyFirst ? readyFirst.id : (ps[0] ? ps[0].id : "")); providerEl.value = def; renderProviderFields(); updateLyricsUi(); renderSections(); } catch (e) { providerFieldsEl.innerHTML = '<div class="err">加载 provider 失败：' + String(e) + '</div>'; } }
       function _shortText(s, maxLen) { const n = Number.isFinite(maxLen) ? maxLen : 80; const t = String(s || "").replace(/\s+/g, " ").trim(); if (!t) return ""; return t.length > n ? (t.slice(0, n) + "...") : t; }

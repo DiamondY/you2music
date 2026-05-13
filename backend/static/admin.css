@@ -42,6 +42,8 @@
         --font-body: 'Poppins', sans-serif;
         --font-mono: ui-monospace, SFMono-Regular, monospace;
         --sidebar-width: 220px;
+        /* Improve native form control rendering for a dark UI (notably <select>). */
+        color-scheme: dark;
       }
 
       @media (prefers-reduced-motion: reduce) {
@@ -490,6 +492,7 @@
       }
 
       select { cursor: pointer; }
+      select option { background: var(--color-bg-card-solid); color: var(--color-text-primary); }
 
       input[type="checkbox"] {
         width: 16px;
