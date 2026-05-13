@@ -268,6 +268,16 @@
       .sub-tab-group { display: flex; padding: 3px; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg-surface); margin-left: var(--space-lg); }
       .sub-tab { min-height: 32px; padding: var(--space-xs) var(--space-md); border: none; border-radius: var(--radius-sm); background: transparent; color: var(--color-text-muted); cursor: pointer; font: inherit; font-size: 13px; transition: all var(--transition-fast); }
       .sub-tab.active { background: var(--color-bg-hover); color: var(--color-text-primary); }
+
+      /* Make original simple/advanced visually distinct (keep overall theme consistent). */
+      html[data-creation-mode="original"][data-creation-sub="simple"] .card-create {
+        background: rgba(30,30,50,0.78);
+      }
+      html[data-creation-mode="original"][data-creation-sub="advanced"] .card-create {
+        background: rgba(30,30,50,0.86);
+        border-color: rgba(245,158,11,0.18);
+        box-shadow: 0 10px 34px rgba(0,0,0,0.45), 0 0 0 1px rgba(245,158,11,0.08) inset;
+      }
       .history-toolbar { display: flex; align-items: center; justify-content: space-between; gap: var(--space-sm); padding: var(--space-sm) var(--space-md); background: var(--color-bg-surface); border-radius: var(--radius-md); flex-shrink: 0; }
       .history-toolbar select { width: auto; min-height: 32px; padding: 4px 8px; font-size: 13px; }
       .history-toolbar-actions { display: flex; align-items: center; gap: var(--space-xs); }

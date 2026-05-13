@@ -288,8 +288,16 @@
         if (tab === "discover") loadCommunity().catch(e => setError(String(e)));
       }
 
+      function _syncModeDataset() {
+        try {
+          document.documentElement.dataset.creationMode = creationMode;
+          document.documentElement.dataset.creationSub = creationSubMode;
+        } catch {}
+      }
+
       function setCreationMode(mode) {
         creationMode = mode;
+        _syncModeDataset();
         document.querySelectorAll(".mode-tab").forEach(t => t.classList.toggle("active", t.dataset.mode === mode));
         subTabOriginal.classList.toggle("hidden", mode !== "original");
         subTabRemix.classList.toggle("hidden", mode !== "remix");
@@ -301,10 +309,11 @@
 
       function setCreationSubMode(sub) {
         creationSubMode = sub;
+        _syncModeDataset();
         const group = creationMode === "original" ? "#subTabOriginal .sub-tab, #subTabOriginalMobile .sub-tab" : "#subTabRemix .sub-tab, #subTabRemixMobile .sub-tab";
         document.querySelectorAll(group).forEach(t => t.classList.toggle("active", t.dataset.sub === sub));
         if (creationMode === "original") advancedEl.value = sub === "advanced" ? "advanced" : "simple";
-        renderProviderFields();
+        renderProviderFields({ reset: true });
       }
 
       function _isOriginalSimpleMode() { return creationMode === "original" && creationSubMode === "simple"; }
@@ -509,7 +518,8 @@
         if (!localMode && refAudioUploadId) { params.reference_audio_upload_id = refAudioUploadId; params.reference_audio_format = refAudioFormat || "mp3"; } else if (localMode && refAudioB64) { params.reference_audio_b64 = refAudioB64; params.reference_audio_format = refAudioFormat || "mp3"; }
         return params;
       }
-      function renderProviderFields() {
+      function renderProviderFields(opts) {
+        const reset = Boolean(opts && opts.reset);
         const providerId = getSelectedProviderId(); const meta = getProviderMeta(providerId);
         if (!meta) { providerFieldsEl.innerHTML = '<div class="err">Provider 不存在：' + providerId + '</div>'; return; }
         const caps = meta.capabilities || {}; const vocalsSelect = document.getElementById("vocals");
@@ -518,12 +528,16 @@
         // Composition plan editor is for a provider flow we don't support on the backend today.
         cpEditorEl.classList.remove("visible");
         const values = {}; for (const field of (meta.fields || [])) { values[field.key] = field.default != null ? field.default : null; }
-        for (const field of (meta.fields || [])) { const existing = providerFieldsEl.querySelector("[data-key=\"" + field.key + "\"]"); if (existing) { values[field.key] = (existing.type === "checkbox") ? existing.checked : existing.value; } }
+        if (!reset) {
+          for (const field of (meta.fields || [])) { const existing = providerFieldsEl.querySelector("[data-key=\"" + field.key + "\"]"); if (existing) { values[field.key] = (existing.type === "checkbox") ? existing.checked : existing.value; } }
+        }
         // Mode-based behavior:
         // - Original/simple: hide all optional provider params and force task_type=text2music.
         // - Remix: expose task_type (without text2music) and default it based on remix sub-mode.
-        if (_isOriginalSimpleMode()) values.task_type = "text2music";
-        if (_isRemixMode() && (!values.task_type || String(values.task_type).trim() === "text2music")) values.task_type = _preferredRemixTaskType();
+        const isOriginal = !_isRemixMode();
+        if (isOriginal) values.task_type = "text2music";
+        if (_isRemixMode()) values.task_type = reset ? _preferredRemixTaskType() : (values.task_type || _preferredRemixTaskType());
+        const effectiveTaskType = String(values.task_type || "text2music");
 
         let html = "";
         const showMetaBlock = !_isOriginalSimpleMode();
@@ -545,6 +559,22 @@
             if (fromMeta) fields = [fromMeta, ...fields];
           }
         }
+
+        // Hide task-specific knobs unless they match the effective task_type.
+        // This prevents "original/advanced" UI from showing remix-oriented fields.
+        const hideKeys = new Set();
+        if (isOriginal) {
+          hideKeys.add("audio_cover_strength");
+          hideKeys.add("repainting_start");
+          hideKeys.add("repainting_end");
+        } else {
+          if (effectiveTaskType !== "cover") hideKeys.add("audio_cover_strength");
+          if (!(effectiveTaskType === "repaint" || effectiveTaskType === "lego")) {
+            hideKeys.add("repainting_start");
+            hideKeys.add("repainting_end");
+          }
+        }
+        fields = fields.filter(f => !hideKeys.has(f.key));
 
         for (const field of fields) {
           if (!shouldShowField(field, values)) continue;
@@ -585,7 +615,11 @@
         if (audioUploadSection) { const caps = meta.capabilities || {}; const taskTypeEl = providerFieldsEl.querySelector("[data-key=\"task_type\"]"); const taskType = taskTypeEl ? taskTypeEl.value : "text2music"; if (caps.supports_audio_input && taskType !== "text2music") { audioUploadSection.classList.add("visible"); } else { audioUploadSection.classList.remove("visible"); clearAudioInput("src"); clearAudioInput("ref"); } }
         // In original/simple mode, keep the UI focused on required fields only.
         const seedEl = document.getElementById("seed");
-        if (seedEl) { const seedGroup = seedEl.closest(".form-group"); if (seedGroup) seedGroup.style.display = _isOriginalSimpleMode() ? "none" : ""; }
+        if (seedEl) {
+          const seedGroup = seedEl.closest(".form-group");
+          if (seedGroup) seedGroup.style.display = _isOriginalSimpleMode() ? "none" : "";
+          if (_isOriginalSimpleMode()) seedEl.value = "";
+        }
         const advancedGroup = advancedEl ? advancedEl.closest(".form-group") : null;
         if (advancedGroup) advancedGroup.style.display = (_isOriginalAdvancedMode() && creationMode === "original") ? "" : (_isOriginalSimpleMode() ? "none" : "none");
 
@@ -595,8 +629,9 @@
           if (_isOriginalSimpleMode()) { countEl.value = "1"; }
           countEl.style.display = _isOriginalSimpleMode() ? "none" : "";
         }
+        if (_isOriginalSimpleMode() && lyricsEl) lyricsEl.value = "";
       }
-      async function initProviders() { try { providersMeta = await fetchJson("/api/providers"); const ps = providersMeta.providers || []; providerEl.innerHTML = ps.map(p => { const disabled = (p.ready === false) ? "disabled" : ""; const suffix = (p.ready === false) ? " (未配置)" : ""; return '<option value="' + p.id + '" ' + disabled + '>' + p.name + suffix + '</option>'; }).join(""); const readyFirst = ps.find(p => p.ready !== false); const def = providersMeta.default_provider || (readyFirst ? readyFirst.id : (ps[0] ? ps[0].id : "")); providerEl.value = def; renderProviderFields(); updateLyricsUi(); renderSections(); } catch (e) { providerFieldsEl.innerHTML = '<div class="err">加载 provider 失败：' + String(e) + '</div>'; } }
+      async function initProviders() { try { providersMeta = await fetchJson("/api/providers"); const ps = providersMeta.providers || []; providerEl.innerHTML = ps.map(p => { const disabled = (p.ready === false) ? "disabled" : ""; const suffix = (p.ready === false) ? " (未配置)" : ""; return '<option value="' + p.id + '" ' + disabled + '>' + p.name + suffix + '</option>'; }).join(""); const readyFirst = ps.find(p => p.ready !== false); const def = providersMeta.default_provider || (readyFirst ? readyFirst.id : (ps[0] ? ps[0].id : "")); providerEl.value = def; _syncModeDataset(); renderProviderFields({ reset: true }); updateLyricsUi(); renderSections(); } catch (e) { providerFieldsEl.innerHTML = '<div class="err">加载 provider 失败：' + String(e) + '</div>'; } }
       function _shortText(s, maxLen) { const n = Number.isFinite(maxLen) ? maxLen : 80; const t = String(s || "").replace(/\s+/g, " ").trim(); if (!t) return ""; return t.length > n ? (t.slice(0, n) + "...") : t; }
       function _coerceInt(v, fallback) { const n = parseInt(String(v != null ? v : ""), 10); return Number.isFinite(n) ? n : fallback; }
       function _normalizeVocalsFlag(v) { if (v === true) return true; if (v === false) return false; return Boolean(v); }
