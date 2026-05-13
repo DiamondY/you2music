@@ -958,10 +958,51 @@
       }
       async function extendCurrent() { setError(""); if (!currentJobId) { setError("没有可延长的 Job。"); return; } const extra = parseInt(document.getElementById("extendSec").value, 10); if (!Number.isFinite(extra) || extra < 3 || extra > 180) { setError("延长秒数建议 3–180。"); return; } setStatus("提交延长任务中..."); const data = await fetchJson("/api/extend", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ job_id: currentJobId, extra_sec: extra, provider: getSelectedProviderId() || null, provider_params: collectProviderParams() }) }); const newJobId = data.job_id; currentJobs = [newJobId]; currentJobId = newJobId; if (data.quota && currentUser) { currentUser.quota = data.quota; updateQuotaDisplay(currentUser); } jobIdEl.textContent = newJobId; refreshBtn.style.display = "inline-flex"; extendGroup.style.display = "none"; loadHistoryPage(0).catch(() => {}); if (pollTimer) clearInterval(pollTimer); pollTimer = setInterval(() => refreshJobs(currentJobs), 1500); await refreshJobs(currentJobs); }
       async function fetchRandomSample() { try { const data = await fetchJson("/api/random_sample"); return data; } catch (e) { console.error("Failed to fetch random sample:", e); return null; } }
-      async function fillRandomPrompt() { const sample = await fetchRandomSample(); if (sample && sample.prompt) { promptEl.value = sample.prompt; setStatus("已随机填充描述", "ok"); } }
-      async function fillRandomLyrics() { const sample = await fetchRandomSample(); if (sample && sample.lyrics) { lyricsEl.value = sample.lyrics; setStatus("已随机填充歌词", "ok"); } }
-      async function fillRandomAll() { const sample = await fetchRandomSample(); if (!sample) { setError("获取随机样本失败"); return; } if (sample.prompt) { promptEl.value = sample.prompt; } if (sample.lyrics) { lyricsEl.value = sample.lyrics; } if (sample.duration && durationSlider) { const clamped = Math.max(3, Math.min(600, sample.duration)); durationSlider.value = String(clamped); durationValue.textContent = String(clamped) + " 秒"; } setStatus("已随机填充所有字段", "ok"); }
-      function updateRandomButtonsVisibility() { const showRandomButtons = true; const randomPromptBtn = document.getElementById("randomPromptBtn"); const randomLyricsBtn = document.getElementById("randomLyricsBtn"); const randomFillAllBtn = document.getElementById("randomFillAllBtn"); if (randomPromptBtn) randomPromptBtn.style.display = showRandomButtons ? "inline-flex" : "none"; if (randomLyricsBtn) randomLyricsBtn.style.display = showRandomButtons ? "inline-flex" : "none"; if (randomFillAllBtn) randomFillAllBtn.style.display = showRandomButtons ? "inline-flex" : "none"; }
+      async function fillRandomPrompt() {
+        const sample = await fetchRandomSample();
+        if (sample && sample.prompt) {
+          promptEl.value = sample.prompt;
+          if (promptMobileEl) promptMobileEl.value = sample.prompt;
+          setStatus("已随机填充描述", "ok");
+        }
+      }
+      async function fillRandomLyrics() {
+        const sample = await fetchRandomSample();
+        if (sample && sample.lyrics) {
+          if (lyricsEl) lyricsEl.value = sample.lyrics;
+          if (lyricsMobileEl) lyricsMobileEl.value = sample.lyrics;
+          setStatus("已随机填充歌词", "ok");
+        }
+      }
+      async function fillRandomAll() {
+        const sample = await fetchRandomSample();
+        if (!sample) { setError("获取随机样本失败"); return; }
+        if (sample.prompt) {
+          promptEl.value = sample.prompt;
+          if (promptMobileEl) promptMobileEl.value = sample.prompt;
+        }
+        if (sample.lyrics) {
+          if (lyricsEl) lyricsEl.value = sample.lyrics;
+          if (lyricsMobileEl) lyricsMobileEl.value = sample.lyrics;
+        }
+        if (sample.duration) {
+          const clamped = Math.max(3, Math.min(600, sample.duration));
+          if (durationSlider && durationValue) { durationSlider.value = String(clamped); durationValue.textContent = String(clamped) + " 秒"; }
+          if (durationMobileSlider && durationMobileValue) { durationMobileSlider.value = String(clamped); durationMobileValue.textContent = String(clamped) + " 秒"; }
+        }
+        setStatus("已随机填充", "ok");
+      }
+      function updateRandomButtonsVisibility() {
+        const showRandomButtons = true;
+        const randomPromptBtn = document.getElementById("randomPromptBtn");
+        const randomLyricsBtn = document.getElementById("randomLyricsBtn");
+        const randomFillAllBtn = document.getElementById("randomFillAllBtn");
+        const randomFillAllBtnMobile = document.getElementById("randomFillAllBtnMobile");
+        if (randomPromptBtn) randomPromptBtn.style.display = showRandomButtons ? "inline-flex" : "none";
+        if (randomLyricsBtn) randomLyricsBtn.style.display = showRandomButtons ? "inline-flex" : "none";
+        if (randomFillAllBtn) randomFillAllBtn.style.display = showRandomButtons ? "inline-flex" : "none";
+        if (randomFillAllBtnMobile) randomFillAllBtnMobile.style.display = showRandomButtons ? "inline-flex" : "none";
+      }
       function _updateGenerateBtnLabel() { const count = parseInt(document.getElementById("count").value, 10); const btn = document.getElementById("generateBtn"); btn.innerHTML = count > 1 ? icon("sparkles", "icon-sm") + " 创作 " + count + " 首" : icon("sparkles", "icon-sm") + " 开始创作"; if (generateBtnMobile) { generateBtnMobile.disabled = btn.disabled; generateBtnMobile.textContent = count > 1 ? "创作 " + count + " 首" : "开始创作"; } }
       document.getElementById("generateBtn").addEventListener("click", () => { startGenerate().catch(e => { setError(errorMessage(e)); setStatus(""); const btn = document.getElementById("generateBtn"); btn.disabled = false; _updateGenerateBtnLabel(); }); });
       document.getElementById("count").addEventListener("change", _updateGenerateBtnLabel);
@@ -970,6 +1011,8 @@
       if (randomPromptBtnEl) { randomPromptBtnEl.addEventListener("click", () => { fillRandomPrompt().catch(e => console.error("fillRandomPrompt error:", e)); }); }
       if (randomLyricsBtnEl) { randomLyricsBtnEl.addEventListener("click", () => { fillRandomLyrics().catch(e => console.error("fillRandomLyrics error:", e)); }); }
       if (randomFillAllBtnEl) { randomFillAllBtnEl.addEventListener("click", () => { fillRandomAll().catch(e => console.error("fillRandomAll error:", e)); }); }
+      const randomFillAllBtnMobileEl = document.getElementById("randomFillAllBtnMobile");
+      if (randomFillAllBtnMobileEl) { randomFillAllBtnMobileEl.addEventListener("click", () => { fillRandomAll().catch(e => console.error("fillRandomAll(mobile) error:", e)); }); }
       advancedEl.addEventListener("change", () => renderProviderFields());
       if (srcAudioInput) { srcAudioInput.addEventListener("change", function() { if (this.files && this.files[0]) handleAudioFileInput("src", this.files[0]); }); }
       if (refAudioInput) { refAudioInput.addEventListener("change", function() { if (this.files && this.files[0]) handleAudioFileInput("ref", this.files[0]); }); }
