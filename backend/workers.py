@@ -432,8 +432,8 @@ async def _run_job(*, job_id: str, prompt: str, params: dict[str, Any]) -> None:
                 endpoint=endpoint,
                 request_body=req_body,
                 api_key_hint=key_hint,
-                ) as log_info:
-                    try:
+            ) as log_info:
+                try:
                     _stream_task_id = "acestep-stream"
                     _stream_bytes: bytes | None = None
                     _stream_ex: Exception | None = None
@@ -511,17 +511,17 @@ async def _run_job(*, job_id: str, prompt: str, params: dict[str, Any]) -> None:
                     log_info["response_body"] = json.dumps({
                         "task_id": _stream_task_id,
                     }, ensure_ascii=False)
-                        out_bytes = _stream_bytes
-                        out_ext = audio_format
-                    except asyncio.CancelledError:
-                        # Ensure api_logs row has an error marker even when cancelled.
-                        log_info["http_status"] = log_info.get("http_status") or 499
-                        log_info["error"] = "cancelled"
-                        raise
-                    except Exception as e:
-                        log_info["http_status"] = _extract_http_status(str(e))
-                        log_info["error"] = str(e)
-                        raise
+                    out_bytes = _stream_bytes
+                    out_ext = audio_format
+                except asyncio.CancelledError:
+                    # Ensure api_logs row has an error marker even when cancelled.
+                    log_info["http_status"] = log_info.get("http_status") or 499
+                    log_info["error"] = "cancelled"
+                    raise
+                except Exception as e:
+                    log_info["http_status"] = _extract_http_status(str(e))
+                    log_info["error"] = str(e)
+                    raise
 
         out_path = STATE.audio_dir / f"{job_id}.{out_ext}"
         out_path.write_bytes(out_bytes)
