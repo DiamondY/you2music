@@ -257,7 +257,8 @@ def get_providers(settings: Settings, *, include_disabled: bool = False) -> list
             required=False,
             advanced=True,
             default="",
-            help="可选：参考音频（任意任务可用）。",
+            help="可选：参考音频（用于二创/音频编辑类任务）。",
+            visible_if={"task_type": ["cover", "repaint", "lego", "extract", "complete"]},
         ),
         ProviderField(
             key="reference_audio_format",
@@ -268,6 +269,7 @@ def get_providers(settings: Settings, *, include_disabled: bool = False) -> list
             default="mp3",
             enum=["mp3", "wav", "flac"],
             help="参考音频文件格式。",
+            visible_if={"task_type": ["cover", "repaint", "lego", "extract", "complete"]},
         ),
     ]
 
