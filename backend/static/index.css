@@ -193,6 +193,9 @@
       @media (max-width: 640px) { .form-row { grid-template-columns: 1fr; } }
       .form-group { margin-bottom: var(--space-md); }
       .form-group:last-child { margin-bottom: 0; }
+      .pwd-row { display: flex; gap: var(--space-sm); align-items: center; }
+      .pwd-row input { flex: 1; }
+      .pwd-row button { white-space: nowrap; min-height: 40px; }
       .form-actions { display: flex; flex-wrap: wrap; gap: var(--space-sm); align-items: center; margin-top: var(--space-lg); }
       .form-section { padding: var(--space-md) 0; border-bottom: 1px solid var(--color-border); }
       .form-section:first-child { padding-top: 0; }

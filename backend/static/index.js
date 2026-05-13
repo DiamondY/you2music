@@ -234,7 +234,9 @@
       async function fetchJson(url, opts) {
         const nextOpts = Object.assign({}, opts || {});
         const headers = Object.assign({}, nextOpts.headers || {});
-        if (authToken && !headers.authorization && !headers.Authorization) {
+        const urlStr = String(url || "");
+        const isAuthRoute = urlStr.startsWith("/api/auth/login") || urlStr.startsWith("/api/auth/register");
+        if (!isAuthRoute && authToken && !headers.authorization && !headers.Authorization) {
           headers.Authorization = "Bearer " + authToken;
         }
         nextOpts.headers = headers;
@@ -243,7 +245,11 @@
         let data;
         try { data = text ? JSON.parse(text) : {}; } catch { data = { raw: text }; }
         if (!res.ok) {
-          if (res.status === 401) { setSession("", null); stopEventStream(); throw new Error("登录已过期，请重新登录。"); }
+          // 401 handling:
+          // - If request carried an Authorization header, treat as token-expired and clear session.
+          // - Otherwise, surface backend error detail (e.g. "用户名或密码错误").
+          const sentAuth = Boolean(headers.Authorization || headers.authorization);
+          if (res.status === 401 && sentAuth) { setSession("", null); stopEventStream(); throw new Error("登录已过期，请重新登录。"); }
           throw new Error(formatApiError(data, text || "HTTP " + res.status));
         }
         return data;
@@ -1072,8 +1078,25 @@
       if (clearAllBtnEl) { clearAllBtnEl.addEventListener("click", async () => { if (!window.confirm("确定清空所有生成记录？此操作不可恢复。")) return; try { await fetchJson("/api/jobs", { method: "DELETE" }); listEl.innerHTML = ""; list2El.innerHTML = ""; player.removeAttribute("src"); player.load(); downloadLink.style.display = "none"; extendGroup.style.display = "none"; currentJobId = null; currentJobs = []; setStatus("已清空", "ok"); loadHistoryPage(0).catch(() => {}); } catch (err) { setError("清空失败：" + errorMessage(err)); } }); }
       _decorateStaticBadges(); _updatePromptBadge();
       if (cpEditorEl) { ["input", "change", "click", "keyup"].forEach(evt => { cpEditorEl.addEventListener(evt, () => _updatePromptBadge()); }); }
-      document.getElementById("loginBtn").addEventListener("click", () => { login().catch(e => setAuthError(errorMessage(e))); });
-      document.getElementById("registerBtn").addEventListener("click", () => { registerAccount().catch(e => setAuthError(errorMessage(e))); });
+      const loginForm = document.getElementById("loginPanel");
+      if (loginForm) {
+        loginForm.addEventListener("submit", (e) => {
+          e.preventDefault();
+          if (_isRegisterModeNow()) return;
+          login().catch(err => setAuthError(errorMessage(err)));
+        });
+      }
+      const registerForm = document.getElementById("registerPanel");
+      if (registerForm) {
+        registerForm.addEventListener("submit", (e) => {
+          e.preventDefault();
+          if (!_isRegisterModeNow()) return;
+          const inviteEl = document.getElementById("registerInvite");
+          const invite = inviteEl ? String(inviteEl.value || "").trim() : "";
+          if (!invite && inviteEl) { inviteEl.focus(); setAuthError("请先填写邀请码。"); return; }
+          registerAccount().catch(err => setAuthError(errorMessage(err)));
+        });
+      }
       const loginUsernameEl = document.getElementById("loginUsername");
       const loginPasswordEl = document.getElementById("loginPassword");
       const registerUsernameEl = document.getElementById("registerUsername");
@@ -1082,32 +1105,35 @@
       if (loginUsernameEl && loginPasswordEl) {
         loginUsernameEl.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); loginPasswordEl.focus(); } });
       }
-      if (loginPasswordEl) {
-        loginPasswordEl.addEventListener("keydown", (e) => {
-          if (e.key !== "Enter") return;
-          e.preventDefault();
-          if (_isRegisterModeNow()) return;
-          login().catch(err => setAuthError(errorMessage(err)));
-        });
-      }
+      // For mobile keyboards, rely on <form submit> rather than keydown Enter (more reliable on iOS/Android).
       if (registerUsernameEl && registerPasswordEl) {
         registerUsernameEl.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); registerPasswordEl.focus(); } });
       }
       if (registerPasswordEl && registerInviteEl) {
         registerPasswordEl.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); registerInviteEl.focus(); } });
       }
-      if (registerInviteEl) {
-        registerInviteEl.addEventListener("keydown", (e) => {
-          if (e.key !== "Enter") return;
-          e.preventDefault();
-          if (!_isRegisterModeNow()) return;
-          registerAccount().catch(err => setAuthError(errorMessage(err)));
-        });
-      }
+      // For mobile keyboards, rely on <form submit> rather than keydown Enter.
       showLoginBtn.addEventListener("click", () => showAuthMode("login"));
       showRegisterBtn.addEventListener("click", () => showAuthMode("register"));
       const showAuthBtnEl = document.getElementById("showAuthBtn");
       if (showAuthBtnEl) { showAuthBtnEl.addEventListener("click", () => { showAuthMode(registerPanel.classList.contains("hidden") ? "register" : "login"); }); }
+
+      const toggleLoginPasswordBtn = document.getElementById("toggleLoginPassword");
+      if (toggleLoginPasswordBtn && loginPasswordEl) {
+        toggleLoginPasswordBtn.addEventListener("click", () => {
+          const isHidden = loginPasswordEl.type === "password";
+          loginPasswordEl.type = isHidden ? "text" : "password";
+          toggleLoginPasswordBtn.textContent = isHidden ? "隐藏" : "查看";
+        });
+      }
+      const toggleRegisterPasswordBtn = document.getElementById("toggleRegisterPassword");
+      if (toggleRegisterPasswordBtn && registerPasswordEl) {
+        toggleRegisterPasswordBtn.addEventListener("click", () => {
+          const isHidden = registerPasswordEl.type === "password";
+          registerPasswordEl.type = isHidden ? "text" : "password";
+          toggleRegisterPasswordBtn.textContent = isHidden ? "隐藏" : "查看";
+        });
+      }
 
       const clearPromptBtnEl = document.getElementById("clearPromptBtn");
       if (clearPromptBtnEl) {

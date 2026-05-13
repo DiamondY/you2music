@@ -9,7 +9,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Righteous&display=swap" rel="stylesheet">
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><defs><linearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'><stop offset='0%25' stop-color='%23F59E0B'/><stop offset='100%25' stop-color='%23F97316'/></linearGradient></defs><rect width='100' height='100' rx='20' fill='url(%23g)'/><path d='M30 30v40M42 20v60M54 35v30M66 25v50M78 40v20' stroke='white' stroke-width='6' stroke-linecap='round'/></svg>" type="image/svg+xml" />
     
-      <link rel="stylesheet" href="/static/index.css?v=20260513_12" />
+      <link rel="stylesheet" href="/static/index.css?v=20260513_13" />
       <script>
         // Prevent "login page flash" on refresh when a valid token exists.
         // This runs before the deferred main JS, so mobile won't briefly render auth UI.
@@ -60,32 +60,38 @@
           <button id="showLoginBtn" class="auth-mode-btn active" type="button">登录</button>
           <button id="showRegisterBtn" class="auth-mode-btn" type="button">注册</button>
         </div>
-        <div id="loginPanel">
+        <form id="loginPanel">
           <div class="form-group">
             <label for="loginUsername">用户名</label>
             <input id="loginUsername" type="text" autocomplete="username">
           </div>
           <div class="form-group">
             <label for="loginPassword">密码</label>
-            <input id="loginPassword" type="password" autocomplete="current-password">
+            <div class="pwd-row">
+              <input id="loginPassword" type="password" autocomplete="current-password">
+              <button id="toggleLoginPassword" class="btn btn-secondary btn-sm" type="button" title="查看/隐藏密码">查看</button>
+            </div>
           </div>
-          <button id="loginBtn" class="btn btn-accent" type="button" style="width:100%;">登录</button>
-        </div>
-        <div id="registerPanel" class="hidden">
+          <button id="loginBtn" class="btn btn-accent" type="submit" style="width:100%;">登录</button>
+        </form>
+        <form id="registerPanel" class="hidden">
           <div class="form-group">
             <label for="registerUsername">用户名</label>
             <input id="registerUsername" type="text" autocomplete="username">
           </div>
           <div class="form-group">
             <label for="registerPassword">密码</label>
-            <input id="registerPassword" type="password" autocomplete="new-password">
+            <div class="pwd-row">
+              <input id="registerPassword" type="password" autocomplete="new-password">
+              <button id="toggleRegisterPassword" class="btn btn-secondary btn-sm" type="button" title="查看/隐藏密码">查看</button>
+            </div>
           </div>
           <div class="form-group">
             <label for="registerInvite">邀请码</label>
             <input id="registerInvite" type="text" autocomplete="off">
           </div>
-          <button id="registerBtn" class="btn btn-secondary" type="button" style="width:100%;">注册并登录</button>
-        </div>
+          <button id="registerBtn" class="btn btn-secondary" type="submit" style="width:100%;">注册并登录</button>
+        </form>
         <div id="authError" class="error-message" style="display:none;"></div>
         <div class="auth-footer">
           <button id="showAuthBtn" type="button">切换到<span id="authModeText">注册</span></button>
@@ -588,6 +594,6 @@
       </div>
     </div>
     
-<script src="/static/index.js?v=20260513_19" defer></script>
+<script src="/static/index.js?v=20260513_20" defer></script>
 </body>
 </html>
