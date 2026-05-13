@@ -138,7 +138,7 @@ def _normalize_provider_alias(provider_name: str) -> str:
     p = (provider_name or "").strip()
     if p == "elevenlabs":
         return "acestep"
-    return p or "minimax"
+    return p or "acestep"
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -450,18 +450,7 @@ async def admin_test(current_user: UserRecord = Depends(require_admin)) -> dict[
 
             attempts: list[dict[str, Any]] = []
             try:
-                if pid == "minimax":
-                    # MiniMax API test - simple health check
-                    attempts.append(
-                        await _attempt_get(
-                            client,
-                            name="health",
-                            url=f"{STATE.settings.minimax_base_url}/v1/music_generation",
-                            headers={"Authorization": f"Bearer {STATE.settings.minimax_api_key}"},
-                            ok_if_status=lambda s: s in (401, 403, 405, 400),  # These indicate the endpoint exists
-                        )
-                    )
-                elif pid == "acestep":
+                if pid == "acestep":
                     # ACE-Step API test
                     attempts.append(
                         await _attempt_get(
@@ -613,7 +602,7 @@ async def admin_cancel_job(
         raise HTTPException(status_code=404, detail="job not found")
     if rec.status != "queued":
         raise HTTPException(status_code=409, detail="只能取消排队中的任务")
-    provider_name = str(rec.provider) if rec.provider else "minimax"
+    provider_name = str(rec.provider) if rec.provider else "acestep"
     pq = STATE.provider_queues.get(provider_name)
     cancelled_from_queue = False
     if pq:
@@ -639,7 +628,7 @@ def admin_delete_job(
         raise HTTPException(status_code=409, detail="无法删除正在生成中的任务，请等待完成或失败后再删除")
     # Cancel from provider queue if still pending
     if rec.status == "queued":
-        provider_name = str(rec.provider) if rec.provider else "minimax"
+        provider_name = str(rec.provider) if rec.provider else "acestep"
         pq = STATE.provider_queues.get(provider_name)
         if pq:
             pq.cancel(job_id)
@@ -650,8 +639,8 @@ def admin_delete_job(
 @app.post("/api/generate")
 async def generate(req: GenerateRequest, current_user: UserRecord = Depends(get_current_user)) -> dict[str, Any]:
     provider_name = _normalize_provider_alias(_resolve_provider(req.provider))
-    if provider_name not in ("minimax", "acestep"):
-        raise HTTPException(status_code=400, detail=f"不支持的 provider: {provider_name}")
+    if provider_name != "acestep":
+        raise HTTPException(status_code=400, detail=f"unsupported provider: {provider_name}")
 
     provider_params = req.provider_params or {}
     # Never accept base64 audio blobs in provider_params; they would be persisted
@@ -733,8 +722,8 @@ async def generate(req: GenerateRequest, current_user: UserRecord = Depends(get_
 @app.post("/api/generate_many")
 async def generate_many(req: GenerateManyRequest, current_user: UserRecord = Depends(get_current_user)) -> dict[str, Any]:
     provider_name = _normalize_provider_alias(_resolve_provider(req.provider))
-    if provider_name not in ("minimax", "acestep"):
-        raise HTTPException(status_code=400, detail=f"不支持的 provider: {provider_name}")
+    if provider_name != "acestep":
+        raise HTTPException(status_code=400, detail=f"unsupported provider: {provider_name}")
 
     provider_params = req.provider_params or {}
     for k in ("src_audio_b64", "reference_audio_b64"):
@@ -839,8 +828,8 @@ async def extend(req: ExtendRequest, current_user: UserRecord = Depends(get_curr
     new_params["duration_sec"] = new_duration
     if req.provider:
         new_provider = _normalize_provider_alias(_resolve_provider(req.provider))
-        if new_provider not in ("minimax", "acestep"):
-            raise HTTPException(status_code=400, detail=f"不支持的 provider: {new_provider}")
+        if new_provider != "acestep":
+            raise HTTPException(status_code=400, detail=f"unsupported provider: {new_provider}")
         new_params["provider"] = new_provider
     if req.provider_params:
         new_params["provider_params"] = req.provider_params
@@ -882,8 +871,8 @@ async def generate_store(req: GenerateRequest, current_user: UserRecord = Depend
     This endpoint mainly exists to support frontend flows that want a "stored" result.
     """
     provider_name = _normalize_provider_alias(_resolve_provider(req.provider))
-    if provider_name not in ("minimax", "acestep"):
-        raise HTTPException(status_code=400, detail=f"不支持的 provider: {provider_name}")
+    if provider_name != "acestep":
+        raise HTTPException(status_code=400, detail=f"unsupported provider: {provider_name}")
 
     provider_params = req.provider_params or {}
     for k in ("src_audio_b64", "reference_audio_b64"):
@@ -1030,7 +1019,7 @@ def delete_job(job_id: str, current_user: UserRecord = Depends(get_current_user)
         raise HTTPException(status_code=409, detail="无法删除正在生成中的任务，请等待完成或失败后再删除")
     # Cancel from provider queue if still pending
     if rec.status == "queued":
-        provider_name = str(rec.provider) if rec.provider else "minimax"
+        provider_name = str(rec.provider) if rec.provider else "acestep"
         pq = STATE.provider_queues.get(provider_name)
         if pq:
             pq.cancel(job_id)
@@ -1050,7 +1039,7 @@ async def cancel_job(job_id: str, current_user: UserRecord = Depends(get_current
         raise HTTPException(status_code=409, detail="只能取消排队中的任务")
 
     # Remove from provider queue's pending list
-    provider_name = str(rec.provider) if rec.provider else "minimax"
+    provider_name = str(rec.provider) if rec.provider else "acestep"
     pq = STATE.provider_queues.get(provider_name)
     cancelled_from_queue = False
     if pq:

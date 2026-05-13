@@ -24,10 +24,6 @@ T = TypeVar("T")
 # ---------------------------------------------------------------------------
 
 DEFAULT_CONCURRENCY: dict[str, Any] = {
-    "minimax": {
-        "max_concurrent": 3,
-        "rate_limit_per_sec": 2.0,
-    },
     "acestep": {
         "max_concurrent": 1,
         "rate_limit_per_sec": 1.0,
@@ -36,7 +32,9 @@ DEFAULT_CONCURRENCY: dict[str, Any] = {
     "retry": {
         "max_retries": 3,
         "base_delay_sec": 2.0,
-        "retryable_statuses": [429, 502, 503, 504],
+        # 500 is included because some upstream providers (notably ACE-Step)
+        # occasionally return transient 500s during load; retrying often succeeds.
+        "retryable_statuses": [429, 500, 502, 503, 504],
     },
     "queue_timeout_sec": 300,  # Max seconds a job can wait in queue before being marked failed
 }
@@ -47,17 +45,16 @@ def _merge_concurrency(user_cfg: dict[str, Any] | None) -> dict[str, Any]:
     if not user_cfg:
         return dict(DEFAULT_CONCURRENCY)
     merged: dict[str, Any] = {}
-    for provider in ("minimax", "acestep"):
-        base = dict(DEFAULT_CONCURRENCY.get(provider, {}))
-        override = user_cfg.get(provider)
-        if isinstance(override, dict):
-            base.update(override)
-        if provider == "acestep":
-            # ACE-Step generation is a long-running upstream operation and is
-            # sensitive to parallel requests on the same API key. Keep the
-            # local queue serialized even if old config files still say "2".
-            base["max_concurrent"] = 1
-        merged[provider] = base
+    provider = "acestep"
+    base = dict(DEFAULT_CONCURRENCY.get(provider, {}))
+    override = user_cfg.get(provider)
+    if isinstance(override, dict):
+        base.update(override)
+    # ACE-Step generation is a long-running upstream operation and is
+    # sensitive to parallel requests on the same API key. Keep the
+    # local queue serialized even if old config files still say "2".
+    base["max_concurrent"] = 1
+    merged[provider] = base
     retry_base = dict(DEFAULT_CONCURRENCY.get("retry", {}))
     retry_override = user_cfg.get("retry")
     if isinstance(retry_override, dict):
@@ -65,7 +62,7 @@ def _merge_concurrency(user_cfg: dict[str, Any] | None) -> dict[str, Any]:
     merged["retry"] = retry_base
     # Top-level scalar keys (e.g. queue_timeout_sec)
     for key in DEFAULT_CONCURRENCY:
-        if key in ("minimax", "acestep", "retry"):
+        if key in ("acestep", "retry"):
             continue
         if key in user_cfg:
             merged[key] = user_cfg[key]

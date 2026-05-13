@@ -13,9 +13,8 @@
 
 - `config/providers.local.example.json` -> `config/providers.local.json`
 
-至少配置一个 provider 的 API key：
+至少配置 ACE-Step 的 API key：
 
-- `secrets.minimax_api_key` 或 `MINIMAX_API_KEY`
 - `secrets.acestep_api_key` 或 `ACESTEP_API_KEY`
 
 更多字段说明见：`docs/CONFIG.md`。

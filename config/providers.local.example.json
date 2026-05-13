@@ -1,6 +1,4 @@
 {
-  "default_provider": "acestep",
-  "enabled_providers": ["minimax", "acestep"],
   "admin_token": "CHANGE_ME_ADMIN_TOKEN",
   "server": {
     "host": "127.0.0.1",
@@ -12,21 +10,13 @@
     "no_proxy": "127.0.0.1,localhost"
   },
   "secrets": {
-    "minimax_api_key": "PASTE_MINIMAX_KEY_HERE",
     "acestep_api_key": "PASTE_ACESTEP_KEY_HERE",
     "_comment_multi_key": "To use multiple keys, replace a string value with an array: [\"key1\", \"key2\"] or [{\"key\": \"...\"}]. (Note: \"label\" is currently ignored.)"
   },
   "endpoints": {
-    "minimax_base_url": "https://api.minimaxi.com",
     "acestep_base_url": "https://api.acemusic.ai"
   },
   "ui_defaults": {
-    "minimax": {
-      "model": "music-2.6",
-      "sample_rate": 44100,
-      "bitrate": 256000,
-      "format": "mp3"
-    },
     "acestep": {
       "model": "acemusic/acestep-v1.5-turbo",
       "audio_format": "mp3"
@@ -39,10 +29,6 @@
     "default_daily_quota": 20
   },
   "concurrency": {
-    "minimax": {
-      "max_concurrent": 3,
-      "rate_limit_per_sec": 2.0
-    },
     "acestep": {
       "max_concurrent": 1,
       "rate_limit_per_sec": 1.0,
@@ -51,7 +37,7 @@
     "retry": {
       "max_retries": 3,
       "base_delay_sec": 2.0,
-      "retryable_statuses": [429, 502, 503, 504]
+      "retryable_statuses": [429, 500, 502, 503, 504]
     },
     "queue_timeout_sec": 300
   }

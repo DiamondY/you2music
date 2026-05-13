@@ -34,8 +34,9 @@ def _sanitize_filename(text: str) -> str:
 
 
 def _resolve_provider(req_provider: str | None) -> str:
-    p = (req_provider or STATE.settings.default_provider or "minimax").strip()
-    return p or "minimax"
+    # Project policy: ACE-Step is the only provider.
+    p = (req_provider or "acestep").strip()
+    return p or "acestep"
 
 
 def _resolve_output_format(provider_params: dict[str, Any] | None) -> str:
@@ -193,7 +194,7 @@ def _serialize_job(rec: Any, *, include_download: bool = True) -> dict[str, Any]
         "share_permission": rec.share_permission,
     }
     if rec.status == "queued":
-        provider_name = str(rec.provider) if rec.provider else "minimax"
+        provider_name = str(rec.provider) if rec.provider else "acestep"
         pq = STATE.provider_queues.get(provider_name)
         if pq:
             result["queue_position"] = pq.get_position(rec.job_id)

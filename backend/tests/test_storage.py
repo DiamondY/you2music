@@ -13,7 +13,7 @@ class TestJobStore:
     def test_create_and_get_job(self, job_store: JobStore) -> None:
         """create_job → get returns the job with correct fields."""
         job_id = job_store.create_job(
-            provider="minimax",
+            provider="acestep",
             prompt="test prompt",
             params={"duration_sec": 30, "vocals": True},
             user_id=1,
@@ -25,7 +25,7 @@ class TestJobStore:
         assert rec is not None
         assert rec.job_id == job_id
         assert rec.status == "queued"
-        assert rec.provider == "minimax"
+        assert rec.provider == "acestep"
         assert rec.prompt == "test prompt"
         assert rec.user_id == 1
         assert rec.error is None
@@ -34,7 +34,7 @@ class TestJobStore:
     def test_set_status_succeeded(self, job_store: JobStore) -> None:
         """set_status updates status, output_path, and timestamps."""
         job_id = job_store.create_job(
-            provider="minimax",
+            provider="acestep",
             prompt="p",
             params={},
         )
@@ -62,7 +62,7 @@ class TestJobStore:
         """list_recent returns jobs ordered by created_at_ms DESC, job_id ASC."""
         ids: list[str] = []
         for i in range(5):
-            jid = job_store.create_job(provider="minimax", prompt=f"p{i}", params={})
+            jid = job_store.create_job(provider="acestep", prompt=f"p{i}", params={})
             ids.append(jid)
 
         results = job_store.list_recent(limit=3, include_all=True)
@@ -84,7 +84,7 @@ class TestJobStore:
     def test_list_page_pagination(self, job_store: JobStore) -> None:
         """list_page with offset/limit returns correct slice."""
         for i in range(10):
-            job_store.create_job(provider="minimax", prompt=f"p{i}", params={})
+            job_store.create_job(provider="acestep", prompt=f"p{i}", params={})
 
         page1 = job_store.list_page(offset=0, limit=3)
         page2 = job_store.list_page(offset=3, limit=3)
@@ -103,13 +103,13 @@ class TestJobStore:
         """count_jobs returns correct total."""
         assert job_store.count_jobs() == 0
         for _ in range(7):
-            job_store.create_job(provider="minimax", prompt="p", params={})
+            job_store.create_job(provider="acestep", prompt="p", params={})
         assert job_store.count_jobs() == 7
 
     def test_count_jobs_with_status_filter(self, job_store: JobStore) -> None:
         """count_jobs filters by status when provided."""
-        j1 = job_store.create_job(provider="minimax", prompt="p", params={})
-        j2 = job_store.create_job(provider="minimax", prompt="p", params={})
+        j1 = job_store.create_job(provider="acestep", prompt="p", params={})
+        j2 = job_store.create_job(provider="acestep", prompt="p", params={})
         job_store.set_status(j1, status="succeeded", output_path="/tmp/a.mp3")
         job_store.set_status(j2, status="failed", error="err")
 
@@ -120,8 +120,8 @@ class TestJobStore:
 
     def test_list_page_with_status_filter(self, job_store: JobStore) -> None:
         """list_page filters by status."""
-        j1 = job_store.create_job(provider="minimax", prompt="ok", params={})
-        j2 = job_store.create_job(provider="minimax", prompt="fail", params={})
+        j1 = job_store.create_job(provider="acestep", prompt="ok", params={})
+        j2 = job_store.create_job(provider="acestep", prompt="fail", params={})
         job_store.set_status(j1, status="succeeded", output_path="/tmp/a.mp3")
         job_store.set_status(j2, status="failed", error="err")
 
@@ -135,7 +135,7 @@ class TestJobStore:
 
     def test_delete_existing(self, job_store: JobStore) -> None:
         """delete removes the job and returns True."""
-        jid = job_store.create_job(provider="minimax", prompt="p", params={})
+        jid = job_store.create_job(provider="acestep", prompt="p", params={})
         assert job_store.delete(jid) is True
         assert job_store.get(jid) is None
         assert job_store.count_jobs() == 0
@@ -147,15 +147,15 @@ class TestJobStore:
     def test_delete_all(self, job_store: JobStore) -> None:
         """delete_all removes all jobs."""
         for _ in range(5):
-            job_store.create_job(provider="minimax", prompt="p", params={})
+            job_store.create_job(provider="acestep", prompt="p", params={})
         assert job_store.delete_all() == 5
         assert job_store.count_jobs() == 0
 
     def test_delete_for_user(self, job_store: JobStore) -> None:
         """delete_for_user only removes jobs for that user."""
-        job_store.create_job(provider="minimax", prompt="u1", params={}, user_id=1)
-        job_store.create_job(provider="minimax", prompt="u1b", params={}, user_id=1)
-        job_store.create_job(provider="minimax", prompt="u2", params={}, user_id=2)
+        job_store.create_job(provider="acestep", prompt="u1", params={}, user_id=1)
+        job_store.create_job(provider="acestep", prompt="u1b", params={}, user_id=1)
+        job_store.create_job(provider="acestep", prompt="u2", params={}, user_id=2)
 
         assert job_store.delete_for_user(user_id=1) == 2
         assert job_store.count_jobs() == 1
@@ -165,7 +165,7 @@ class TestJobStore:
     def test_params_json_roundtrip(self, job_store: JobStore) -> None:
         """params are stored as JSON and can be parsed back."""
         params = {"duration_sec": 45, "vocals": False, "lyrics": "hello world"}
-        jid = job_store.create_job(provider="minimax", prompt="p", params=params)
+        jid = job_store.create_job(provider="acestep", prompt="p", params=params)
         rec = job_store.get(jid)
         assert rec is not None
         parsed = json.loads(rec.params_json)
@@ -174,7 +174,7 @@ class TestJobStore:
     def test_list_page_boundary_clamping(self, job_store: JobStore) -> None:
         """list_page clamps invalid offset/limit values."""
         for _ in range(3):
-            job_store.create_job(provider="minimax", prompt="p", params={})
+            job_store.create_job(provider="acestep", prompt="p", params={})
         # Negative offset → 0
         result = job_store.list_page(offset=-5, limit=200)
         assert len(result) == 3

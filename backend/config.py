@@ -10,14 +10,9 @@ from urllib.parse import urlsplit
 
 @dataclass(frozen=True)
 class Settings:
-    default_provider: str
-    minimax_api_key: str
-    minimax_api_keys: list[str]
-    minimax_base_url: str
     acestep_api_key: str
     acestep_api_keys: list[str]
     acestep_base_url: str
-    enabled_providers: list[str] | None
     provider_ui_defaults: dict[str, dict[str, Any]]
     jwt_secret: str
     admin_username: str
@@ -34,7 +29,6 @@ class Settings:
     concurrency_config: dict[str, Any]
 
 
-MINIMAX_BASE_URL_DEFAULT = "https://api.minimaxi.com"
 ACESTEP_BASE_URL_DEFAULT = "https://api.acemusic.ai"
 
 
@@ -87,8 +81,6 @@ def load_settings() -> Settings:
     # Prefer local (gitignored) config, fall back to none.
     cfg = _read_json_if_exists(config_dir / "providers.local.json") or _read_json_if_exists(config_dir / "providers.json") or {}
 
-    minimax_api_key = os.getenv("MINIMAX_API_KEY", "").strip()
-    minimax_base_url = os.getenv("MINIMAX_BASE_URL", MINIMAX_BASE_URL_DEFAULT).strip().rstrip("/")
     acestep_api_key = os.getenv("ACESTEP_API_KEY", "").strip()
     acestep_base_url = os.getenv("ACESTEP_BASE_URL", ACESTEP_BASE_URL_DEFAULT).strip().rstrip("/")
     jwt_secret = os.getenv("AI_MUSIC_JWT_SECRET", "").strip()
@@ -104,11 +96,9 @@ def load_settings() -> Settings:
     data_dir = Path(data_dir_raw).expanduser().resolve()
 
     output_format = os.getenv("AI_MUSIC_OUTPUT_FORMAT", "mp3_44100_192").strip()
-    default_provider = os.getenv("AI_MUSIC_PROVIDER_DEFAULT", "minimax").strip() or "minimax"
     timeout_s = float(os.getenv("AI_MUSIC_REQUEST_TIMEOUT_S", "120"))
 
     # Apply JSON config values as defaults (env vars override)
-    minimax_api_keys_raw: Any = None
     acestep_api_keys_raw: Any = None
     if isinstance(cfg, dict):
         secrets = cfg.get("secrets") if isinstance(cfg.get("secrets"), dict) else {}
@@ -116,15 +106,6 @@ def load_settings() -> Settings:
         proxy = cfg.get("proxy") if isinstance(cfg.get("proxy"), dict) else {}
         auth_cfg = cfg.get("auth") if isinstance(cfg.get("auth"), dict) else {}
         admin_cfg = cfg.get("admin") if isinstance(cfg.get("admin"), dict) else {}
-
-        if not minimax_api_key:
-            raw = secrets.get("minimax_api_key")
-            minimax_api_keys_raw = raw
-            minimax_api_key = _parse_key_single(raw)
-        else:
-            minimax_api_keys_raw = minimax_api_key
-        if minimax_base_url == MINIMAX_BASE_URL_DEFAULT:
-            minimax_base_url = str(endpoints.get("minimax_base_url") or minimax_base_url).strip().rstrip("/")
 
         if not acestep_api_key:
             raw = secrets.get("acestep_api_key")
@@ -135,9 +116,6 @@ def load_settings() -> Settings:
         if acestep_base_url == ACESTEP_BASE_URL_DEFAULT:
             acestep_base_url = str(endpoints.get("acestep_base_url") or acestep_base_url).strip().rstrip("/")
 
-        dp = cfg.get("default_provider")
-        if isinstance(dp, str) and dp.strip():
-            default_provider = dp.strip()
         if not jwt_secret:
             jwt_secret = str(auth_cfg.get("jwt_secret") or cfg.get("jwt_secret") or "").strip()
         if not admin_username:
@@ -168,12 +146,8 @@ def load_settings() -> Settings:
             if isinstance(p, str) and p.strip():
                 os.environ["NO_PROXY"] = p.strip()
 
-    enabled_providers: list[str] | None = None
     provider_ui_defaults: dict[str, dict[str, Any]] = {}
     if isinstance(cfg, dict):
-        ep = cfg.get("enabled_providers")
-        if isinstance(ep, list) and all(isinstance(x, str) for x in ep):
-            enabled_providers = [x.strip() for x in ep if x.strip()]
         ud = cfg.get("ui_defaults")
         if isinstance(ud, dict):
             for k, v in ud.items():
@@ -183,18 +157,6 @@ def load_settings() -> Settings:
     proxy_http = (os.getenv("HTTP_PROXY") or os.getenv("http_proxy") or "").strip()
     proxy_https = (os.getenv("HTTPS_PROXY") or os.getenv("https_proxy") or "").strip()
     proxy_no = (os.getenv("NO_PROXY") or os.getenv("no_proxy") or "").strip()
-
-    # MiniMax base_url should be a domain root; the client will append `/v1/music_generation`.
-    try:
-        minimax_path = urlsplit(minimax_base_url).path or ""
-    except Exception:
-        minimax_path = ""
-    minimax_path_parts = [p for p in minimax_path.split("/") if p]
-    if any(p.lower() == "v1" for p in minimax_path_parts):
-        raise RuntimeError(
-            f"Invalid MINIMAX_BASE_URL={minimax_base_url!r}: base_url must not include '/v1'. "
-            "Use 'https://api.minimaxi.com' (CN) or 'https://api.minimax.io' (INTL)."
-        )
 
     # ACE-Step base_url should point to the API origin, not the marketing website.
     # The API is OpenAI-compatible and lives under https://api.acemusic.ai/v1/...
@@ -242,24 +204,16 @@ def load_settings() -> Settings:
     concurrency_config = _merge_concurrency(concurrency_raw if isinstance(concurrency_raw, dict) else None)
 
     # Resolve multi-key lists from the raw config values.
-    minimax_api_keys = _parse_keys(minimax_api_keys_raw)
     acestep_api_keys = _parse_keys(acestep_api_keys_raw)
     # Ensure the single-key fallback has something if the list is populated but
     # the single didn't get parsed (e.g. env var was empty, config had an array).
-    if not minimax_api_key and minimax_api_keys:
-        minimax_api_key = minimax_api_keys[0]
     if not acestep_api_key and acestep_api_keys:
         acestep_api_key = acestep_api_keys[0]
 
     return Settings(
-        default_provider=default_provider,
-        minimax_api_key=minimax_api_key,
-        minimax_api_keys=minimax_api_keys,
-        minimax_base_url=minimax_base_url,
         acestep_api_key=acestep_api_key,
         acestep_api_keys=acestep_api_keys,
         acestep_base_url=acestep_base_url,
-        enabled_providers=enabled_providers,
         provider_ui_defaults=provider_ui_defaults,
         jwt_secret=jwt_secret,
         admin_username=admin_username,

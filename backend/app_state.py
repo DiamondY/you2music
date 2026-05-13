@@ -83,7 +83,7 @@ class AppState:
         key_pools: dict[str, KeyPool] = {}
 
         cc = settings.concurrency_config
-        for provider in ("minimax", "acestep"):
+        for provider in ("acestep",):
             pcfg = cc.get(provider, {}) if isinstance(cc.get(provider), dict) else {}
             max_concurrent = int(pcfg.get("max_concurrent", 2))
             rate_limit = float(pcfg.get("rate_limit_per_sec", 1.0))
@@ -98,16 +98,15 @@ class AppState:
                 follow_redirects=True,
             )
             # Create KeyPool for this provider (handles single or multiple keys).
-            provider_keys = settings.minimax_api_keys if provider == "minimax" else settings.acestep_api_keys
+            provider_keys = settings.acestep_api_keys
             if provider_keys:
                 key_pools[provider] = KeyPool(
                     keys=provider_keys,
                     cooldown_sec=float(pcfg.get("cooldown_sec", 60.0)),
                     max_failures=int(pcfg.get("max_failures", 3)),
                 )
-            if provider == "acestep":
-                provider_execution_locks[provider] = asyncio.Lock()
-                provider_last_finished_at[provider] = 0.0
+            provider_execution_locks[provider] = asyncio.Lock()
+            provider_last_finished_at[provider] = 0.0
 
         st = cls(
             settings=settings,
@@ -203,13 +202,9 @@ class AppState:
             # This allows updating keys without a full process restart.
             new_key_pools: dict[str, KeyPool] = {}
             cc = new_settings.concurrency_config
-            for provider in ("minimax", "acestep"):
+            for provider in ("acestep",):
                 pcfg = cc.get(provider, {}) if isinstance(cc.get(provider), dict) else {}
-                provider_keys = (
-                    new_settings.minimax_api_keys
-                    if provider == "minimax"
-                    else new_settings.acestep_api_keys
-                )
+                provider_keys = new_settings.acestep_api_keys
                 if provider_keys:
                     new_key_pools[provider] = KeyPool(
                         keys=provider_keys,

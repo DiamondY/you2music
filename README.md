@@ -1,6 +1,6 @@
 # you2music
 
-**小范围内部工具，通过 MiniMax / ACE-Step API 生成音乐，支持歌词/人声切换、延长、多 key 轮询、API 日志审计。**
+**小范围内部工具，通过 ACE-Step (acemusic.ai) API 生成音乐，支持歌词/人声切换、延长、多 key 轮询、API 日志审计。**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
@@ -9,7 +9,7 @@
 ## 这是什么（不是什么）
 
 - ✅ Prompt → 音乐生成 → 试听/下载的端到端流程
-- ✅ 支持 MiniMax / ACE-Step 两种 provider
+- ✅ 仅支持 ACE-Step provider
 - ✅ 人声开关 + 歌词输入
 - ✅ 多候选生成（2–4 种变体）
 - ✅ 延长（重新生成更长版本）
@@ -30,7 +30,7 @@
 ## 系统要求
 
 - Python 3.10+（支持 3.14）
-- MiniMax 和/或 ACE-Step 的 API Key
+- ACE-Step 的 API Key
 - Windows / Linux / macOS
 
 ---
@@ -73,7 +73,7 @@ python backend/stdlib_server.py
 
 | 功能 | 说明 |
 |------|------|
-| **多 Provider** | MiniMax + ACE-Step，可同时启用 |
+| **Provider** | ACE-Step（acemusic.ai） |
 | **多 Key 轮询** | 多个 API Key 自动轮询，429/401/连续失败自动切换 |
 | **人声/歌词** | 可开关人声，歌词随 prompt 传入 |
 | **延长** | 使用相同 prompt + 更大时长重新生成更长曲目 |
@@ -96,7 +96,7 @@ you2music/
 │   ├── concurrency.py       # Provider 队列、限流、重试
 │   ├── workers.py           # Job 执行 + API 调用日志埋点
 │   ├── key_pool.py          # 多 Key 轮询 + 健康追踪
-│   ├── providers/           # MiniMax / ACE-Step 客户端
+│   ├── providers/           # ACE-Step 客户端
 │   ├── static/              # 前端 HTML
 │   └── tests/               # pytest 单元测试
 ├── config/

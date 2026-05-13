@@ -686,16 +686,38 @@ class ACEStepClient:
             if "Cloudflare" in body and "1010" in body:
                 raise RuntimeError(
                     "Cloudflare 1010 error: blocked by bot detection. "
-                    "Check your API key or proxy settings."
+                    "Check your API key or proxy settings. (HTTP 403)"
                 )
         if resp.status_code == 504:
-            raise TimeoutError(
-                f"Gateway timeout (504) from ACE-Step API: {resp.text}"
-            )
+            # Use RuntimeError + "HTTP 504" so run_with_retry() can retry this.
+            raise RuntimeError(f"ACE-Step API HTTP 504: {resp.text}")
 
         try:
             resp.raise_for_status()
         except httpx.HTTPStatusError as e:
-            raise RuntimeError(
-                f"ACE-Step API error {e.response.status_code}: {e.response.text}"
-            ) from e
+            # NOTE: We intentionally include "HTTP {status}" so:
+            # - run_with_retry() can detect transient HTTP statuses
+            # - workers._extract_http_status() can report status to key_pool/logs
+            status = int(e.response.status_code)
+            text = e.response.text
+            hint = ""
+            try:
+                data = json.loads(text) if text else None
+                if isinstance(data, dict):
+                    err = data.get("error")
+                    if isinstance(err, dict):
+                        msg = str(err.get("message") or "").strip()
+                        typ = str(err.get("type") or "").strip()
+                        if msg and typ:
+                            text = json.dumps({"error": {"message": msg, "type": typ}}, ensure_ascii=False)
+                        if status >= 500:
+                            hint = (
+                                " (Upstream server_error from acemusic.ai; usually transient. "
+                                "Try again later.)"
+                            )
+            except Exception:
+                pass
+            # Trim very large error bodies to keep job error messages readable.
+            if text and len(text) > 2000:
+                text = text[:2000] + "…"
+            raise RuntimeError(f"ACE-Step API HTTP {status}: {text}{hint}") from e

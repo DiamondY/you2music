@@ -65,7 +65,7 @@ FastAPI 模式的 job 执行入口：
 
 - 从 provider 队列取 job
 - 做 cooldown / rate limit / queue timeout
-- 调用 provider client（MiniMax / ACE-Step）
+- 调用 provider client（ACE-Step）
 - 写音频到 `data/audio/`，并更新 job 状态
 
 ### `backend/key_pool.py`
@@ -80,7 +80,6 @@ Key 池管理（FastAPI 模式）：
 
 provider 客户端实现：
 
-- `backend/providers/minimax.py` / `backend/providers/minimax_stdlib.py`
 - `backend/providers/acestep.py` / `backend/providers/acestep_stdlib.py`
 - `backend/providers/registry.py`：把 provider 元信息（UI 字段、默认值、能力）聚合成 `/api/providers` 输出
 

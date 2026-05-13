@@ -12,7 +12,6 @@ from typing import Any
 
 from config import load_settings
 from providers.registry import providers_payload
-from providers.minimax_stdlib import MiniMaxMusicClientStdlib
 from providers.acestep_stdlib import ACEStepClientStdlib
 from storage import JobStore
 from admin_config import load_local_config, redacted_config, save_local_config
@@ -106,16 +105,10 @@ def _validate_generate(payload: dict[str, Any]) -> tuple[str, dict[str, Any]]:
         "lyrics": lyrics,
     }
 
-    state = globals().get("STATE", None)
-    default_provider = getattr(getattr(state, "settings", None), "default_provider", None)
-    effective_provider = str(provider or default_provider or "minimax").strip()
-    # Validate provider early to keep stdlib mode behavior predictable.
-    allowed = getattr(getattr(state, "settings", None), "enabled_providers", None)
-    if not allowed:
-        allowed = ["minimax", "acestep"]
-    if effective_provider not in set(str(x).strip() for x in allowed if str(x).strip()):
+    effective_provider = str(provider or "acestep").strip() or "acestep"
+    if effective_provider != "acestep":
         raise ValueError(f"unknown provider: {effective_provider}")
-    params["provider"] = effective_provider
+    params["provider"] = "acestep"
 
     if not prompt:
         raise ValueError("prompt is required")
@@ -211,7 +204,9 @@ class AppState:
             self.store.set_status(job_id, status="running")
             self.audio_dir.mkdir(parents=True, exist_ok=True)
 
-            provider_name = str(params.get("provider") or self.settings.default_provider or "minimax").strip()
+            provider_name = str(params.get("provider") or "acestep").strip() or "acestep"
+            if provider_name != "acestep":
+                raise RuntimeError(f"unsupported provider: {provider_name}")
             vocals = bool(params["vocals"])
             provider_params = params.get("provider_params") or {}
 
@@ -219,55 +214,7 @@ class AppState:
             out_ext = "mp3"
             song_id: str | None = None
 
-            if provider_name == "minimax":
-                # MiniMax official API (music-2.6)
-                client = MiniMaxMusicClientStdlib(
-                    api_key=self.settings.minimax_api_key,
-                    base_url=self.settings.minimax_base_url,
-                    timeout_s=self.settings.request_timeout_s,
-                )
-                model = str(provider_params.get("model") or "music-2.6")
-                lyrics_raw = params.get("lyrics") or provider_params.get("lyrics")
-                lyrics_text = str(lyrics_raw).strip() if lyrics_raw is not None else ""
-                sample_rate = int(provider_params.get("sample_rate") or 44100)
-                bitrate = int(provider_params.get("bitrate") or 256000)
-                audio_format = str(provider_params.get("format") or "mp3")
-
-                lyrics_optimizer_val = provider_params.get("lyrics_optimizer")
-                lyrics_optimizer = (
-                    bool(lyrics_optimizer_val)
-                    if isinstance(lyrics_optimizer_val, bool)
-                    else (True if vocals and not lyrics_text else False)
-                )
-                is_instrumental = not vocals
-                lyrics_to_send: str | None
-                if is_instrumental:
-                    lyrics_to_send = None
-                    lyrics_optimizer = False
-                elif lyrics_text:
-                    lyrics_to_send = lyrics_text
-                else:
-                    lyrics_to_send = ""
-                    lyrics_optimizer = True
-
-                result = client.generate(
-                    prompt=prompt,
-                    lyrics=lyrics_to_send,
-                    model=model,
-                    sample_rate=sample_rate,
-                    bitrate=bitrate,
-                    format=audio_format,
-                    lyrics_optimizer=lyrics_optimizer,
-                    is_instrumental=is_instrumental,
-                )
-                if result.audio_bytes is not None:
-                    out_bytes = result.audio_bytes
-                else:
-                    if not result.audio_url:
-                        raise RuntimeError("MiniMax response missing audio_url")
-                    out_bytes = client.download_audio(result.audio_url)
-                out_ext = audio_format
-            elif provider_name == "acestep":
+            if provider_name == "acestep":
                 # ACE-Step 1.5 via acemusic.ai (OpenAI-compatible API)
                 # User-configurable timeout with minimum floor
                 _min_timeout = 120
@@ -654,12 +601,12 @@ class Handler(BaseHTTPRequestHandler):
                 _error(self, 400, "invalid JSON")
                 return
 
-            provider_name = STATE.settings.default_provider
+            provider_name = "acestep"
             if isinstance(payload, dict) and payload.get("provider") and str(payload.get("provider")).strip():
-                provider_name = str(payload.get("provider")).strip()
-            if provider_name not in ("minimax", "acestep"):
-                _error(self, 400, f"unknown provider: {provider_name}")
-                return
+                requested = str(payload.get("provider")).strip()
+                if requested != "acestep":
+                    _error(self, 400, f"unknown provider: {requested}")
+                    return
 
             provider_params = params.get("provider_params") or {}
             output_format = str(provider_params.get("output_format") or STATE.settings.output_format)
@@ -700,12 +647,12 @@ class Handler(BaseHTTPRequestHandler):
                 _error(self, 400, "invalid JSON")
                 return
 
-            provider_name = STATE.settings.default_provider
+            provider_name = "acestep"
             if isinstance(payload, dict) and payload.get("provider") and str(payload.get("provider")).strip():
-                provider_name = str(payload.get("provider")).strip()
-            if provider_name not in ("minimax", "acestep"):
-                _error(self, 400, f"unknown provider: {provider_name}")
-                return
+                requested = str(payload.get("provider")).strip()
+                if requested != "acestep":
+                    _error(self, 400, f"unknown provider: {requested}")
+                    return
 
             provider_params = params.get("provider_params") or {}
             output_format = str(provider_params.get("output_format") or STATE.settings.output_format)
@@ -759,7 +706,10 @@ class Handler(BaseHTTPRequestHandler):
                 _error(self, 400, "total duration exceeds 600 seconds")
                 return
 
-            provider_name = parent.provider
+            provider_name = str(parent.provider or "acestep")
+            if provider_name != "acestep":
+                _error(self, 400, f"unknown provider: {provider_name}")
+                return
             new_params = dict(parent_params)
             new_params["duration_sec"] = new_duration
 
@@ -772,8 +722,9 @@ class Handler(BaseHTTPRequestHandler):
                     or new_params.get("output_format")
                     or STATE.settings.output_format
                 )
-            if str(new_params.get("provider") or provider_name) not in ("minimax", "acestep"):
-                _error(self, 400, f"unknown provider: {new_params.get('provider')}")
+            requested_provider = str(new_params.get("provider") or provider_name).strip() or provider_name
+            if requested_provider != "acestep":
+                _error(self, 400, f"unknown provider: {requested_provider}")
                 return
 
             job_id = STATE.store.create_job(
@@ -979,16 +930,7 @@ def _run_admin_tests() -> list[dict[str, Any]]:
             continue
         attempts: list[dict[str, Any]] = []
         try:
-            if pid == "minimax":
-                attempts.append(
-                    attempt_get(
-                        name="health",
-                        url=f"{STATE.settings.minimax_base_url}/v1/music_generation",
-                        headers={"Authorization": f"Bearer {STATE.settings.minimax_api_key}"},
-                        ok_if_status=lambda s: s in (401, 403, 405, 400),
-                    )
-                )
-            elif pid == "acestep":
+            if pid == "acestep":
                 attempts.append(
                     attempt_get(
                         name="health",

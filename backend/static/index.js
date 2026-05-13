@@ -505,7 +505,16 @@
       function getSelectedProviderId() { return (providerEl.value || "").trim(); }
       function getProviderMeta(id) { if (!providersMeta || !providersMeta.providers) return null; return providersMeta.providers.find(p => p.id === id) || null; }
       function toBool(v) { if (v === true || v === false) return v; if (typeof v === "string") return v === "true" || v === "1" || v === "on"; return Boolean(v); }
-      function shouldShowField(field, values) { const cond = field.visible_if; if (!cond) return true; for (const k of Object.keys(cond)) { if (values[k] !== cond[k]) return false; } return true; }
+      function shouldShowField(field, values) {
+        const cond = field.visible_if; if (!cond) return true;
+        for (const k of Object.keys(cond)) {
+          const expected = cond[k];
+          const actual = values[k];
+          if (Array.isArray(expected)) { if (!expected.includes(actual)) return false; }
+          else { if (actual !== expected) return false; }
+        }
+        return true;
+      }
       function _readAudioAsB64(file) { return new Promise((resolve, reject) => { if (!file) return resolve(null); if (file.size > 20 * 1024 * 1024) { reject(new Error("音频文件不能超过 20MB")); return; } const reader = new FileReader(); reader.onload = () => { const dataUrl = reader.result; const commaIdx = dataUrl.indexOf(","); if (commaIdx < 0) { reject(new Error("无法读取音频文件")); return; } const b64 = dataUrl.substring(commaIdx + 1); resolve(b64); }; reader.onerror = () => reject(new Error("读取音频文件失败")); reader.readAsDataURL(file); }); }
       async function _uploadAudioFile(file) { if (!file) return null; if (!authToken) throw new Error("请先登录再上传音频文件"); if (file.size > 20 * 1024 * 1024) throw new Error("音频文件不能超过 20MB"); const fd = new FormData(); fd.append("file", file); const res = await fetch("/api/uploads/audio", { method: "POST", headers: { Authorization: "Bearer " + authToken }, body: fd }); const text = await res.text().catch(() => ""); let data = {}; try { data = text ? JSON.parse(text) : {}; } catch { data = { raw: text }; } if (!res.ok) { throw new Error(formatApiError(data, text || "HTTP " + res.status)); } return data; }
       function _audioFormatFromFile(file) { if (!file) return "mp3"; const name = file.name.toLowerCase(); if (name.endsWith(".wav")) return "wav"; if (name.endsWith(".flac")) return "flac"; return "mp3"; }
@@ -552,8 +561,7 @@
         if (!show) { if (lyricsHintEl) { lyricsHintEl.style.display = "none"; lyricsHintEl.textContent = ""; } if (hintMobile) { hintMobile.style.display = "none"; hintMobile.textContent = ""; } return; }
         const providerId = getSelectedProviderId();
         let hintText = "";
-        if (providerId === "minimax") { hintText = "MiniMax：不填歌词时会自动根据描述生成歌词；手动填入歌词则直接使用你写的歌词。"; }
-        else if (providerId === "acestep") { hintText = "ACE-Step：支持 50+ 语言歌词，可用 [Verse] [Chorus] [Bridge] 等标签组织段落结构。"; }
+        if (providerId === "acestep") { hintText = "ACE-Step：支持 50+ 语言歌词，可用 [Verse] [Chorus] [Bridge] 等标签组织段落结构。"; }
         if (lyricsHintEl) { lyricsHintEl.style.display = hintText ? "block" : "none"; lyricsHintEl.textContent = hintText; }
         if (hintMobile) { hintMobile.style.display = hintText ? "block" : "none"; hintMobile.textContent = hintText; }
       }

@@ -7,7 +7,7 @@ Thank you for your interest in contributing!
 ### Prerequisites
 
 - Python 3.10+
-- [MiniMax](https://www.minimaxi.com/) or [ACE-Step](https://acemusic.ai/) API key
+- [ACE-Step](https://acemusic.ai/) API key
 
 ### 1. Clone & Install
 
@@ -54,7 +54,7 @@ backend/
   concurrency.py   # Provider queues, rate limiters, retry logic
   workers.py       # Job execution with API logging
   key_pool.py      # Multi-key management with health tracking
-  providers/       # MiniMax and ACE-Step API clients
+  providers/       # ACE-Step API clients
   static/          # Frontend HTML
   tests/           # Unit tests
 ```

@@ -15,7 +15,6 @@ from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator
 
 from concurrency import run_with_retry
-from providers.minimax import MiniMaxMusicClient
 from providers.acestep import ACEStepClient
 from state import STATE
 
@@ -121,7 +120,17 @@ async def _job_worker_handler(job_id: str) -> None:
     except Exception:
         params = {}
 
-    provider_name = str(params.get("provider") or "minimax")
+    provider_name = str(params.get("provider") or "acestep")
+    if provider_name != "acestep":
+        STATE.store.set_status(job_id, status="failed", error=f"unsupported provider: {provider_name}")
+        await _publish_job_status(
+            user_id=getattr(rec, "user_id", None),
+            job_id=job_id,
+            status="failed",
+            provider=provider_name,
+            error=f"unsupported provider: {provider_name}",
+        )
+        return
 
     execution_lock = STATE.provider_execution_locks.get(provider_name)
     if execution_lock is None:
@@ -136,7 +145,17 @@ async def _job_worker_handler(job_id: str) -> None:
 
 
 async def _execute_queued_job(*, job_id: str, rec: Any, params: dict[str, Any]) -> None:
-    provider_name = str(params.get("provider") or "minimax")
+    provider_name = str(params.get("provider") or "acestep")
+    if provider_name != "acestep":
+        STATE.store.set_status(job_id, status="failed", error=f"unsupported provider: {provider_name}")
+        await _publish_job_status(
+            user_id=getattr(rec, "user_id", None),
+            job_id=job_id,
+            status="failed",
+            provider=provider_name,
+            error=f"unsupported provider: {provider_name}",
+        )
+        return
 
     await _wait_provider_cooldown(provider_name)
 
@@ -238,8 +257,10 @@ async def _wait_provider_cooldown(provider_name: str) -> None:
 
 async def _run_job(*, job_id: str, prompt: str, params: dict[str, Any]) -> None:
     """Execute a single music generation job. Called by _job_worker_handler via run_with_retry."""
-    provider_name = str(params.get("provider") or "minimax")
-    key_pool = STATE.key_pools.get(provider_name)
+    provider_name = str(params.get("provider") or "acestep")
+    if provider_name != "acestep":
+        raise RuntimeError(f"unsupported provider: {provider_name}")
+    key_pool = STATE.key_pools.get("acestep")
     api_key: str | None = None
     job_rec = STATE.store.get(job_id)
     owner_user_id = int(job_rec.user_id) if job_rec and job_rec.user_id is not None else None
@@ -254,98 +275,24 @@ async def _run_job(*, job_id: str, prompt: str, params: dict[str, Any]) -> None:
             api_key = await key_pool.acquire()
             key_hint = key_pool.last_hint
         else:
-            api_key = STATE.settings.minimax_api_key if provider_name == "minimax" else STATE.settings.acestep_api_key
+            api_key = STATE.settings.acestep_api_key
             key_hint = None
 
         out_bytes: bytes
         out_ext = "mp3"
         song_id: str | None = None
 
-        if provider_name == "minimax":
-            endpoint = "/v1/music_generation"
-            shared_client = STATE.http_clients.get("minimax")
-            client = MiniMaxMusicClient(
-                api_key=api_key,
-                base_url=STATE.settings.minimax_base_url,
-                timeout_s=STATE.settings.request_timeout_s,
-                http_client=shared_client,
-            )
-            model = str(provider_params.get("model") or "music-2.6")
-            lyrics_raw = params.get("lyrics") or provider_params.get("lyrics")
-            lyrics_text = str(lyrics_raw).strip() if lyrics_raw is not None else ""
-            audio_format = str(provider_params.get("format") or "mp3")
-            sample_rate = int(provider_params.get("sample_rate") or 44100)
-            bitrate = int(provider_params.get("bitrate") or 256000)
-
-            lyrics_optimizer_val = provider_params.get("lyrics_optimizer")
-            lyrics_optimizer = (
-                bool(lyrics_optimizer_val)
-                if isinstance(lyrics_optimizer_val, bool)
-                else (True if vocals and not lyrics_text else False)
-            )
-            is_instrumental = not vocals
-            if is_instrumental:
-                lyrics_to_send: str | None = None
-                lyrics_optimizer = False
-            elif lyrics_text:
-                lyrics_to_send = lyrics_text
-            else:
-                lyrics_to_send = ""
-                lyrics_optimizer = True
-
-            req_body = json.dumps({
-                "model": model,
-                "prompt": prompt,
-                "audio_setting": {
-                    "sample_rate": sample_rate,
-                    "bitrate": bitrate,
-                    "format": audio_format,
-                },
-            }, ensure_ascii=False)
-            async with _log_api_call(
-                job_id=job_id,
-                provider=provider_name,
-                endpoint=endpoint,
-                request_body=req_body,
-                api_key_hint=key_hint,
-            ) as log_info:
-                try:
-                    result = await client.generate(
-                        prompt=prompt,
-                        lyrics=lyrics_to_send,
-                        model=model,
-                        sample_rate=sample_rate,
-                        bitrate=bitrate,
-                        format=audio_format,
-                        lyrics_optimizer=lyrics_optimizer,
-                        is_instrumental=is_instrumental,
-                    )
-                    log_info["http_status"] = 200
-                    log_info["response_body"] = json.dumps({
-                        "audio_url": result.audio_url,
-                        "task_id": result.task_id,
-                    }, ensure_ascii=False) if result else None
-                    if result.audio_bytes is not None:
-                        out_bytes = result.audio_bytes
-                    else:
-                        if not result.audio_url:
-                            raise RuntimeError("MiniMax response missing audio_url")
-                        out_bytes = await client.download_audio(result.audio_url)
-                    out_ext = audio_format
-                except Exception as e:
-                    log_info["http_status"] = _extract_http_status(str(e))
-                    log_info["error"] = str(e)
-                    raise
-
-        elif provider_name == "acestep":
-            endpoint = "/v1/chat/completions"
-            shared_client = STATE.http_clients.get("acestep")
-            client = ACEStepClient(
-                api_key=api_key,
-                base_url=STATE.settings.acestep_base_url,
-                timeout_s=STATE.settings.request_timeout_s,
-                http_client=shared_client,
-            )
+        endpoint = "/v1/chat/completions"
+        shared_client = STATE.http_clients.get("acestep")
+        client = ACEStepClient(
+            api_key=api_key,
+            base_url=STATE.settings.acestep_base_url,
+            timeout_s=STATE.settings.request_timeout_s,
+            http_client=shared_client,
+        )
+        # ACE-Step execution block (kept as a nested block to avoid large-scale
+        # indentation churn after removing the old multi-provider branches).
+        if True:
             model = str(provider_params.get("model") or "acemusic/acestep-v1.5-turbo")
             lyrics = params.get("lyrics") or provider_params.get("lyrics")
             audio_duration = provider_params.get("audio_duration")
@@ -554,8 +501,6 @@ async def _run_job(*, job_id: str, prompt: str, params: dict[str, Any]) -> None:
                     log_info["http_status"] = _extract_http_status(str(e))
                     log_info["error"] = str(e)
                     raise
-        else:
-            raise RuntimeError(f"unknown provider: {provider_name}")
 
         out_path = STATE.audio_dir / f"{job_id}.{out_ext}"
         out_path.write_bytes(out_bytes)
@@ -565,7 +510,7 @@ async def _run_job(*, job_id: str, prompt: str, params: dict[str, Any]) -> None:
             user_id=(rec.user_id if rec else None),
             job_id=job_id,
             status="succeeded",
-            provider=str(params.get("provider") or "minimax"),
+            provider="acestep",
         )
         # Report success to key pool so health tracking resets.
         if key_pool and api_key:

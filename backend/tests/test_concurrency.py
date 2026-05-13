@@ -26,17 +26,14 @@ class TestMergeConcurrency:
     def test_defaults_unchanged_with_none(self) -> None:
         """Passing None returns a copy of defaults."""
         merged = _merge_concurrency(None)
-        assert merged["minimax"]["max_concurrent"] == 3
-        assert merged["minimax"]["rate_limit_per_sec"] == 2.0
         assert merged["acestep"]["max_concurrent"] == 1  # forced to 1
         assert merged["retry"]["max_retries"] == 3
 
     def test_partial_override(self) -> None:
         """Partial user config merges with defaults."""
-        user_cfg = {"minimax": {"max_concurrent": 5}, "queue_timeout_sec": 600}
+        user_cfg = {"acestep": {"cooldown_sec": 5}, "queue_timeout_sec": 600}
         merged = _merge_concurrency(user_cfg)
-        assert merged["minimax"]["max_concurrent"] == 5
-        assert merged["minimax"]["rate_limit_per_sec"] == 2.0  # unchanged
+        assert merged["acestep"]["cooldown_sec"] == 5
         assert merged["acestep"]["max_concurrent"] == 1  # forced even if user sets
         assert merged["queue_timeout_sec"] == 600
 
