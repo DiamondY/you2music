@@ -342,6 +342,25 @@ class ApiLogStore:
         self._db_path = db_path
         self._lock = threading.Lock()
 
+    @staticmethod
+    def _extract_http_status_from_error(msg: str) -> int | None:
+        """Best-effort parse an HTTP status code from an error string.
+
+        Historically we logged some provider errors as:
+        - "ACE-Step API error 500: {...}"
+        and newer ones as:
+        - "ACE-Step API HTTP 500: {...}"
+        """
+        import re
+
+        text = str(msg or "")
+        if not text.strip():
+            return None
+        m = re.search(r"\bHTTP\s+(\d{3})\b", text)
+        if not m:
+            m = re.search(r"\berror\s+(\d{3})\b", text, flags=re.IGNORECASE)
+        return int(m.group(1)) if m else None
+
     def init(self) -> None:
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as conn:
@@ -376,6 +395,37 @@ class ApiLogStore:
                 "ON api_logs(provider, created_at_ms DESC)"
             )
             conn.commit()
+
+    def _backfill_null_http_status(self) -> None:
+        """Backfill missing http_status for older rows.
+
+        Some historical rows were written with http_status=NULL because the
+        error message did not include the "HTTP {status}" marker at the time.
+        Admin UI filters (e.g. 5xx) rely on http_status being present.
+        """
+        with self._lock:
+            with self._connect() as conn:
+                rows = conn.execute(
+                    """
+                    SELECT id, error
+                    FROM api_logs
+                    WHERE http_status IS NULL
+                      AND error IS NOT NULL
+                      AND error != ''
+                    ORDER BY created_at_ms DESC, id DESC
+                    LIMIT 1000
+                    """
+                ).fetchall()
+                updates: list[tuple[int, int]] = []
+                for row in rows:
+                    rid = int(row[0])
+                    err = str(row[1] or "")
+                    status = self._extract_http_status_from_error(err)
+                    if status is not None:
+                        updates.append((int(status), rid))
+                if updates:
+                    conn.executemany("UPDATE api_logs SET http_status = ? WHERE id = ?", updates)
+                    conn.commit()
 
     def log(
         self,
@@ -419,6 +469,9 @@ class ApiLogStore:
         http_status_min: int | None = None,
         http_status_max: int | None = None,
     ) -> list[dict[str, Any]]:
+        # Ensure admin UI sees correct statuses even for older rows.
+        self._backfill_null_http_status()
+
         off = max(0, int(offset))
         lim = min(200, max(1, int(limit)))
 
@@ -468,6 +521,9 @@ class ApiLogStore:
         http_status_min: int | None = None,
         http_status_max: int | None = None,
     ) -> int:
+        # Keep count consistent with list_page() once we backfill missing statuses.
+        self._backfill_null_http_status()
+
         conditions: list[str] = []
         params: list[object] = []
         if provider:

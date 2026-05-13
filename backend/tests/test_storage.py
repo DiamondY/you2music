@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from storage import JobStore
+from storage import ApiLogStore, JobStore
 
 
 class TestJobStore:
@@ -178,3 +178,26 @@ class TestJobStore:
         # Negative offset → 0
         result = job_store.list_page(offset=-5, limit=200)
         assert len(result) == 3
+
+
+class TestApiLogStore:
+    def test_backfill_http_status_from_legacy_error(self, tmp_db_path) -> None:
+        """Legacy rows with http_status=NULL get backfilled from error text."""
+        store = ApiLogStore(tmp_db_path)
+        store.init()
+        store.log(
+            job_id="job1",
+            provider="acestep",
+            method="POST",
+            endpoint="/v1/chat/completions",
+            request_body="{}",
+            response_body=None,
+            http_status=None,
+            elapsed_ms=123,
+            api_key_hint=None,
+            error='ACE-Step API error 500: {"error":{"message":"Internal server error","type":"server_error"}}',
+        )
+        # Filter 5xx should include it after backfill.
+        logs = store.list_page(http_status_min=500, http_status_max=599, limit=20)
+        assert len(logs) == 1
+        assert logs[0]["http_status"] == 500

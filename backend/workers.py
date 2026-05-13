@@ -54,6 +54,15 @@ async def _log_api_call(
     try:
         yield info
     finally:
+        # If the caller didn't fill http_status but the error string embeds it,
+        # backfill it so admin UI can filter/show status correctly.
+        if info.get("http_status") is None and info.get("error"):
+            try:
+                parsed = _extract_http_status(str(info.get("error") or ""))
+            except Exception:
+                parsed = None
+            if parsed is not None:
+                info["http_status"] = parsed
         elapsed_ms = int((time.monotonic() - t0) * 1000)
         STATE.log_store.log(
             job_id=info["job_id"],
@@ -77,7 +86,14 @@ def _extract_http_status(error_message: str) -> int | None:
     """
     import re
 
-    m = re.search(r"HTTP\s+(\d{3})", error_message)
+    # Common patterns we emit across providers:
+    # - "HTTP 500"
+    # - "API HTTP 500"
+    # Legacy / earlier builds:
+    # - "API error 500: {...}"
+    m = re.search(r"\bHTTP\s+(\d{3})\b", error_message)
+    if not m:
+        m = re.search(r"\berror\s+(\d{3})\b", error_message, flags=re.IGNORECASE)
     return int(m.group(1)) if m else None
 
 
@@ -416,8 +432,8 @@ async def _run_job(*, job_id: str, prompt: str, params: dict[str, Any]) -> None:
                 endpoint=endpoint,
                 request_body=req_body,
                 api_key_hint=key_hint,
-            ) as log_info:
-                try:
+                ) as log_info:
+                    try:
                     _stream_task_id = "acestep-stream"
                     _stream_bytes: bytes | None = None
                     _stream_ex: Exception | None = None
@@ -495,12 +511,17 @@ async def _run_job(*, job_id: str, prompt: str, params: dict[str, Any]) -> None:
                     log_info["response_body"] = json.dumps({
                         "task_id": _stream_task_id,
                     }, ensure_ascii=False)
-                    out_bytes = _stream_bytes
-                    out_ext = audio_format
-                except Exception as e:
-                    log_info["http_status"] = _extract_http_status(str(e))
-                    log_info["error"] = str(e)
-                    raise
+                        out_bytes = _stream_bytes
+                        out_ext = audio_format
+                    except asyncio.CancelledError:
+                        # Ensure api_logs row has an error marker even when cancelled.
+                        log_info["http_status"] = log_info.get("http_status") or 499
+                        log_info["error"] = "cancelled"
+                        raise
+                    except Exception as e:
+                        log_info["http_status"] = _extract_http_status(str(e))
+                        log_info["error"] = str(e)
+                        raise
 
         out_path = STATE.audio_dir / f"{job_id}.{out_ext}"
         out_path.write_bytes(out_bytes)
