@@ -884,14 +884,50 @@
         const seed = (typeof params.seed === "number") ? params.seed : null;
         const lines = ["将用该生成记录的参数覆盖当前表单设置：", "- provider: " + (providerId || "(unknown)"), "- duration_sec: " + durationSec, "- vocals: " + (vocals ? "on" : "off"), "- seed: " + (seed === null ? "(null)" : seed), "- prompt: " + (_shortText(basePrompt, 80) || "(empty)"), "- lyrics: " + (lyrics ? "有" : "无"), "", "继续恢复？"];
         const ok = window.confirm(lines.join("\n")); if (!ok) return;
-        renderProviderFields();
+        // If the record was generated in an audio-edit task_type, switch UI to remix mode
+        // so restored provider_params (task_type + upload ids etc) remain visible.
+        const restoredTaskType = String((providerParams && providerParams.task_type) || "").trim();
+        const isEdit = ["cover", "repaint", "lego", "extract", "complete"].includes(restoredTaskType);
+        if (isEdit) {
+          if (creationMode !== "remix") setCreationMode("remix");
+          const map = { cover: "style-transfer", repaint: "section-edit", lego: "section-edit", extract: "audio-process", complete: "audio-process" };
+          const sub = map[restoredTaskType] || "style-transfer";
+          if (creationSubMode !== sub) setCreationSubMode(sub);
+        } else {
+          if (creationMode !== "original") setCreationMode("original");
+          // Preserve current original simple/advanced subtab, but ensure provider fields render.
+          if (creationSubMode !== "simple" && creationSubMode !== "advanced") setCreationSubMode("simple");
+        }
+        renderProviderFields({ reset: true });
         if (durationSlider) { const clamped = Math.max(3, Math.min(600, durationSec)); durationSlider.value = String(clamped); durationValue.textContent = String(clamped) + " 秒"; }
+        if (durationMobileSlider && durationMobileValue) { const clamped = Math.max(3, Math.min(600, durationSec)); durationMobileSlider.value = String(clamped); durationMobileValue.textContent = String(clamped) + " 秒"; }
         const vocalsEl = document.getElementById("vocals"); if (vocalsEl && !vocalsEl.disabled) vocalsEl.value = vocals ? "on" : "off";
+        if (vocalsMobileEl && !vocalsMobileEl.disabled) vocalsMobileEl.value = vocals ? "on" : "off";
         const seedEl = document.getElementById("seed"); if (seedEl) seedEl.value = (seed === null || seed === undefined) ? "" : String(seed);
-        if (promptEl) promptEl.value = basePrompt || ""; if (lyricsEl) lyricsEl.value = lyrics || ""; updateLyricsUi();
+        if (seedMobileEl) seedMobileEl.value = (seed === null || seed === undefined) ? "" : String(seed);
+        if (promptEl) promptEl.value = basePrompt || "";
+        if (promptMobileEl) promptMobileEl.value = basePrompt || "";
+        if (lyricsEl) lyricsEl.value = lyrics || "";
+        if (lyricsMobileEl) lyricsMobileEl.value = lyrics || "";
+        updateLyricsUi();
         const meta = getProviderMeta(getSelectedProviderId()); const normalizedProviderParams = { ...(providerParams || {}) };
         if (normalizedProviderParams.output_format == null && params.output_format != null) { normalizedProviderParams.output_format = params.output_format; }
-        if (meta && Array.isArray(meta.fields) && meta.fields.length > 0) { for (const field of meta.fields) { const el = providerFieldsEl.querySelector("[data-key=\"" + field.key + "\"]"); if (!el) continue; const v = normalizedProviderParams[field.key]; if (el.tagName === "INPUT" && el.type === "checkbox") { el.checked = Boolean(v); continue; } if (field.kind === "json") { if (v === null || v === undefined || v === "") { el.value = ""; } else if (typeof v === "string") { el.value = v; } else { try { el.value = JSON.stringify(v, null, 2); } catch { el.value = String(v); } } continue; } el.value = (v === null || v === undefined) ? "" : String(v); } renderProviderFields(); }
+        if (meta && Array.isArray(meta.fields) && meta.fields.length > 0) {
+          for (const field of meta.fields) {
+            const el = providerFieldsEl.querySelector("[data-key=\"" + field.key + "\"]");
+            if (!el) continue;
+            const v = normalizedProviderParams[field.key];
+            if (el.tagName === "INPUT" && el.type === "checkbox") { el.checked = toBool(v); continue; }
+            if (field.kind === "json") {
+              if (v === null || v === undefined || v === "") el.value = "";
+              else if (typeof v === "string") el.value = v;
+              else { try { el.value = JSON.stringify(v, null, 2); } catch { el.value = String(v); } }
+              continue;
+            }
+            el.value = (v === null || v === undefined) ? "" : String(v);
+          }
+          renderProviderFields();
+        }
         setStatus("已恢复参数（来自生成记录）", "ok");
       }
       function renderList(jobs, opts) {
