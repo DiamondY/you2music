@@ -193,6 +193,8 @@
       @media (max-width: 640px) { .form-row { grid-template-columns: 1fr; } }
       .form-group { margin-bottom: var(--space-md); }
       .form-group:last-child { margin-bottom: 0; }
+      .label-row { display: inline-flex; align-items: center; gap: var(--space-sm); margin-bottom: var(--space-xs); flex-wrap: wrap; }
+      .label-row label { margin: 0; }
       .pwd-row { display: flex; gap: var(--space-sm); align-items: center; }
       .pwd-row input { flex: 1; }
       .pwd-row button { white-space: nowrap; min-height: 40px; }
