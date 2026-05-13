@@ -584,7 +584,27 @@
       function _isCompositionPlanProvidedNow() { return false; }
       function _updatePromptBadge() { const label = document.querySelector("label[for=\"prompt\"]"); const optional = _isCompositionPlanProvidedNow(); _ensureFieldBadge(label, optional ? "optional" : "required"); }
       function _clearValidationUi() { document.querySelectorAll(".field-error-msg").forEach(n => n.remove()); document.querySelectorAll(".input-error").forEach(n => n.classList.remove("input-error")); }
-      function _setFieldError(el, msg, opts) { if (!el) return; el.classList.add("input-error"); const m = document.createElement("div"); m.className = "field-error-msg"; m.textContent = msg; const anchor = (opts && opts.anchor) ? opts.anchor : el; anchor.insertAdjacentElement("afterend", m); }
+      function _setFieldError(el, msg, opts) {
+        if (!el) return;
+        el.classList.add("input-error");
+        const m = document.createElement("div");
+        m.className = "field-error-msg";
+        m.textContent = msg;
+        let anchor = (opts && opts.anchor) ? opts.anchor : el;
+        // If the element lives inside a flex row (e.g. textarea + buttons),
+        // inserting the error node next to it will shrink the input. Instead,
+        // attach the message after the flex container so layout stays stable.
+        try {
+          const p = anchor && anchor.parentElement ? anchor.parentElement : null;
+          if (p) {
+            const disp = window.getComputedStyle(p).display;
+            if (disp === "flex" || disp === "inline-flex") {
+              anchor = p;
+            }
+          }
+        } catch {}
+        anchor.insertAdjacentElement("afterend", m);
+      }
       function _focusField(el) { try { if (!el) return; el.scrollIntoView({ behavior: "smooth", block: "center" }); if (typeof el.focus === "function") el.focus(); } catch {} }
       function _validateGenerateCommon(payload, opts) {
         _clearValidationUi(); _updatePromptBadge();
