@@ -185,6 +185,10 @@
       .toast { background: var(--color-bg-card-solid); border: 1px solid var(--glass-border); border-radius: var(--radius-md); padding: var(--space-sm) var(--space-md); font-size: 13px; color: var(--color-text-primary); box-shadow: var(--glass-shadow); transition: opacity 0.2s, transform 0.2s; pointer-events: auto; }
       .toast-success { border-left: 3px solid var(--color-success); }
       .toast-error { border-left: 3px solid var(--color-error); }
+      .boot-splash { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; padding: var(--space-lg); background: var(--color-bg-primary); z-index: 10000; }
+      .boot-card { width: min(420px, 92vw); padding: var(--space-lg); }
+      html.has-token:not(.session-ready) #bootSplash { display: flex; }
+      html.has-token:not(.session-ready) #authPage { display: none; }
       .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-md); }
       @media (max-width: 640px) { .form-row { grid-template-columns: 1fr; } }
       .form-group { margin-bottom: var(--space-md); }

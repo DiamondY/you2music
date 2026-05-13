@@ -407,6 +407,11 @@
         authToken = token || ""; currentUser = user || null;
         try { if (authToken) localStorage.setItem("you2music.jwt", authToken); else localStorage.removeItem("you2music.jwt"); } catch (e) { console.warn("localStorage unavailable:", e); }
         const loggedIn = localMode || Boolean(currentUser && authToken);
+        // Mark session resolved so the boot splash (used to avoid auth-page flash) can hide.
+        try {
+          document.documentElement.classList.add("session-ready");
+          if (!loggedIn) document.documentElement.classList.remove("has-token");
+        } catch {}
         authPage.classList.toggle("hidden", loggedIn);
         appLayout.classList.toggle("hidden", !loggedIn);
         const mobilePanelsEl = document.getElementById("mobilePanels");
