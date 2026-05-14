@@ -146,22 +146,35 @@ class TestJobStore:
         assert job_store.delete("nonexistent") is False
 
     def test_delete_all(self, job_store: JobStore) -> None:
-        """delete_all removes all jobs."""
-        for _ in range(5):
-            job_store.create_job(provider="acestep", prompt="p", params={})
-        assert job_store.delete_all() == 5
-        assert job_store.count_jobs() == 0
+        """delete_all removes terminal jobs only (succeeded/failed)."""
+        # Two terminal jobs
+        j1 = job_store.create_job(provider="acestep", prompt="ok", params={})
+        j2 = job_store.create_job(provider="acestep", prompt="fail", params={})
+        job_store.set_status(j1, status="succeeded", output_path="/tmp/a.mp3")
+        job_store.set_status(j2, status="failed", error="err")
+        # One queued job should be kept to avoid orphaning workers in bulk deletes.
+        _queued = job_store.create_job(provider="acestep", prompt="q", params={})
+
+        assert job_store.delete_all() == 2
+        assert job_store.count_jobs(include_all=True) == 1
 
     def test_delete_for_user(self, job_store: JobStore) -> None:
-        """delete_for_user only removes jobs for that user."""
-        job_store.create_job(provider="acestep", prompt="u1", params={}, user_id=1)
-        job_store.create_job(provider="acestep", prompt="u1b", params={}, user_id=1)
-        job_store.create_job(provider="acestep", prompt="u2", params={}, user_id=2)
+        """delete_for_user removes terminal jobs for that user only."""
+        u1_ok = job_store.create_job(provider="acestep", prompt="u1", params={}, user_id=1)
+        u1_fail = job_store.create_job(provider="acestep", prompt="u1b", params={}, user_id=1)
+        u1_q = job_store.create_job(provider="acestep", prompt="u1q", params={}, user_id=1)
+        u2_ok = job_store.create_job(provider="acestep", prompt="u2", params={}, user_id=2)
+        job_store.set_status(u1_ok, status="succeeded", output_path="/tmp/u1.mp3")
+        job_store.set_status(u1_fail, status="failed", error="err")
+        job_store.set_status(u2_ok, status="succeeded", output_path="/tmp/u2.mp3")
 
         assert job_store.delete_for_user(user_id=1) == 2
-        assert job_store.count_jobs() == 1
-        remaining = job_store.list_recent(limit=1, include_all=True)
-        assert remaining[0].user_id == 2
+        # Remaining: u1 queued + u2 succeeded
+        assert job_store.count_jobs(include_all=True) == 2
+        remaining = job_store.list_recent(limit=10, include_all=True)
+        remaining_ids = {r.job_id for r in remaining}
+        assert u1_q in remaining_ids
+        assert u2_ok in remaining_ids
 
     def test_params_json_roundtrip(self, job_store: JobStore) -> None:
         """params are stored as JSON and can be parsed back."""
