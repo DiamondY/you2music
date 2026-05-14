@@ -314,7 +314,7 @@
            textarea focus/restore that can land the page near the bottom on load.
            Collapsing the outer app wrapper to height:0 (while keeping overflow visible)
            matches the previous stable behavior in this project. */
-        .app-layout { padding-top: 0; min-height: 0; height: 0; overflow: visible; }
+        .app-layout { padding-top: 0; min-height: 100vh; height: auto; overflow: visible; }
         .pc-layout { display: none; }
         .mobile-panels { display: block; padding-top: var(--space-md); }
         .mobile-tab-bar { display: flex; }

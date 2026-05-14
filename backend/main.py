@@ -5,15 +5,16 @@ import json
 import os
 import random
 import re
-import time
+import threading
 import uuid
 import time
+from collections import deque
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Callable
 
 import httpx
-from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi import Query
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -49,6 +50,49 @@ from deps import (
 )
 from user_store import UserRecord, UserRole
 from workers import _job_worker_handler
+
+
+_AUTH_RATE_LOCK = threading.Lock()
+_AUTH_RATE_HITS: dict[str, deque[float]] = {}
+
+
+def _get_client_ip(request: Request) -> str:
+    # Best-effort: respect common proxy header first, then fall back to FastAPI's client.
+    xff = str(request.headers.get("x-forwarded-for") or "").strip()
+    if xff:
+        # "client, proxy1, proxy2"
+        return xff.split(",")[0].strip() or "unknown"
+    client = getattr(request, "client", None)
+    host = getattr(client, "host", None) if client else None
+    return str(host or "unknown")
+
+
+def _rate_limit_hit(*, key: str, limit: int, window_sec: float) -> tuple[bool, int]:
+    now = time.time()
+    with _AUTH_RATE_LOCK:
+        q = _AUTH_RATE_HITS.get(key)
+        if q is None:
+            q = deque()
+            _AUTH_RATE_HITS[key] = q
+        # Drop old hits.
+        while q and (now - q[0]) > window_sec:
+            q.popleft()
+        if len(q) >= limit:
+            retry_after = int(max(1.0, window_sec - (now - q[0])))
+            return False, retry_after
+        q.append(now)
+        return True, 0
+
+
+def _enforce_auth_rate_limit(*, request: Request, action: str) -> None:
+    ip = _get_client_ip(request)
+    # Per-IP limits: small bursts and a longer window.
+    ok, retry = _rate_limit_hit(key=f"auth:{action}:ip:{ip}:1m", limit=8, window_sec=60.0)
+    if not ok:
+        raise HTTPException(status_code=429, detail=f"操作过于频繁，请稍后再试（约 {retry}s）")
+    ok, retry = _rate_limit_hit(key=f"auth:{action}:ip:{ip}:1h", limit=60, window_sec=3600.0)
+    if not ok:
+        raise HTTPException(status_code=429, detail=f"操作过于频繁，请稍后再试（约 {retry}s）")
 
 
 class GenerateRequest(BaseModel):
@@ -125,7 +169,7 @@ async def _lifespan(app: FastAPI):
 app = FastAPI(title="you2music", version="0.1.0", lifespan=_lifespan)
 
 static_dir = Path(__file__).resolve().parent / "static"
-app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+app.mount("/static", StaticFiles(directory=str(static_dir), check_dir=False), name="static")
 
 def _normalize_provider_alias(provider_name: str) -> str:
     """
@@ -144,15 +188,22 @@ def _normalize_provider_alias(provider_name: str) -> str:
 
 @app.get("/", response_class=HTMLResponse)
 def index() -> HTMLResponse:
-    return HTMLResponse((static_dir / "index.html").read_text(encoding="utf-8"))
+    path = static_dir / "index.html"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="page not found")
+    return HTMLResponse(path.read_text(encoding="utf-8"))
 
 @app.get("/admin", response_class=HTMLResponse)
 def admin_page() -> HTMLResponse:
-    return HTMLResponse((static_dir / "admin.html").read_text(encoding="utf-8"))
+    path = static_dir / "admin.html"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="page not found")
+    return HTMLResponse(path.read_text(encoding="utf-8"))
 
 
 @app.post("/api/auth/register")
-def auth_register(req: RegisterRequest) -> dict[str, Any]:
+def auth_register(req: RegisterRequest, request: Request) -> dict[str, Any]:
+    _enforce_auth_rate_limit(request=request, action="register")
     username = req.username.strip()
     if not re.fullmatch(r"[A-Za-z0-9_.-]{3,64}", username):
         raise HTTPException(status_code=400, detail="用户名只能包含字母、数字、点、短横线和下划线")
@@ -171,7 +222,8 @@ def auth_register(req: RegisterRequest) -> dict[str, Any]:
 
 
 @app.post("/api/auth/login")
-def auth_login(req: LoginRequest) -> dict[str, Any]:
+def auth_login(req: LoginRequest, request: Request) -> dict[str, Any]:
+    _enforce_auth_rate_limit(request=request, action="login")
     user = STATE.user_store.get_by_username(req.username)
     if not user or not verify_password(req.password, user.password_hash):
         raise HTTPException(status_code=401, detail="用户名或密码错误")
@@ -218,7 +270,7 @@ def _sse_format(event: str, data: dict[str, Any]) -> bytes:
 
 
 @app.get("/api/events")
-async def events(current_user: UserRecord = Depends(get_current_user)) -> StreamingResponse:
+async def events(request: Request, current_user: UserRecord = Depends(get_current_user)) -> StreamingResponse:
     """Realtime event stream for multi-device/tab sync (FastAPI mode only)."""
     user_id = int(current_user.id)
     q = await STATE.event_hub.subscribe(user_id)
@@ -226,14 +278,36 @@ async def events(current_user: UserRecord = Depends(get_current_user)) -> Stream
     async def gen():
         # Initial hello so client can mark stream as live.
         yield _sse_format("hello", {"ts_ms": int(time.time() * 1000)})
+        get_task: asyncio.Task[dict[str, Any]] | None = None
         try:
             while True:
                 try:
-                    item = await asyncio.wait_for(q.get(), timeout=15.0)
-                    evt = str(item.get("type") or "message")
-                    yield _sse_format(evt, item)
-                except asyncio.TimeoutError:
-                    yield _sse_format("ping", {"ts_ms": int(time.time() * 1000)})
+                    if await request.is_disconnected():
+                        break
+                    get_task = asyncio.create_task(q.get())
+                    done, _pending = await asyncio.wait({get_task}, timeout=5.0)
+                    if get_task in done:
+                        item = get_task.result()
+                        evt = str(item.get("type") or "message")
+                        yield _sse_format(evt, item)
+                    else:
+                        # Keep the connection alive and allow the loop to observe disconnects quickly.
+                        try:
+                            get_task.cancel()
+                        except Exception:
+                            pass
+                        get_task = None
+                        yield _sse_format("ping", {"ts_ms": int(time.time() * 1000)})
+                finally:
+                    if get_task is not None and not get_task.done():
+                        try:
+                            get_task.cancel()
+                        except Exception:
+                            pass
+                        get_task = None
+
+        except asyncio.CancelledError:
+            raise
         finally:
             await STATE.event_hub.unsubscribe(user_id, q)
 
@@ -308,6 +382,121 @@ def _audio_format_from_filename(name: str) -> str:
     return "mp3"
 
 
+def _looks_like_wav(data: bytes) -> bool:
+    return len(data) >= 12 and data[0:4] == b"RIFF" and data[8:12] == b"WAVE"
+
+
+def _looks_like_flac(data: bytes) -> bool:
+    return len(data) >= 4 and data[0:4] == b"fLaC"
+
+
+def _looks_like_mp3(data: bytes) -> bool:
+    if len(data) < 2:
+        return False
+    if len(data) >= 3 and data[0:3] == b"ID3":
+        return True
+    return data[0] == 0xFF and (data[1] & 0xE0) == 0xE0
+
+
+def _validate_uploaded_audio(*, fmt: str, data: bytes, content_type: str) -> None:
+    ct = (content_type or "").lower().strip()
+    if ct and ct not in ("application/octet-stream", "binary/octet-stream"):
+        allowed_ct = {
+            "mp3": {"audio/mpeg", "audio/mp3", "audio/mpeg3"},
+            "wav": {"audio/wav", "audio/x-wav", "audio/wave", "audio/x-pn-wav"},
+            "flac": {"audio/flac", "audio/x-flac"},
+        }
+        allowed = allowed_ct.get(fmt, set())
+        if allowed and ct not in allowed:
+            raise HTTPException(status_code=400, detail="不支持的音频类型（content-type）")
+
+    ok = False
+    if fmt == "wav":
+        ok = _looks_like_wav(data)
+    elif fmt == "flac":
+        ok = _looks_like_flac(data)
+    else:
+        ok = _looks_like_mp3(data)
+    if not ok:
+        raise HTTPException(status_code=400, detail="音频文件格式不正确或已损坏")
+
+
+def _validate_admin_config(cfg: dict[str, Any]) -> None:
+    if not isinstance(cfg, dict):
+        raise HTTPException(status_code=400, detail="config must be an object")
+
+    allowed_top = {
+        "secrets",
+        "endpoints",
+        "proxy",
+        "auth",
+        "admin",
+        "ui_defaults",
+        "server",
+        "concurrency",
+        # Backward-compat keys (still read by config.py)
+        "jwt_secret",
+        "admin_username",
+        "admin_password",
+        "default_daily_quota",
+    }
+    for k in cfg.keys():
+        if not isinstance(k, str):
+            raise HTTPException(status_code=400, detail="config keys must be strings")
+        if k not in allowed_top:
+            raise HTTPException(status_code=400, detail=f"未知配置项：{k}")
+
+    def _validate_obj(section: str, allowed_keys: set[str]) -> None:
+        v = cfg.get(section)
+        if v is None:
+            return
+        if not isinstance(v, dict):
+            raise HTTPException(status_code=400, detail=f"{section} must be an object")
+        for kk in v.keys():
+            if not isinstance(kk, str) or kk not in allowed_keys:
+                raise HTTPException(status_code=400, detail=f"未知配置项：{section}.{kk}")
+
+    _validate_obj("endpoints", {"acestep_base_url"})
+    _validate_obj("proxy", {"http", "https", "no_proxy"})
+    _validate_obj("server", {"host", "port"})
+    _validate_obj("auth", {"jwt_secret", "admin_username", "admin_password", "default_daily_quota"})
+    _validate_obj("admin", {"username", "password", "default_daily_quota"})
+
+    secrets_obj = cfg.get("secrets")
+    if secrets_obj is not None:
+        if not isinstance(secrets_obj, dict):
+            raise HTTPException(status_code=400, detail="secrets must be an object")
+        for kk in secrets_obj.keys():
+            if kk not in ("acestep_api_key",):
+                raise HTTPException(status_code=400, detail=f"未知配置项：secrets.{kk}")
+
+    # ui_defaults: allow arbitrary provider-id objects, but values must be objects.
+    ud = cfg.get("ui_defaults")
+    if ud is not None:
+        if not isinstance(ud, dict):
+            raise HTTPException(status_code=400, detail="ui_defaults must be an object")
+        for pid, vv in ud.items():
+            if not isinstance(pid, str):
+                raise HTTPException(status_code=400, detail="ui_defaults keys must be strings")
+            if not isinstance(vv, dict):
+                raise HTTPException(status_code=400, detail=f"ui_defaults.{pid} must be an object")
+
+    # concurrency: allow only known top-level keys; nested validation is handled by _merge_concurrency.
+    cc = cfg.get("concurrency")
+    if cc is not None:
+        if not isinstance(cc, dict):
+            raise HTTPException(status_code=400, detail="concurrency must be an object")
+        try:
+            from concurrency import DEFAULT_CONCURRENCY  # local import to avoid eager deps
+            allowed_cc = set(DEFAULT_CONCURRENCY.keys())
+        except Exception:
+            allowed_cc = set()
+        if allowed_cc:
+            for kk in cc.keys():
+                if not isinstance(kk, str) or kk not in allowed_cc:
+                    raise HTTPException(status_code=400, detail=f"未知配置项：concurrency.{kk}")
+
+
 @app.post("/api/uploads/audio")
 async def upload_audio(
     file: UploadFile = File(...),
@@ -329,6 +518,7 @@ async def upload_audio(
     _cleanup_expired_audio_uploads(limit=50)
 
     fmt = _audio_format_from_filename(filename)
+    _validate_uploaded_audio(fmt=fmt, data=data, content_type=str(getattr(file, "content_type", "") or ""))
     upload_id = uuid.uuid4().hex
     # Stronger isolation: store under per-user directory.
     user_dir = STATE.upload_dir / str(int(current_user.id))
@@ -403,6 +593,7 @@ def admin_set_config(req: AdminConfigRequest, current_user: UserRecord = Depends
 
     new_cfg.pop("admin_token", None)
 
+    _validate_admin_config(new_cfg)
     save_local_config(new_cfg)
     STATE.reload()
     return {"ok": True}
@@ -578,13 +769,24 @@ def admin_update_user(
 def admin_delete_user(user_id: int, current_user: UserRecord = Depends(require_admin)) -> dict[str, Any]:
     if user_id == current_user.id:
         raise HTTPException(status_code=400, detail="cannot delete current user")
+
+    # Prevent deleting users that still have in-flight jobs; that would leave
+    # orphaned worker tasks (queues) and confusing partial data on disk.
+    active = (
+        STATE.store.count_jobs(user_id=user_id, include_all=False, status="queued")
+        + STATE.store.count_jobs(user_id=user_id, include_all=False, status="running")
+    )
+    if active > 0:
+        raise HTTPException(status_code=409, detail="该用户仍有排队/运行中的任务，无法删除")
+
+    deleted_jobs = STATE.store.delete_for_user(user_id=user_id)
     try:
         ok = STATE.user_store.delete_user(user_id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     if not ok:
         raise HTTPException(status_code=404, detail="user not found")
-    return {"ok": True}
+    return {"ok": True, "deleted_jobs": deleted_jobs}
 
 
 @app.post("/api/admin/invite-codes")
@@ -999,24 +1201,10 @@ async def inpaint(req: InpaintRequest, current_user: UserRecord = Depends(get_cu
 def get_stems(job_id: str, current_user: UserRecord = Depends(get_current_user)) -> dict[str, Any]:
     """Return stem separation URLs for a completed job (vocals + instrumental).
 
-    Currently returns the same audio file for both tracks unless actual stem
-    separation is implemented by the provider worker.
+    Not implemented in this backend yet. The endpoint is reserved so newer
+    frontends can probe capability without breaking older servers.
     """
-    rec = STATE.store.get(job_id)
-    if not rec:
-        raise HTTPException(status_code=404, detail="job not found")
-    if not (_is_admin(current_user) or rec.user_id == current_user.id):
-        raise HTTPException(status_code=403, detail="job is private")
-    if rec.status != "succeeded":
-        raise HTTPException(status_code=409, detail="job not ready")
-
-    audio_url = f"/api/audio/{rec.job_id}"
-    # Return the same audio for both until real stem separation is wired up.
-    return {
-        "vocals_url": audio_url,
-        "instrumental_url": audio_url,
-        "song_id": rec.song_id,
-    }
+    raise HTTPException(status_code=501, detail="当前后端暂不支持 Stems（人声/伴奏分离）")
 
 
 @app.get("/api/jobs/recent")
@@ -1112,11 +1300,17 @@ async def cancel_job(job_id: str, current_user: UserRecord = Depends(get_current
 
 @app.delete("/api/jobs")
 def delete_jobs(current_user: UserRecord = Depends(get_current_user)) -> dict[str, Any]:
+    queued = 0
+    running = 0
     if _is_admin(current_user):
         deleted = STATE.store.delete_all()
+        queued = STATE.store.count_jobs(include_all=True, status="queued")
+        running = STATE.store.count_jobs(include_all=True, status="running")
     else:
         deleted = STATE.store.delete_for_user(user_id=current_user.id)
-    return {"ok": True, "deleted": deleted}
+        queued = STATE.store.count_jobs(user_id=current_user.id, include_all=False, status="queued")
+        running = STATE.store.count_jobs(user_id=current_user.id, include_all=False, status="running")
+    return {"ok": True, "deleted": deleted, "skipped_queued": queued, "skipped_running": running}
 
 
 @app.post("/api/jobs/{job_id}/publish")
@@ -1184,6 +1378,11 @@ def get_audio(job_id: str, current_user: UserRecord | None = Depends(_optional_c
         raise HTTPException(status_code=403, detail="invalid audio path")
     if not path.exists():
         raise HTTPException(status_code=404, detail="audio missing on disk")
+
+    # For published "listen_only" jobs, avoid forcing a file download by default.
+    # (The audio is still streamable, but download UI is gated by share_permission.)
+    if current_user is None and rec.visibility == "published" and rec.share_permission != "downloadable":
+        return FileResponse(str(path), media_type=_media_type_for_path(path))
 
     return FileResponse(str(path), media_type=_media_type_for_path(path), filename=path.name)
 

@@ -123,6 +123,7 @@
       let currentJobs = [];
       let currentJobSongId = null;
       let currentJobProvider = null;
+      let currentMainAudioUrl = null;
       let currentUser = null;
       let authToken = ""; try { authToken = localStorage.getItem("you2music.jwt") || ""; } catch (e) { console.warn("localStorage unavailable:", e); }
       let localMode = false;
@@ -269,6 +270,19 @@
       }
       try { window.addEventListener("pageshow", () => { _forceScrollTop(); setTimeout(_forceScrollTop, 50); setTimeout(_forceScrollTop, 250); }, { passive: true }); } catch {}
       try { window.addEventListener("load", () => { _forceScrollTop(); setTimeout(_forceScrollTop, 50); }, { passive: true }); } catch {}
+      let viewportResizeTimer = null;
+      let lastDesktopViewport = _isDesktopViewport();
+      function handleViewportResize() {
+        const nowDesktop = _isDesktopViewport();
+        if (nowDesktop === lastDesktopViewport) return;
+        lastDesktopViewport = nowDesktop;
+        const loggedIn = localMode || Boolean(currentUser && authToken);
+        syncSessionLayout(loggedIn);
+        // Move lists into the newly visible container.
+        try { renderList(historyJobs || []); } catch {}
+        if (currentView === "discover") { loadCommunity().catch(() => {}); }
+      }
+      try { window.addEventListener("resize", () => { if (viewportResizeTimer) clearTimeout(viewportResizeTimer); viewportResizeTimer = setTimeout(handleViewportResize, 200); }, { passive: true }); } catch {}
       function scheduleHistoryRefresh() {
         if (historyRefreshTimer) return;
         historyRefreshTimer = setTimeout(() => { historyRefreshTimer = null; loadHistoryPage(historyOffset).catch(() => {}); }, 600);
@@ -312,13 +326,27 @@
         if (!url || !authToken) return url;
         if (audioBlobUrlsByUrl.has(url)) return audioBlobUrlsByUrl.get(url);
         const res = await fetch(url, { headers: { Authorization: "Bearer " + authToken } });
+        if (res.status === 401) { setSession("", null); setAuthError("登录已过期，请重新登录。"); stopEventStream(); throw new Error("登录已过期，请重新登录。"); }
         if (!res.ok) { const text = await res.text(); let data = {}; try { data = text ? JSON.parse(text) : {}; } catch { data = { raw: text }; } throw new Error(formatApiError(data, text || "HTTP " + res.status)); }
         const blob = await res.blob(); const blobUrl = URL.createObjectURL(blob); audioBlobUrlsByUrl.set(url, blobUrl); return blobUrl;
       }
       function revokeAudioBlobUrls() { for (const url of audioBlobUrlsByUrl.values()) { URL.revokeObjectURL(url); } audioBlobUrlsByUrl.clear(); }
-      function attachAuthenticatedAudio(audioEl, url) { audioEl.removeAttribute("src"); audioEl.load(); getAuthenticatedAudioUrl(url).then(src => { audioEl.src = src; }).catch(e => { setError(errorMessage(e)); }); }
+      function cleanupUnusedAudioBlobUrls(activeOriginalUrls) {
+        if (!activeOriginalUrls || typeof activeOriginalUrls.has !== "function") return;
+        for (const [origUrl, blobUrl] of audioBlobUrlsByUrl.entries()) {
+          if (activeOriginalUrls.has(origUrl)) continue;
+          try { URL.revokeObjectURL(blobUrl); } catch {}
+          audioBlobUrlsByUrl.delete(origUrl);
+        }
+      }
+      function attachAuthenticatedAudio(audioEl, url) {
+        try { audioEl.dataset.originalAudioUrl = String(url || ""); } catch {}
+        audioEl.removeAttribute("src"); audioEl.load();
+        getAuthenticatedAudioUrl(url).then(src => { audioEl.src = src; }).catch(e => { setError(errorMessage(e)); });
+      }
       function setMainPlayerAudio(job) {
-        if (!job || !job.audio_url) { player.removeAttribute("src"); player.load(); downloadLink.style.display = "none"; extendGroup.style.display = "none"; if (stickyPlayer) { stickyPlayer.removeAttribute("src"); stickyPlayer.load(); } if (stickyPlayerBar) stickyPlayerBar.classList.remove("playing"); if (stickyDownloadLink) stickyDownloadLink.style.display = "none"; if (playerMobile) { playerMobile.removeAttribute("src"); playerMobile.load(); } if (downloadLinkMobile) downloadLinkMobile.style.display = "none"; return; }
+        if (!job || !job.audio_url) { currentMainAudioUrl = null; player.removeAttribute("src"); player.load(); downloadLink.style.display = "none"; extendGroup.style.display = "none"; if (stickyPlayer) { stickyPlayer.removeAttribute("src"); stickyPlayer.load(); } if (stickyPlayerBar) stickyPlayerBar.classList.remove("playing"); if (stickyDownloadLink) stickyDownloadLink.style.display = "none"; if (playerMobile) { playerMobile.removeAttribute("src"); playerMobile.load(); } if (downloadLinkMobile) downloadLinkMobile.style.display = "none"; return; }
+        currentMainAudioUrl = String(job.audio_url || "").trim() || null;
         player.removeAttribute("src"); player.load();
         getAuthenticatedAudioUrl(job.audio_url).then(src => { player.src = src; downloadLink.href = src; downloadLink.setAttribute("download", (job.job_id || "audio") + ".mp3"); downloadLink.style.display = "inline"; extendGroup.style.display = "inline-flex"; if (stickyPlayer) { stickyPlayer.src = src; } if (stickyPlayerBar) stickyPlayerBar.classList.add("playing"); if (stickyDownloadLink) { stickyDownloadLink.href = src; stickyDownloadLink.setAttribute("download", (job.job_id || "audio") + ".mp3"); stickyDownloadLink.style.display = "inline"; } if (playerMobile) { playerMobile.src = src; } if (downloadLinkMobile) { downloadLinkMobile.href = src; downloadLinkMobile.setAttribute("download", (job.job_id || "audio") + ".mp3"); downloadLinkMobile.style.display = "inline"; } if (jobIdMobileEl) jobIdMobileEl.textContent = job.job_id || "-"; }).catch(e => { downloadLink.style.display = "none"; extendGroup.style.display = "none"; setError(errorMessage(e)); });
       }
@@ -365,6 +393,9 @@
           document.documentElement.dataset.creationSub = creationSubMode;
         } catch {}
       }
+
+      function _jobPollIntervalMs() { return eventStreamRunning ? 8000 : 1500; }
+      function startJobPolling() { if (pollTimer) clearInterval(pollTimer); pollTimer = setInterval(() => refreshJobs(currentJobs), _jobPollIntervalMs()); }
 
       function setCreationMode(mode) {
         creationMode = mode;
@@ -420,13 +451,7 @@
         } catch {}
         authPage.classList.toggle("hidden", loggedIn);
         appLayout.classList.toggle("hidden", !loggedIn);
-        const mobilePanelsEl = document.getElementById("mobilePanels");
-        // Enforce visibility via JS too (not only CSS) so that if breakpoints or
-        // cached CSS ever drift, mobile won't end up with a huge PC layout above it.
-        const isDesktop = _isDesktopViewport();
-        if (pcLayout) pcLayout.style.display = (loggedIn && isDesktop) ? "" : "none";
-        if (mobilePanelsEl) mobilePanelsEl.style.display = (loggedIn && !isDesktop) ? "" : "none";
-        if (mobileTabBar) mobileTabBar.style.display = (loggedIn && !isDesktop) ? "" : "none";
+        syncSessionLayout(loggedIn);
         console.log("setSession: loggedIn=", loggedIn, "authPage.hidden=", authPage.classList.contains("hidden"), "appLayout.hidden=", appLayout.classList.contains("hidden"));
         // Some mobile browsers restore/retain scroll positions across view toggles.
         // Force a sane top-of-page baseline when switching auth <-> app.
@@ -443,6 +468,15 @@
           if (!localMode && currentUser && currentUser.must_change_password) { showForceChangePwd(); }
           else { showView("create"); }
         } else { if (accountNameEl) accountNameEl.textContent = "-"; if (accountNameMobile) accountNameMobile.textContent = "-"; updateQuotaDisplay(null); showView("discover"); }
+      }
+      function syncSessionLayout(loggedIn) {
+        const mobilePanelsEl = document.getElementById("mobilePanels");
+        // Enforce visibility via JS too (not only CSS) so that if breakpoints or
+        // cached CSS ever drift, mobile won't end up with a huge PC layout above it.
+        const isDesktop = _isDesktopViewport();
+        if (pcLayout) pcLayout.style.display = (loggedIn && isDesktop) ? "" : "none";
+        if (mobilePanelsEl) mobilePanelsEl.style.display = (loggedIn && !isDesktop) ? "" : "none";
+        if (mobileTabBar) mobileTabBar.style.display = (loggedIn && !isDesktop) ? "" : "none";
       }
       function showForceChangePwd() { const overlay = document.getElementById("forceChangePwdOverlay"); overlay.classList.add("visible"); document.getElementById("fcpOldPwd").value = ""; document.getElementById("fcpNewPwd").value = ""; document.getElementById("fcpConfirmPwd").value = ""; document.getElementById("fcpError").style.display = "none"; }
       async function submitForceChangePwd() {
@@ -516,7 +550,19 @@
       function updateHistoryPagerUi() { const totalPages = historyLimit > 0 ? Math.max(1, Math.ceil((historyTotal || 0) / historyLimit)) : 1; const page = historyLimit > 0 ? Math.floor(historyOffset / historyLimit) + 1 : 1; const from = historyTotal === 0 ? 0 : (historyOffset + 1); const to = Math.min(historyOffset + historyLimit, historyTotal); if (historyInfoEl) historyInfoEl.textContent = from + "-" + to + " / " + historyTotal + "（第 " + page + "/" + totalPages + " 页）"; if (historyInfoEl2) historyInfoEl2.textContent = from + "-" + to + " / " + historyTotal + "（第 " + page + "/" + totalPages + " 页）"; if (historyPrevBtn) historyPrevBtn.disabled = historyOffset <= 0; if (historyNextBtn) historyNextBtn.disabled = (historyOffset + historyLimit) >= historyTotal; if (historyPrevBtn2) historyPrevBtn2.disabled = historyOffset <= 0; if (historyNextBtn2) historyNextBtn2.disabled = (historyOffset + historyLimit) >= historyTotal; }
       async function loadHistoryPage(offset) {
         const off = Math.max(0, parseInt(String(offset || "0"), 10) || 0); historyOffset = off; updateHistoryPagerUi();
-        try { const data = await fetchJson("/api/jobs/history?offset=" + historyOffset + "&limit=" + historyLimit); historyJobs = data.jobs || []; historyTotal = parseInt(String(data.total || "0"), 10) || 0; historyOffset = parseInt(String(data.offset || historyOffset), 10) || historyOffset; historyLimit = parseInt(String(data.limit || historyLimit), 10) || historyLimit; if (historyPageSizeEl) historyPageSizeEl.value = String(historyLimit); if (historyPageSizeEl2) historyPageSizeEl2.value = String(historyLimit); renderList(historyJobs); } finally { updateHistoryPagerUi(); }
+        try {
+          const data = await fetchJson("/api/jobs/history?offset=" + historyOffset + "&limit=" + historyLimit);
+          historyJobs = data.jobs || [];
+          historyTotal = parseInt(String(data.total || "0"), 10) || 0;
+          historyOffset = parseInt(String(data.offset || historyOffset), 10) || historyOffset;
+          historyLimit = parseInt(String(data.limit || historyLimit), 10) || historyLimit;
+          if (historyPageSizeEl) historyPageSizeEl.value = String(historyLimit);
+          if (historyPageSizeEl2) historyPageSizeEl2.value = String(historyLimit);
+          renderList(historyJobs);
+          const active = new Set((historyJobs || []).map(j => (j && j.audio_url) ? String(j.audio_url) : "").filter(Boolean));
+          if (currentMainAudioUrl) active.add(String(currentMainAudioUrl));
+          cleanupUnusedAudioBlobUrls(active);
+        } finally { updateHistoryPagerUi(); }
       }
       function getSelectedProviderId() {
         const def = providersMeta && providersMeta.default_provider ? String(providersMeta.default_provider) : "";
@@ -1010,7 +1056,7 @@
         if (!_validateGenerateCommon(payload)) { btn.disabled = false; _updateGenerateBtnLabel(); return; }
         if (count > 1) { payload.count = count; const data = await fetchJson("/api/generate_many", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) }); const newIds = data.job_ids || []; currentJobs = newIds; currentJobId = newIds[0] || null; if (data.quota && currentUser) { currentUser.quota = data.quota; updateQuotaDisplay(currentUser); } } else { const data = await fetchJson("/api/generate", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) }); currentJobId = data.job_id; currentJobs = [currentJobId]; if (data.quota && currentUser) { currentUser.quota = data.quota; updateQuotaDisplay(currentUser); } }
         jobIdEl.textContent = currentJobId || "-"; refreshBtn.style.display = "inline-flex"; setStatus("已提交，生成中..."); loadHistoryPage(0).catch(() => {});
-        if (pollTimer) clearInterval(pollTimer); pollTimer = setInterval(() => refreshJobs(currentJobs), 1500); await refreshJobs(currentJobs);
+        startJobPolling(); await refreshJobs(currentJobs);
       }
       async function refreshJobs(jobIds, opts) {
         try { if (!jobIds || jobIds.length === 0) return; const updateStatus = !(opts && opts.updateStatus === false); const data = await fetchJson("/api/jobs?ids=" + jobIds.join(",")); const jobs = (data.jobs || []); for (const j of jobs) { if (j && j.job_id) liveJobsById.set(j.job_id, j); } renderList((historyJobs && historyJobs.length > 0) ? historyJobs : jobs, { incremental: true });
@@ -1024,7 +1070,7 @@
         if (updateStatus && jobs.length === 1 && jobs[0].status === "failed") { setError(jobs[0].error || "未知错误"); }
         } catch (e) { setError(errorMessage(e)); }
       }
-      async function extendCurrent() { setError(""); if (!currentJobId) { setError("没有可延长的 Job。"); return; } const extra = parseInt(document.getElementById("extendSec").value, 10); if (!Number.isFinite(extra) || extra < 3 || extra > 180) { setError("延长秒数建议 3–180。"); return; } setStatus("提交延长任务中..."); const data = await fetchJson("/api/extend", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ job_id: currentJobId, extra_sec: extra, provider: getSelectedProviderId() || null, provider_params: collectProviderParams() }) }); const newJobId = data.job_id; currentJobs = [newJobId]; currentJobId = newJobId; if (data.quota && currentUser) { currentUser.quota = data.quota; updateQuotaDisplay(currentUser); } jobIdEl.textContent = newJobId; refreshBtn.style.display = "inline-flex"; extendGroup.style.display = "none"; loadHistoryPage(0).catch(() => {}); if (pollTimer) clearInterval(pollTimer); pollTimer = setInterval(() => refreshJobs(currentJobs), 1500); await refreshJobs(currentJobs); }
+      async function extendCurrent() { setError(""); if (!currentJobId) { setError("没有可延长的 Job。"); return; } const extra = parseInt(document.getElementById("extendSec").value, 10); if (!Number.isFinite(extra) || extra < 3 || extra > 180) { setError("延长秒数建议 3–180。"); return; } setStatus("提交延长任务中..."); const data = await fetchJson("/api/extend", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ job_id: currentJobId, extra_sec: extra, provider: getSelectedProviderId() || null, provider_params: collectProviderParams() }) }); const newJobId = data.job_id; currentJobs = [newJobId]; currentJobId = newJobId; if (data.quota && currentUser) { currentUser.quota = data.quota; updateQuotaDisplay(currentUser); } jobIdEl.textContent = newJobId; refreshBtn.style.display = "inline-flex"; extendGroup.style.display = "none"; loadHistoryPage(0).catch(() => {}); startJobPolling(); await refreshJobs(currentJobs); }
       async function fetchRandomSample() { try { const data = await fetchJson("/api/random_sample"); return data; } catch (e) { console.error("Failed to fetch random sample:", e); return null; } }
       async function fillRandomPrompt() {
         const sample = await fetchRandomSample();
@@ -1081,6 +1127,33 @@
       if (randomFillAllBtnEl) { randomFillAllBtnEl.addEventListener("click", () => { fillRandomAll().catch(e => console.error("fillRandomAll error:", e)); }); }
       const randomFillAllBtnMobileEl = document.getElementById("randomFillAllBtnMobile");
       if (randomFillAllBtnMobileEl) { randomFillAllBtnMobileEl.addEventListener("click", () => { fillRandomAll().catch(e => console.error("fillRandomAll(mobile) error:", e)); }); }
+
+      function _bindButtonLike(el, fn) {
+        if (!el) return;
+        el.addEventListener("click", (e) => { e.preventDefault(); fn(); });
+        el.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fn(); } });
+      }
+      document.querySelectorAll("[data-clear-audio]").forEach(el => {
+        const which = String(el.dataset.clearAudio || "").trim();
+        if (!which) return;
+        _bindButtonLike(el, () => { try { clearAudioInput(which); } catch {} });
+      });
+      document.querySelectorAll("[data-cp-genre]").forEach(btn => {
+        const preset = String(btn.dataset.cpGenre || "").trim();
+        if (!preset) return;
+        btn.addEventListener("click", (e) => { e.preventDefault(); applyGenrePreset(preset); });
+      });
+      document.querySelectorAll("[data-cp-clear]").forEach(btn => {
+        btn.addEventListener("click", (e) => { e.preventDefault(); clearCompositionPlan(); });
+      });
+      document.querySelectorAll("[data-cp-add-style]").forEach(btn => {
+        const which = String(btn.dataset.cpAddStyle || "").trim();
+        btn.addEventListener("click", (e) => { e.preventDefault(); if (which === "negative") addNegativeStyle(); else addPositiveStyle(); });
+      });
+      document.querySelectorAll("[data-cp-add-section]").forEach(btn => {
+        const kind = String(btn.dataset.cpAddSection || "").trim();
+        btn.addEventListener("click", (e) => { e.preventDefault(); if (kind && kind !== "custom") addSection(kind); else addSection(); });
+      });
       advancedEl.addEventListener("change", () => renderProviderFields());
       if (srcAudioInput) { srcAudioInput.addEventListener("change", function() { if (this.files && this.files[0]) handleAudioFileInput("src", this.files[0]); }); }
       if (refAudioInput) { refAudioInput.addEventListener("change", function() { if (this.files && this.files[0]) handleAudioFileInput("ref", this.files[0]); }); }

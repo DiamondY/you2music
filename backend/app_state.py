@@ -195,40 +195,53 @@ class AppState:
             new_db_path = new_data_dir / "app.db"
             new_users_db_path = new_data_dir / "users.db"
 
-            self.settings = new_settings
-            self.apply_proxy_env()
+            # Prepare new stores first, then swap references. This reduces the
+            # window where other threads might observe partially-updated state.
+            next_store = self.store
+            next_log_store = self.log_store
+            next_user_store = self.user_store
+
+            if new_db_path != self.db_path:
+                new_audio_dir.mkdir(parents=True, exist_ok=True)
+                new_upload_dir.mkdir(parents=True, exist_ok=True)
+                next_store = JobStore(new_db_path)
+                next_store.init()
+                next_log_store = ApiLogStore(new_db_path)
+                next_log_store.init()
+
+            if new_users_db_path != self.users_db_path:
+                next_user_store = UserStore(new_users_db_path)
+                next_user_store.init()
 
             # Key pools are derived from settings and are safe to rebuild on reload.
             # This allows updating keys without a full process restart.
-            new_key_pools: dict[str, KeyPool] = {}
+            next_key_pools: dict[str, KeyPool] = {}
             cc = new_settings.concurrency_config
             for provider in ("acestep",):
                 pcfg = cc.get(provider, {}) if isinstance(cc.get(provider), dict) else {}
                 provider_keys = new_settings.acestep_api_keys
                 if provider_keys:
-                    new_key_pools[provider] = KeyPool(
+                    next_key_pools[provider] = KeyPool(
                         keys=provider_keys,
                         cooldown_sec=float(pcfg.get("cooldown_sec", 60.0)),
                         max_failures=int(pcfg.get("max_failures", 3)),
                     )
-            self.key_pools = new_key_pools
 
-            if new_db_path != self.db_path:
-                self.data_dir = new_data_dir
-                self.audio_dir = new_audio_dir
-                self.upload_dir = new_upload_dir
-                self.audio_dir.mkdir(parents=True, exist_ok=True)
-                self.upload_dir.mkdir(parents=True, exist_ok=True)
-                self.db_path = new_db_path
-                self.store = JobStore(self.db_path)
-                self.store.init()
-                # Keep API logging consistent with the active db path.
-                self.log_store = ApiLogStore(self.db_path)
-                self.log_store.init()
-            if new_users_db_path != self.users_db_path:
-                self.users_db_path = new_users_db_path
-                self.user_store = UserStore(self.users_db_path)
-                self.user_store.init()
+            # Swap references as a single logical update.
+            self.settings = new_settings
+            self.data_dir = new_data_dir
+            self.audio_dir = new_audio_dir
+            self.upload_dir = new_upload_dir
+            self.db_path = new_db_path
+            self.users_db_path = new_users_db_path
+            self.store = next_store
+            self.log_store = next_log_store
+            self.user_store = next_user_store
+            self.key_pools = next_key_pools
+
+            # Proxy env always updated to match new settings.
+            self.apply_proxy_env()
+
             if new_settings.admin_username and new_settings.admin_password:
                 self.user_store.ensure_admin(
                     username=new_settings.admin_username,

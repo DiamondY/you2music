@@ -315,7 +315,17 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         if self.path == "/" or self.path.startswith("/?"):
-            data = _read_text(INDEX_HTML).encode("utf-8")
+            try:
+                data = _read_text(INDEX_HTML).encode("utf-8")
+            except FileNotFoundError:
+                msg = "index.html not found"
+                data = msg.encode("utf-8")
+                self.send_response(HTTPStatus.NOT_FOUND)
+                self.send_header("content-type", "text/plain; charset=utf-8")
+                self.send_header("content-length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+                return
             self.send_response(HTTPStatus.OK)
             self.send_header("content-type", "text/html; charset=utf-8")
             self.send_header("content-length", str(len(data)))
@@ -324,7 +334,17 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if self.path == "/admin" or self.path.startswith("/admin?"):
-            data = _read_text(ADMIN_HTML).encode("utf-8")
+            try:
+                data = _read_text(ADMIN_HTML).encode("utf-8")
+            except FileNotFoundError:
+                msg = "admin.html not found"
+                data = msg.encode("utf-8")
+                self.send_response(HTTPStatus.NOT_FOUND)
+                self.send_header("content-type", "text/plain; charset=utf-8")
+                self.send_header("content-length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+                return
             self.send_response(HTTPStatus.OK)
             self.send_header("content-type", "text/html; charset=utf-8")
             self.send_header("content-length", str(len(data)))

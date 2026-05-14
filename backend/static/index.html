@@ -225,7 +225,7 @@
                     </div>
                     <div id="srcAudioInfo" class="audio-file-info" style="display:none;">
                       <span class="file-name"></span>
-                      <span class="remove-btn" onclick="clearAudioInput('src')">&times;</span>
+                      <span class="remove-btn" data-clear-audio="src" role="button" tabindex="0" aria-label="清除音频">&times;</span>
                     </div>
                   </div>
                   <div class="audio-upload-item">
@@ -236,7 +236,7 @@
                     </div>
                     <div id="refAudioInfo" class="audio-file-info" style="display:none;">
                       <span class="file-name"></span>
-                      <span class="remove-btn" onclick="clearAudioInput('ref')">&times;</span>
+                      <span class="remove-btn" data-clear-audio="ref" role="button" tabindex="0" aria-label="清除音频">&times;</span>
                     </div>
                   </div>
                 </div>
@@ -245,13 +245,13 @@
                 <h4>Composition Plan 编辑器</h4>
                 <p>通过段落、风格、歌词精细控制生成结果。</p>
                 <div class="cp-genre-presets">
-                  <button class="cp-genre-btn" onclick="applyGenrePreset('pop')">流行</button>
-                  <button class="cp-genre-btn" onclick="applyGenrePreset('ballad')">抒情</button>
-                  <button class="cp-genre-btn" onclick="applyGenrePreset('electronic')">电子</button>
-                  <button class="cp-genre-btn" onclick="applyGenrePreset('rock')">摇滚</button>
-                  <button class="cp-genre-btn" onclick="applyGenrePreset('ambient')">氛围</button>
-                  <button class="cp-genre-btn" onclick="applyGenrePreset('guofeng')">国风</button>
-                  <button class="cp-genre-btn" onclick="clearCompositionPlan()">清空</button>
+                  <button class="cp-genre-btn" data-cp-genre="pop" type="button">流行</button>
+                  <button class="cp-genre-btn" data-cp-genre="ballad" type="button">抒情</button>
+                  <button class="cp-genre-btn" data-cp-genre="electronic" type="button">电子</button>
+                  <button class="cp-genre-btn" data-cp-genre="rock" type="button">摇滚</button>
+                  <button class="cp-genre-btn" data-cp-genre="ambient" type="button">氛围</button>
+                  <button class="cp-genre-btn" data-cp-genre="guofeng" type="button">国风</button>
+                  <button class="cp-genre-btn" data-cp-clear="1" type="button">清空</button>
                 </div>
                 <div class="cp-row">
                   <div>
@@ -259,7 +259,7 @@
                     <div id="positiveStyles" class="cp-tags"></div>
                     <div class="cp-add-tag">
                       <input type="text" id="positiveStyleInput" placeholder="例如：piano, strings">
-                      <button class="btn btn-secondary btn-sm" onclick="addPositiveStyle()">添加</button>
+                      <button class="btn btn-secondary btn-sm" data-cp-add-style="positive" type="button">添加</button>
                     </div>
                   </div>
                   <div>
@@ -267,7 +267,7 @@
                     <div id="negativeStyles" class="cp-tags"></div>
                     <div class="cp-add-tag">
                       <input type="text" id="negativeStyleInput" placeholder="例如：aggressive">
-                      <button class="btn btn-secondary btn-sm" onclick="addNegativeStyle()">添加</button>
+                      <button class="btn btn-secondary btn-sm" data-cp-add-style="negative" type="button">添加</button>
                     </div>
                   </div>
                 </div>
@@ -275,10 +275,10 @@
                   <div style="display:flex;justify-content:space-between;align-items:center;">
                     <label style="margin:0;">段落</label>
                     <div style="display:flex;gap:var(--space-xs);">
-                      <button class="btn btn-secondary btn-sm" onclick="addSection('intro')">+Intro</button>
-                      <button class="btn btn-secondary btn-sm" onclick="addSection('verse')">+Verse</button>
-                      <button class="btn btn-secondary btn-sm" onclick="addSection('chorus')">+Chorus</button>
-                      <button class="btn btn-secondary btn-sm" onclick="addSection()">+自定义</button>
+                      <button class="btn btn-secondary btn-sm" data-cp-add-section="intro" type="button">+Intro</button>
+                      <button class="btn btn-secondary btn-sm" data-cp-add-section="verse" type="button">+Verse</button>
+                      <button class="btn btn-secondary btn-sm" data-cp-add-section="chorus" type="button">+Chorus</button>
+                      <button class="btn btn-secondary btn-sm" data-cp-add-section="custom" type="button">+自定义</button>
                     </div>
                   </div>
                   <div id="sectionsContainer"></div>
@@ -297,7 +297,10 @@
               </div>
               <div id="lyricsRow" style="margin-top:var(--space-md);">
                 <div class="form-group">
-                  <label for="lyrics">歌词（可选）</label>
+                  <div class="label-row">
+                    <label for="lyrics">歌词（可选）</label>
+                    <button id="randomLyricsBtn" class="btn btn-secondary btn-sm" type="button" style="display:none;">随机</button>
+                  </div>
                   <textarea id="lyrics" style="min-height:160px;resize:vertical;" placeholder="可粘贴歌词，建议分段：主歌/副歌/桥段。留空自动生成。"></textarea>
                   <div id="lyricsHint" class="muted" style="margin-top:var(--space-xs);display:none;"></div>
                 </div>
@@ -451,7 +454,7 @@
                   </div>
                   <div id="srcAudioInfoMobile" class="audio-file-info" style="display:none;">
                     <span class="file-name"></span>
-                    <span class="remove-btn" onclick="clearAudioInput('src')">&times;</span>
+                    <span class="remove-btn" data-clear-audio="src" role="button" tabindex="0" aria-label="清除音频">&times;</span>
                   </div>
                 </div>
                 <div class="audio-upload-item">
@@ -462,7 +465,7 @@
                   </div>
                   <div id="refAudioInfoMobile" class="audio-file-info" style="display:none;">
                     <span class="file-name"></span>
-                    <span class="remove-btn" onclick="clearAudioInput('ref')">&times;</span>
+                    <span class="remove-btn" data-clear-audio="ref" role="button" tabindex="0" aria-label="清除音频">&times;</span>
                   </div>
                 </div>
               </div>

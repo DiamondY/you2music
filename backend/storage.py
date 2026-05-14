@@ -412,24 +412,36 @@ class JobStore:
                 return cursor.rowcount > 0
 
     def delete_all(self) -> int:
-        """Delete all job records except running ones. Returns count of deleted rows."""
+        """Delete terminal job records (succeeded/failed). Returns count of deleted rows.
+
+        Note: We intentionally do NOT delete queued/running jobs in bulk-delete.
+        Deleting pending jobs without coordinating with provider queues can leave
+        orphaned worker tasks and confusing UI states.
+        """
         with self._lock:
             with self._connect() as conn:
                 count = int(
-                    conn.execute("SELECT COUNT(*) FROM jobs WHERE status != 'running'").fetchone()[0] or 0
+                    conn.execute("SELECT COUNT(*) FROM jobs WHERE status IN ('succeeded','failed')").fetchone()[0] or 0
                 )
-                conn.execute("DELETE FROM jobs WHERE status != 'running'")
+                conn.execute("DELETE FROM jobs WHERE status IN ('succeeded','failed')")
                 conn.commit()
         return count
 
     def delete_for_user(self, *, user_id: int) -> int:
-        """Delete all job records for one user except running ones. Returns count of deleted rows."""
+        """Delete terminal job records for one user (succeeded/failed). Returns count of deleted rows."""
         with self._lock:
             with self._connect() as conn:
                 count = int(
-                    conn.execute("SELECT COUNT(*) FROM jobs WHERE user_id = ? AND status != 'running'", (int(user_id),)).fetchone()[0] or 0
+                    conn.execute(
+                        "SELECT COUNT(*) FROM jobs WHERE user_id = ? AND status IN ('succeeded','failed')",
+                        (int(user_id),),
+                    ).fetchone()[0]
+                    or 0
                 )
-                conn.execute("DELETE FROM jobs WHERE user_id = ? AND status != 'running'", (int(user_id),))
+                conn.execute(
+                    "DELETE FROM jobs WHERE user_id = ? AND status IN ('succeeded','failed')",
+                    (int(user_id),),
+                )
                 conn.commit()
         return count
 
