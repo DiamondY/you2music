@@ -445,6 +445,19 @@ class JobStore:
                 conn.commit()
         return count
 
+    def clear_for_tests(self) -> None:
+        """Clear test data in app.db.
+
+        Only intended for pytest fixtures. This method deletes rows from tables
+        that are safe to reset between tests.
+        """
+        with self._lock:
+            with self._connect() as conn:
+                conn.execute("DELETE FROM api_logs")
+                conn.execute("DELETE FROM audio_uploads")
+                conn.execute("DELETE FROM jobs")
+                conn.commit()
+
 
 def _row_to_job(row: sqlite3.Row | tuple[object, ...]) -> JobRecord:
     return JobRecord(

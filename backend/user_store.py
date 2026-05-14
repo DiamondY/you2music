@@ -264,6 +264,22 @@ class UserStore:
                 conn.commit()
                 return cursor.rowcount > 0
 
+    def clear_for_tests(self, *, exclude_admin: bool = False) -> None:
+        """Clear test data in users.db.
+
+        Only intended for pytest fixtures. When exclude_admin=True, admin users
+        are preserved so tests can reliably log in as admin.
+        """
+        with self._lock:
+            with self._connect() as conn:
+                conn.execute("DELETE FROM user_quotas")
+                conn.execute("DELETE FROM invite_codes")
+                if exclude_admin:
+                    conn.execute("DELETE FROM users WHERE role != 'admin'")
+                else:
+                    conn.execute("DELETE FROM users")
+                conn.commit()
+
     def create_invite_code(self, *, created_by: int | None) -> InviteCodeRecord:
         code = secrets.token_urlsafe(18)
         now = _now_ms()

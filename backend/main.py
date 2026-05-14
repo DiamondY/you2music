@@ -85,6 +85,8 @@ def _rate_limit_hit(*, key: str, limit: int, window_sec: float) -> tuple[bool, i
 
 
 def _enforce_auth_rate_limit(*, request: Request, action: str) -> None:
+    if str(os.getenv("AI_MUSIC_TEST_MODE") or "").strip() == "1":
+        return
     ip = _get_client_ip(request)
     # Per-IP limits: small bursts and a longer window.
     ok, retry = _rate_limit_hit(key=f"auth:{action}:ip:{ip}:1m", limit=8, window_sec=60.0)

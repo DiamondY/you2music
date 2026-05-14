@@ -8,9 +8,12 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import io
 import json
 import logging
+import os
 import time
+import wave
 from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator
 
@@ -286,61 +289,88 @@ async def _run_job(*, job_id: str, prompt: str, params: dict[str, Any]) -> None:
         vocals = bool(params["vocals"])
         provider_params = params.get("provider_params") or {}
 
-        # Acquire a key from the pool (or fall back to the single-key setting).
-        if key_pool:
-            api_key = await key_pool.acquire()
-            key_hint = key_pool.last_hint
-        else:
-            api_key = STATE.settings.acestep_api_key
-            key_hint = None
+        test_mode = str(os.getenv("AI_MUSIC_TEST_MODE") or "").strip() == "1"
+        test_delay_ms = 0
+        try:
+            test_delay_ms = int(str(os.getenv("AI_MUSIC_TEST_DELAY_MS") or "0").strip() or "0")
+        except Exception:
+            test_delay_ms = 0
+        test_force_error = str(os.getenv("AI_MUSIC_TEST_FORCE_ERROR") or "").strip() in ("1", "true", "yes", "on")
 
         out_bytes: bytes
         out_ext = "mp3"
         song_id: str | None = None
 
-        endpoint = "/v1/chat/completions"
-        shared_client = STATE.http_clients.get("acestep")
-        client = ACEStepClient(
-            api_key=api_key,
-            base_url=STATE.settings.acestep_base_url,
-            timeout_s=STATE.settings.request_timeout_s,
-            http_client=shared_client,
-        )
-        # ACE-Step execution block (kept as a nested block to avoid large-scale
-        # indentation churn after removing the old multi-provider branches).
-        if True:
-            model = str(provider_params.get("model") or "acemusic/acestep-v1.5-turbo")
-            lyrics = params.get("lyrics") or provider_params.get("lyrics")
-            audio_duration = provider_params.get("audio_duration")
-            if audio_duration is None:
-                audio_duration = float(params["duration_sec"])
-            audio_format = str(provider_params.get("audio_format") or "mp3")
-            instrumental = not vocals
+        if test_mode:
+            if test_delay_ms > 0:
+                await asyncio.sleep(test_delay_ms / 1000.0)
+            if test_force_error:
+                raise RuntimeError("forced error for testing")
 
-            # Extract base_prompt (strip vocals tag and lyrics embedded by build_prompt)
-            acestep_prompt = str(params.get("base_prompt") or prompt).split("\n\nLyrics:\n")[0]
-            for _tag in (_VOCALS_TAG_WITH, _VOCALS_TAG_INSTR):
-                acestep_prompt = acestep_prompt.replace("\n\n" + _tag, "").replace(_tag, "")
-            acestep_prompt = acestep_prompt.strip()
+            # Deterministic short WAV so browsers and clients can decode it without
+            # any external encoder dependency.
+            buf = io.BytesIO()
+            with wave.open(buf, "wb") as wf:
+                wf.setnchannels(1)
+                wf.setsampwidth(2)  # 16-bit PCM
+                wf.setframerate(8000)
+                frames = b"\x00\x00" * int(8000 * 0.25)  # 250ms of silence
+                wf.writeframes(frames)
+            out_bytes = buf.getvalue()
+            out_ext = "wav"
+            song_id = "test-song"
+        else:
+            # Acquire a key from the pool (or fall back to the single-key setting).
+            if key_pool:
+                api_key = await key_pool.acquire()
+                key_hint = key_pool.last_hint
+            else:
+                api_key = STATE.settings.acestep_api_key
+                key_hint = None
 
-            # Collect all ACE-Step params from provider_params
-            acestep_kwargs: dict[str, Any] = {}
-            for k in ("bpm", "key_scale", "time_signature", "vocal_language",
-                       "thinking", "use_format", "inference_steps", "guidance_scale",
-                       "shift", "infer_method", "timesteps", "task_type", "sample_mode",
-                       "temperature", "top_p", "use_cot_caption", "use_cot_language",
-                       "audio_cover_strength", "repainting_start", "repainting_end"):
-                val = provider_params.get(k)
-                if val is not None and val != "":
-                    acestep_kwargs[k] = val
+            endpoint = "/v1/chat/completions"
+            shared_client = STATE.http_clients.get("acestep")
+            client = ACEStepClient(
+                api_key=api_key,
+                base_url=STATE.settings.acestep_base_url,
+                timeout_s=STATE.settings.request_timeout_s,
+                http_client=shared_client,
+            )
+            # ACE-Step execution block (kept as a nested block to avoid large-scale
+            # indentation churn after removing the old multi-provider branches).
+            if True:
+                model = str(provider_params.get("model") or "acemusic/acestep-v1.5-turbo")
+                lyrics = params.get("lyrics") or provider_params.get("lyrics")
+                audio_duration = provider_params.get("audio_duration")
+                if audio_duration is None:
+                    audio_duration = float(params["duration_sec"])
+                audio_format = str(provider_params.get("audio_format") or "mp3")
+                instrumental = not vocals
 
-            # seed: prefer global params, fallback to provider_params
-            seed_val = params.get("seed")
-            if seed_val is None:
-                seed_val = provider_params.get("seed")
-            if seed_val is not None and seed_val != "":
-                # allow seed=0, reject empty string
-                acestep_kwargs["seed"] = int(seed_val)
+                # Extract base_prompt (strip vocals tag and lyrics embedded by build_prompt)
+                acestep_prompt = str(params.get("base_prompt") or prompt).split("\n\nLyrics:\n")[0]
+                for _tag in (_VOCALS_TAG_WITH, _VOCALS_TAG_INSTR):
+                    acestep_prompt = acestep_prompt.replace("\n\n" + _tag, "").replace(_tag, "")
+                acestep_prompt = acestep_prompt.strip()
+
+                # Collect all ACE-Step params from provider_params
+                acestep_kwargs: dict[str, Any] = {}
+                for k in ("bpm", "key_scale", "time_signature", "vocal_language",
+                           "thinking", "use_format", "inference_steps", "guidance_scale",
+                           "shift", "infer_method", "timesteps", "task_type", "sample_mode",
+                           "temperature", "top_p", "use_cot_caption", "use_cot_language",
+                           "audio_cover_strength", "repainting_start", "repainting_end"):
+                    val = provider_params.get(k)
+                    if val is not None and val != "":
+                        acestep_kwargs[k] = val
+
+                # seed: prefer global params, fallback to provider_params
+                seed_val = params.get("seed")
+                if seed_val is None:
+                    seed_val = provider_params.get("seed")
+                if seed_val is not None and seed_val != "":
+                    # allow seed=0, reject empty string
+                    acestep_kwargs["seed"] = int(seed_val)
 
             # Audio input: use upload_id references (never persist base64 blobs).
             def _load_upload_b64(*, user_id: int, upload_id: str, fmt: str) -> str:

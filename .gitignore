@@ -19,6 +19,7 @@ backend/tests/__pycache__/
 backend/providers/__pycache__/
 .pytest_cache/
 .tmp_python/
+.tmp/
 
 # ---- AI dev tooling noise ----
 .agents/
@@ -42,3 +43,8 @@ Thumbs.db
 dist/
 build/
 *.egg-info/
+
+# ---- Playwright (E2E) ----
+frontend/e2e/node_modules/
+frontend/e2e/test-results/
+frontend/e2e/playwright-report/
