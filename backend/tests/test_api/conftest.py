@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import sys
 import tempfile
 import time
 import uuid
@@ -12,8 +13,12 @@ import pytest
 from fastapi.testclient import TestClient
 
 # Defensive import: ensure module-level env defaults are applied before importing backend modules.
-import test_env  # noqa: F401
-from test_env import TEST_ENV
+_test_api_dir = Path(__file__).resolve().parent
+if str(_test_api_dir) not in sys.path:
+    sys.path.insert(0, str(_test_api_dir))
+
+import test_env  # noqa: E402,F401
+from test_env import TEST_ENV  # noqa: E402
 
 
 @pytest.fixture(scope="session", autouse=True)
