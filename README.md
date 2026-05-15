@@ -136,6 +136,21 @@ ruff check .
 
 API 测试通过 `backend/tests/test_api/test_env.py` 自动启用隔离环境和 `AI_MUSIC_TEST_MODE=1`，不会依赖本机 `data/` 或真实 ACE-Step API。测试模式下 worker 生成固定短 WAV，音频测试会校验 `RIFF/WAVE` magic bytes。
 
+### 一键全量测试
+
+```powershell
+# 后端全量 + ruff + E2E 全量；会安装 Python/npm 依赖与 Playwright 浏览器
+.\tools\test_all.ps1
+
+# PR 级快速验证：后端全量 + ruff + E2E smoke
+.\tools\test_all.ps1 -Smoke
+
+# 已安装依赖时跳过安装步骤
+.\tools\test_all.ps1 -Smoke -SkipInstall -SkipBrowserInstall
+```
+
+可选参数：`-SkipBackend`、`-SkipE2E`、`-Ui`、`-E2EPort 8010`、`-E2EWorkers 2`。脚本默认自动选择一个空闲 E2E 端口、禁止复用已有服务，并用 1 个 worker 串行跑 E2E，避免误连本机开发服务器或多个浏览器同时争用同一个 test-mode worker 队列；也会把 npm cache 放到 `.tmp\npm-cache`，避免 Windows 上全局 npm cache 无权限导致安装失败。
+
 ### Frontend E2E
 
 ```powershell
@@ -153,7 +168,7 @@ npm test
 npm run test:ui
 ```
 
-Playwright 会按 `frontend/e2e/playwright.config.ts` 自动启动后端，并设置独立的临时 `AI_MUSIC_DATA_DIR`、`AI_MUSIC_TEST_MODE=1` 和假 API Key。默认端口是 `8000`，可用 `YOU2MUSIC_E2E_PORT` 覆盖。
+Playwright 会按 `frontend/e2e/playwright.config.ts` 自动启动后端，并设置独立的临时 `AI_MUSIC_DATA_DIR`、`AI_MUSIC_TEST_MODE=1` 和假 API Key。直接运行 `npm test` 时默认端口是 `8000`，可用 `YOU2MUSIC_E2E_PORT` 覆盖；默认 `YOU2MUSIC_E2E_WORKERS=1` 串行执行；只有显式设置 `YOU2MUSIC_E2E_REUSE_SERVER=1` 时才会复用已有服务。
 
 ### CI
 

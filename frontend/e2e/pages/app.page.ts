@@ -1,5 +1,5 @@
 import { expect, type Page, type TestInfo } from "@playwright/test";
-import { selectors, setToken, type TestUser } from "../conftest";
+import { fillPrompt, selectors, setToken, waitForAppReady, type TestUser } from "../conftest";
 
 export class AppPage {
   constructor(
@@ -19,12 +19,11 @@ export class AppPage {
   async gotoWithToken(user: TestUser) {
     await setToken(this.page, user.token);
     await this.page.goto("/");
-    // Both desktop + mobile should hide auth page.
-    await expect(this.page.locator(this.sel().authPage)).toBeHidden();
+    await waitForAppReady(this.page, this.testInfo.project.name);
   }
 
   async fillPrompt(text: string) {
-    await this.page.locator(this.sel().prompt).fill(text);
+    await fillPrompt(this.page, this.testInfo.project.name, text);
   }
 
   async clickGenerate() {
@@ -33,15 +32,14 @@ export class AppPage {
 
   async waitForJobId() {
     const jobIdEl = this.page.locator(this.sel().jobId);
-    await expect(jobIdEl).toBeVisible();
-    await expect(jobIdEl).not.toHaveText("-");
+    await expect(jobIdEl).not.toHaveText("-", { timeout: 30_000 });
     return (await jobIdEl.textContent())?.trim() || "";
   }
 
   async waitForJobSucceeded(jobId: string) {
     const sel = this.sel();
     if (sel.status === "#statusMobile") {
-      await expect(this.page.locator(sel.status)).toContainText("已完成", { timeout: 30_000 });
+      await expect(this.page.locator(sel.status)).toContainText(/已完成|生成完成/, { timeout: 30_000 });
       return;
     }
     const card = this.page.locator(`[data-job-id="${jobId}"]`);

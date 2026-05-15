@@ -19,6 +19,7 @@ export function selectors(projectName: string) {
     status: mobile ? "#statusMobile" : "#status",
     historyList: mobile ? "#list" : "#list",
     toast: "#toastContainer .toast",
+    error: mobile ? "#errorMobile" : "#error",
     authPage: "#authPage",
     showRegisterBtn: "#showRegisterBtn",
     showLoginBtn: "#showLoginBtn",
@@ -31,6 +32,29 @@ export function selectors(projectName: string) {
     mobilePanels: "#mobilePanels",
     mobileTabBar: "#mobileTabBar",
   };
+}
+
+export async function waitForAppReady(page: Page, projectName: string) {
+  const sel = selectors(projectName);
+  await expect(page.locator(sel.authPage)).toBeHidden();
+  if (isMobileProject(projectName)) {
+    await expect(page.locator(sel.mobilePanels)).toBeVisible();
+  } else {
+    await expect(page.locator(sel.pcLayout)).toBeVisible();
+  }
+  await expect(page.locator(sel.prompt)).toBeVisible();
+}
+
+export async function fillPrompt(page: Page, projectName: string, value: string) {
+  const prompt = page.locator(selectors(projectName).prompt);
+  await expect(prompt).toBeVisible();
+  await prompt.evaluate((element, text) => {
+    const input = element as HTMLTextAreaElement | HTMLInputElement;
+    input.value = String(text);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  }, value);
+  await expect(prompt).toHaveValue(value);
 }
 
 async function adminLogin(request: APIRequestContext): Promise<string> {

@@ -29,6 +29,19 @@ cp config/providers.local.example.json config/providers.local.json
 ### 3. Run Tests
 
 ```powershell
+# One-command full validation: backend tests + ruff + full E2E
+.\tools\test_all.ps1
+
+# PR-sized validation: backend tests + ruff + E2E smoke
+.\tools\test_all.ps1 -Smoke
+
+# Skip dependency/browser installation when already prepared
+.\tools\test_all.ps1 -Smoke -SkipInstall -SkipBrowserInstall
+```
+
+The script supports `-SkipBackend`, `-SkipE2E`, `-Ui`, `-E2EPort 8010`, and `-E2EWorkers 2`. By default it selects an available E2E port, disables reuse of existing local servers, and runs E2E with one worker to avoid multiple browser projects competing for the same test-mode provider queue. It uses `.tmp\npm-cache` when `npm_config_cache` is not set, avoiding permission issues with global npm cache directories on Windows.
+
+```powershell
 # Backend: unit + API integration tests
 python -X utf8 -m pytest -c backend\pytest.ini backend\tests -q
 
@@ -58,7 +71,7 @@ npm test
 npm run test:ui
 ```
 
-Playwright starts the backend automatically through `frontend/e2e/playwright.config.ts`. It uses an isolated temporary `AI_MUSIC_DATA_DIR`, fake provider credentials, and `AI_MUSIC_TEST_MODE=1`. Override the default `8000` port with `YOU2MUSIC_E2E_PORT` when needed.
+Playwright starts the backend automatically through `frontend/e2e/playwright.config.ts`. It uses an isolated temporary `AI_MUSIC_DATA_DIR`, fake provider credentials, and `AI_MUSIC_TEST_MODE=1`. Direct `npm test` runs use port `8000` unless `YOU2MUSIC_E2E_PORT` is set, and default to `YOU2MUSIC_E2E_WORKERS=1`; existing servers are reused only when `YOU2MUSIC_E2E_REUSE_SERVER=1` is set explicitly.
 
 ### 4. Start the Server
 
@@ -98,8 +111,8 @@ backend/
 
 1. Fork the repo and create a branch from `master`
 2. Make your changes and add tests if applicable
-3. Ensure `python -X utf8 -m pytest -c backend\pytest.ini backend\tests -q` and `ruff check .` pass
-4. For UI changes, also run `cd frontend\e2e; npm run test:smoke`
+3. Ensure `.\tools\test_all.ps1 -Smoke` passes
+4. For backend-only changes, `python -X utf8 -m pytest -c backend\pytest.ini backend\tests -q` and `ruff check .` are acceptable
 5. Open a PR with a clear description of what changed and why
 
 ## Reporting Issues

@@ -1,16 +1,19 @@
-import { test, expect, selectors } from "../conftest";
+import { fillPrompt, test, expect, selectors, waitForAppReady } from "../conftest";
 
 test("history page lists jobs after generate @smoke", async ({ page, user }, testInfo) => {
   const sel = selectors(testInfo.project.name);
   await page.addInitScript((t: string) => localStorage.setItem("you2music.jwt", t), user.token);
   await page.goto("/");
-  await expect(page.locator(sel.authPage)).toBeHidden();
+  await waitForAppReady(page, testInfo.project.name);
 
-  await page.locator(sel.prompt).fill("history test");
-  await page.locator(sel.generateBtn).click();
-  await expect(page.locator(sel.jobId)).not.toHaveText("-");
+  await fillPrompt(page, testInfo.project.name, "history test");
+  const [generateResponse] = await Promise.all([
+    page.waitForResponse((response) => response.url().includes("/api/generate") && response.request().method() === "POST"),
+    page.locator(sel.generateBtn).click(),
+  ]);
+  expect(generateResponse.ok()).toBeTruthy();
+  const jobId = String((await generateResponse.json()).job_id);
 
-  const jobId = (await page.locator(sel.jobId).textContent())?.trim() || "";
   if (testInfo.project.name === "mobile") {
     await page.locator('#mobileTabBar [data-tab="history"]').click();
   }

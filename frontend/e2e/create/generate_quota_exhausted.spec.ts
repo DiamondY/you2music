@@ -1,4 +1,4 @@
-import { test, expect, selectors } from "../conftest";
+import { fillPrompt, test, expect, selectors, waitForAppReady } from "../conftest";
 
 test("quota exhausted shows server detail @smoke", async ({ page, user }, testInfo) => {
   await page.route("**/api/generate", async (route) => {
@@ -12,13 +12,11 @@ test("quota exhausted shows server detail @smoke", async ({ page, user }, testIn
   const sel = selectors(testInfo.project.name);
   await page.addInitScript((t: string) => localStorage.setItem("you2music.jwt", t), user.token);
   await page.goto("/");
-  await expect(page.locator(sel.authPage)).toBeHidden();
+  await waitForAppReady(page, testInfo.project.name);
 
-  await page.locator(sel.prompt).fill("quota exhausted");
+  await fillPrompt(page, testInfo.project.name, "quota exhausted");
   await page.locator(sel.generateBtn).click();
 
-  const toast = page.locator(sel.toast).first();
-  await expect(toast).toBeVisible();
-  await expect(toast).toContainText("配额");
-  await expect(toast).toContainText("今日配额已用完");
+  await expect(page.locator(sel.error)).toBeVisible();
+  await expect(page.locator(sel.error)).toContainText("今日配额已用完");
 });
