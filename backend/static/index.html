@@ -584,6 +584,43 @@
         </div>
       </div>
     </div>
+    <div id="songInfoOverlay" class="modal-overlay">
+      <div class="modal-content" style="max-width:480px;">
+        <h3>作品详情</h3>
+        <div id="songInfoBody" class="song-info-body"></div>
+        <div class="form-actions"><button id="songInfoCloseBtn" class="btn btn-secondary">关闭</button></div>
+      </div>
+    </div>
+    <div id="editMetadataOverlay" class="modal-overlay">
+      <div class="modal-content" style="max-width:480px;">
+        <h3>编辑作品信息</h3>
+        <div class="form-group">
+          <label for="metaTitle">标题</label>
+          <input type="text" id="metaTitle" maxlength="200" placeholder="作品标题">
+        </div>
+        <div class="form-group">
+          <label for="metaAuthor">作者</label>
+          <input type="text" id="metaAuthor" maxlength="100" placeholder="作者名">
+        </div>
+        <div class="form-group">
+          <label for="metaAlbum">专辑</label>
+          <input type="text" id="metaAlbum" maxlength="100" placeholder="专辑名">
+        </div>
+        <div class="form-group">
+          <label for="metaTags">标签</label>
+          <input type="text" id="metaTags" placeholder="用逗号分隔，如：电子,流行,氛围">
+        </div>
+        <div class="form-group">
+          <label for="metaDescription">简介</label>
+          <textarea id="metaDescription" maxlength="1000" rows="3" placeholder="作品简介"></textarea>
+        </div>
+        <div id="metaError" class="error-message" style="display:none;"></div>
+        <div class="form-actions" style="display:flex;gap:var(--space-sm);">
+          <button id="metaSaveBtn" class="btn btn-accent">保存</button>
+          <button id="metaCancelBtn" class="btn btn-secondary">取消</button>
+        </div>
+      </div>
+    </div>
     <div id="forceChangePwdOverlay" class="modal-overlay">
       <div class="modal-content">
         <h3>请修改密码</h3>

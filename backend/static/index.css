@@ -288,6 +288,11 @@
       .modal-content h3 { font-size: 18px; font-weight: 600; color: var(--color-text-primary); margin-bottom: var(--space-md); }
       .modal-content .form-group { margin-bottom: var(--space-md); }
       .modal-content .form-actions { margin-top: var(--space-lg); }
+      .song-info-body { display: flex; flex-direction: column; gap: var(--space-sm); }
+      .song-info-row { display: flex; gap: var(--space-md); padding: 6px 0; border-bottom: 1px solid var(--color-border); }
+      .song-info-row:last-child { border-bottom: none; }
+      .song-info-label { flex-shrink: 0; width: 72px; color: var(--color-text-muted); font-size: 13px; text-align: right; }
+      .song-info-value { flex: 1; font-size: 14px; color: var(--color-text-primary); word-break: break-all; white-space: pre-wrap; }
       .hidden { display: none !important; }
       .muted { color: var(--color-text-muted); font-size: 13px; }
       /* Treat only true desktop layouts as "pc". Tablets (e.g. iPad 1024px wide) behave

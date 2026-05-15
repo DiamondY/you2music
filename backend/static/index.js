@@ -487,6 +487,76 @@
         try { await fetchJson("/api/auth/password", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ old_password: oldPwd, new_password: newPwd }) }); document.getElementById("forceChangePwdOverlay").classList.remove("visible"); const me = await fetchJson("/api/auth/me"); currentUser = me.user; showView("create"); }
         catch (e) { errEl.textContent = errorMessage(e); errEl.style.display = "block"; }
       }
+      let _editingJobId = null;
+      function showEditMetadata(j) {
+        _editingJobId = j.job_id;
+        const meta = j.metadata || {};
+        document.getElementById("metaTitle").value = meta.title || "";
+        document.getElementById("metaAuthor").value = meta.author || "";
+        document.getElementById("metaAlbum").value = meta.album || "";
+        document.getElementById("metaTags").value = (meta.tags || []).join(",");
+        document.getElementById("metaDescription").value = meta.description || "";
+        document.getElementById("metaError").style.display = "none";
+        document.getElementById("editMetadataOverlay").classList.add("visible");
+      }
+      function hideEditMetadata() {
+        document.getElementById("editMetadataOverlay").classList.remove("visible");
+        _editingJobId = null;
+      }
+      function showSongInfo(job) {
+        const meta = job.metadata || {};
+        const overlay = document.getElementById("songInfoOverlay");
+        const body = document.getElementById("songInfoBody");
+        const rows = [];
+        rows.push(["标题", meta.title || job.prompt || "未命名作品"]);
+        if (meta.author) rows.push(["作者", meta.author]);
+        if (meta.album) rows.push(["专辑", meta.album]);
+        if (meta.tags && meta.tags.length > 0) rows.push(["标签", meta.tags.join("、")]);
+        if (meta.description) rows.push(["简介", meta.description]);
+        rows.push(["Provider", job.provider || "-"]);
+        if (job.duration_sec) rows.push(["时长", Math.round(job.duration_sec) + " 秒"]);
+        rows.push(["分享", job.share_permission === "downloadable" ? "可下载" : "仅试听"]);
+        const created = job.created_at_ms ? new Date(job.created_at_ms).toLocaleString("zh-CN") : "-";
+        rows.push(["创建时间", created]);
+        body.innerHTML = "";
+        for (const [label, value] of rows) {
+          const row = document.createElement("div");
+          row.className = "song-info-row";
+          const lbl = document.createElement("span");
+          lbl.className = "song-info-label";
+          lbl.textContent = label + "：";
+          const val = document.createElement("span");
+          val.className = "song-info-value";
+          val.textContent = value;
+          row.appendChild(lbl);
+          row.appendChild(val);
+          body.appendChild(row);
+        }
+        overlay.classList.add("visible");
+      }
+      function hideSongInfo() {
+        document.getElementById("songInfoOverlay").classList.remove("visible");
+      }
+      async function saveEditMetadata() {
+        if (!_editingJobId) return;
+        const errEl = document.getElementById("metaError"); errEl.style.display = "none";
+        const title = document.getElementById("metaTitle").value.trim();
+        const author = document.getElementById("metaAuthor").value.trim();
+        const album = document.getElementById("metaAlbum").value.trim();
+        const tagsRaw = document.getElementById("metaTags").value;
+        const description = document.getElementById("metaDescription").value.trim();
+        const tags = tagsRaw ? tagsRaw.split(",").map(t => t.trim()).filter(Boolean) : [];
+        try {
+          await fetchJson("/api/jobs/" + _editingJobId + "/metadata", {
+            method: "PATCH",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ title: title || null, author: author || null, album: album || null, tags: tags.length > 0 ? tags : null, description: description || null })
+          });
+          hideEditMetadata();
+          await loadHistoryPage(historyOffset);
+          loadCommunity().catch(() => {});
+        } catch (e) { errEl.textContent = errorMessage(e); errEl.style.display = "block"; }
+      }
       async function detectLocalMode() { try { const res = await fetch("/api/auth/me", { method: "GET" }); return Boolean(res && res.status === 404); } catch { return false; } }
       async function refreshCurrentUser() {
         if (!authToken) { localMode = await detectLocalMode(); if (localMode) { setSession("", { username: "本地模式", role: "user", must_change_password: false, quota: null }); await initProviders(); await loadHistoryPage(0); stopEventStream(); } else { setSession("", null); stopEventStream(); } return; }
@@ -518,14 +588,30 @@
         for (const job of jobs) {
           const item = document.createElement("div");
           item.className = "community-item";
-          const title = document.createElement("div");
+          const _cm = job.metadata || {};
+          const titleLine = document.createElement("div");
+          titleLine.style.cssText = "display:flex;align-items:center;gap:6px;";
+          const infoBtn = document.createElement("button");
+          infoBtn.className = "btn btn-secondary btn-sm";
+          infoBtn.innerHTML = '<svg class="icon icon-sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>';
+          infoBtn.title = "详细信息";
+          infoBtn.style.cssText = "flex-shrink:0;padding:2px 4px;";
+          infoBtn.addEventListener("click", (e) => { e.stopPropagation(); showSongInfo(job); });
+          titleLine.appendChild(infoBtn);
+          const title = document.createElement("span");
           title.style.fontWeight = "600";
-          title.textContent = _shortText(job.prompt || "未命名作品", 90);
-          item.appendChild(title);
+          title.textContent = _shortText(_cm.title || job.prompt || "未命名作品", 90);
+          titleLine.appendChild(title);
+          item.appendChild(titleLine);
           const meta = document.createElement("div");
           meta.className = "muted";
-          meta.textContent = (localMode ? (job.provider || "-") + " · " + (job.status || "-") : (job.provider || "-") + " · " + (job.share_permission === "downloadable" ? "可下载" : "仅试听"));
+          const _metaParts = [];
+          if (_cm.author) _metaParts.push(_cm.author);
+          if (_cm.album) _metaParts.push(_cm.album);
+          _metaParts.push(localMode ? (job.provider || "-") + " · " + (job.status || "-") : (job.provider || "-") + " · " + (job.share_permission === "downloadable" ? "可下载" : "仅试听"));
+          meta.textContent = _metaParts.join(" · ");
           item.appendChild(meta);
+          if (_cm.tags && _cm.tags.length > 0) { const tagsDiv = document.createElement("div"); tagsDiv.className = "muted"; tagsDiv.style.marginTop = "4px"; for (const tag of _cm.tags.slice(0, 5)) { const sp = document.createElement("span"); sp.style.cssText = "display:inline-block;background:var(--color-bg-card-solid);border:1px solid var(--glass-border);border-radius:999px;padding:1px 8px;margin:2px 4px 2px 0;font-size:12px;"; sp.textContent = tag; tagsDiv.appendChild(sp); } item.appendChild(tagsDiv); }
           if (job.audio_url) {
             const audio = document.createElement("audio");
             audio.controls = true;
@@ -1026,7 +1112,7 @@
         if (!j || !j.job_id) return null;
         const row = document.createElement("div"); row.className = "history-item"; row.dataset.jobId = j.job_id; row.dataset.status = j.status;
         const line1 = document.createElement("div"); line1.className = "history-item-line1";
-        const promptSpan = document.createElement("span"); promptSpan.className = "history-item-prompt"; promptSpan.textContent = _shortText(j.prompt || "未命名作品", 60); line1.appendChild(promptSpan);
+        const promptSpan = document.createElement("span"); promptSpan.className = "history-item-prompt"; const _meta = j.metadata || {}; const _title = _meta.title || j.prompt || "未命名作品"; const _sub = _meta.author ? (" · " + _meta.author) : ""; promptSpan.textContent = _shortText(_title + _sub, 80); line1.appendChild(promptSpan);
         const statusBadge = document.createElement("span"); statusBadge.className = "job-status " + j.status; statusBadge.textContent = _statusLabel(j.status, j.queue_position, j.queue_depth); line1.appendChild(statusBadge);
         row.appendChild(line1);
         const line2 = document.createElement("div"); line2.className = "history-item-line2";
@@ -1039,7 +1125,7 @@
         const deleteBtn = document.createElement("button"); deleteBtn.className = "btn-danger btn-sm"; deleteBtn.innerHTML = '<svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>'; deleteBtn.title = "删除"; deleteBtn.addEventListener("click", async (e) => { e.stopPropagation(); if (!window.confirm("确定删除记录？")) return; try { await fetchJson("/api/jobs/" + j.job_id, { method: "DELETE" }); if (currentJobId === j.job_id) { player.removeAttribute("src"); player.load(); downloadLink.style.display = "none"; extendGroup.style.display = "none"; currentJobId = null; } await loadHistoryPage(historyOffset); } catch (err) { setError("删除失败：" + errorMessage(err)); } });
         actions.appendChild(restoreBtn);
         if (j.status === "queued") { const cancelBtn = document.createElement("button"); cancelBtn.className = "btn btn-secondary btn-sm"; cancelBtn.textContent = "取消"; cancelBtn.title = "取消排队"; cancelBtn.addEventListener("click", async (e) => { e.stopPropagation(); if (!window.confirm("确定取消排队？")) return; try { await fetchJson("/api/jobs/" + j.job_id + "/cancel", { method: "POST" }); await loadHistoryPage(historyOffset); } catch (err) { setError("取消排队失败：" + errorMessage(err)); } }); actions.appendChild(cancelBtn); }
-        if (j.status === "succeeded") { const shareWrap = document.createElement("span"); shareWrap.className = "share-control"; if (j.visibility === "published") { const unpublishBtn = document.createElement("button"); unpublishBtn.className = "btn btn-secondary btn-sm"; unpublishBtn.textContent = "取消发布"; unpublishBtn.addEventListener("click", async (e) => { e.stopPropagation(); try { await fetchJson("/api/jobs/" + j.job_id + "/unpublish", { method: "POST" }); await loadHistoryPage(historyOffset); loadCommunity().catch(() => {}); } catch (err) { setError("取消发布失败：" + errorMessage(err)); } }); shareWrap.appendChild(unpublishBtn); } else { const permSelect = document.createElement("select"); permSelect.innerHTML = '<option value="listen_only">仅试听</option><option value="downloadable">可下载</option>'; const publishBtn = document.createElement("button"); publishBtn.className = "btn btn-secondary btn-sm"; publishBtn.textContent = "发布"; publishBtn.addEventListener("click", async (e) => { e.stopPropagation(); try { await fetchJson("/api/jobs/" + j.job_id + "/publish", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ share_permission: permSelect.value }) }); await loadHistoryPage(historyOffset); loadCommunity().catch(() => {}); } catch (err) { setError("发布失败：" + errorMessage(err)); } }); shareWrap.appendChild(permSelect); shareWrap.appendChild(publishBtn); } actions.appendChild(shareWrap); }
+        if (j.status === "succeeded") { const editMetaBtn = document.createElement("button"); editMetaBtn.className = "btn btn-secondary btn-sm"; editMetaBtn.innerHTML = '<svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>'; editMetaBtn.title = "编辑信息"; editMetaBtn.addEventListener("click", (e) => { e.stopPropagation(); showEditMetadata(j); }); actions.appendChild(editMetaBtn); const shareWrap = document.createElement("span"); shareWrap.className = "share-control"; if (j.visibility === "published") { const unpublishBtn = document.createElement("button"); unpublishBtn.className = "btn btn-secondary btn-sm"; unpublishBtn.textContent = "取消发布"; unpublishBtn.addEventListener("click", async (e) => { e.stopPropagation(); try { await fetchJson("/api/jobs/" + j.job_id + "/unpublish", { method: "POST" }); await loadHistoryPage(historyOffset); loadCommunity().catch(() => {}); } catch (err) { setError("取消发布失败：" + errorMessage(err)); } }); shareWrap.appendChild(unpublishBtn); } else { const permSelect = document.createElement("select"); permSelect.innerHTML = '<option value="listen_only">仅试听</option><option value="downloadable">可下载</option>'; const publishBtn = document.createElement("button"); publishBtn.className = "btn btn-secondary btn-sm"; publishBtn.textContent = "发布"; publishBtn.addEventListener("click", async (e) => { e.stopPropagation(); try { await fetchJson("/api/jobs/" + j.job_id + "/publish", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ share_permission: permSelect.value }) }); await loadHistoryPage(historyOffset); loadCommunity().catch(() => {}); } catch (err) { setError("发布失败：" + errorMessage(err)); } }); shareWrap.appendChild(permSelect); shareWrap.appendChild(publishBtn); } actions.appendChild(shareWrap); }
         actions.appendChild(deleteBtn);
         line2.appendChild(actions);
         row.appendChild(line2);
@@ -1251,6 +1337,9 @@
       const logoutBtnMobile = document.getElementById("logoutBtnMobile");
       if (logoutBtnMobile) { logoutBtnMobile.addEventListener("click", () => { setSession("", null); stopEventStream(); providersMeta = null; historyJobs = []; listEl.innerHTML = ""; list2El.innerHTML = ""; revokeAudioBlobUrls(); setMainPlayerAudio(null); }); }
       document.getElementById("fcpSubmitBtn").addEventListener("click", () => submitForceChangePwd().catch(e => { document.getElementById("fcpError").textContent = errorMessage(e); document.getElementById("fcpError").style.display = "block"; }));
+      document.getElementById("metaSaveBtn").addEventListener("click", () => saveEditMetadata().catch(e => { document.getElementById("metaError").textContent = errorMessage(e); document.getElementById("metaError").style.display = "block"; }));
+      document.getElementById("metaCancelBtn").addEventListener("click", () => hideEditMetadata());
+      document.getElementById("songInfoCloseBtn").addEventListener("click", () => hideSongInfo());
       navCreate.addEventListener("click", (e) => { e.preventDefault(); showView("create"); });
       navDiscover.addEventListener("click", (e) => { e.preventDefault(); showView("discover"); });
       document.getElementById("refreshCommunityBtn").addEventListener("click", () => { loadCommunity().catch(e => setError(errorMessage(e))); });

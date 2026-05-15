@@ -30,6 +30,7 @@ class JobRecord:
     user_id: int | None = None
     visibility: JobVisibility = "private"
     share_permission: SharePermission = "listen_only"
+    metadata_json: str | None = None
 
 
 class JobStore:
@@ -243,7 +244,7 @@ class JobStore:
             with self._connect() as conn:
                 row = conn.execute(
                     """
-                    SELECT job_id, status, created_at_ms, updated_at_ms, provider, prompt, params_json, output_path, error, song_id, user_id, visibility, share_permission
+                    SELECT job_id, status, created_at_ms, updated_at_ms, provider, prompt, params_json, output_path, error, song_id, user_id, visibility, share_permission, metadata_json
                     FROM jobs WHERE job_id = ?
                     """,
                     (job_id,),
@@ -264,7 +265,7 @@ class JobStore:
                 if include_all:
                     rows = conn.execute(
                         """
-                        SELECT job_id, status, created_at_ms, updated_at_ms, provider, prompt, params_json, output_path, error, song_id, user_id, visibility, share_permission
+                        SELECT job_id, status, created_at_ms, updated_at_ms, provider, prompt, params_json, output_path, error, song_id, user_id, visibility, share_permission, metadata_json
                         FROM jobs
                         ORDER BY created_at_ms DESC, job_id ASC
                         LIMIT ?
@@ -274,7 +275,7 @@ class JobStore:
                 else:
                     rows = conn.execute(
                         """
-                        SELECT job_id, status, created_at_ms, updated_at_ms, provider, prompt, params_json, output_path, error, song_id, user_id, visibility, share_permission
+                        SELECT job_id, status, created_at_ms, updated_at_ms, provider, prompt, params_json, output_path, error, song_id, user_id, visibility, share_permission, metadata_json
                         FROM jobs
                         WHERE user_id = ?
                         ORDER BY created_at_ms DESC, job_id ASC
@@ -327,7 +328,7 @@ class JobStore:
             with self._connect() as conn:
                 rows = conn.execute(
                     f"""
-                    SELECT job_id, status, created_at_ms, updated_at_ms, provider, prompt, params_json, output_path, error, song_id, user_id, visibility, share_permission
+                    SELECT job_id, status, created_at_ms, updated_at_ms, provider, prompt, params_json, output_path, error, song_id, user_id, visibility, share_permission, metadata_json
                     FROM jobs
                     {where}
                     ORDER BY created_at_ms DESC, job_id ASC
@@ -345,7 +346,7 @@ class JobStore:
             with self._connect() as conn:
                 rows = conn.execute(
                     """
-                    SELECT job_id, status, created_at_ms, updated_at_ms, provider, prompt, params_json, output_path, error, song_id, user_id, visibility, share_permission
+                    SELECT job_id, status, created_at_ms, updated_at_ms, provider, prompt, params_json, output_path, error, song_id, user_id, visibility, share_permission, metadata_json
                     FROM jobs
                     WHERE visibility = 'published' AND status = 'succeeded'
                     ORDER BY updated_at_ms DESC, job_id DESC
@@ -373,6 +374,21 @@ class JobStore:
                 conn.commit()
                 return cursor.rowcount > 0
 
+    def set_metadata(self, job_id: str, metadata_json: str) -> bool:
+        now = int(time.time() * 1000)
+        with self._lock:
+            with self._connect() as conn:
+                cursor = conn.execute(
+                    """
+                    UPDATE jobs
+                    SET metadata_json = ?, updated_at_ms = ?
+                    WHERE job_id = ?
+                    """,
+                    (metadata_json, now, job_id),
+                )
+                conn.commit()
+                return cursor.rowcount > 0
+
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(str(self._db_path))
         conn.execute("PRAGMA journal_mode=WAL;")
@@ -393,6 +409,8 @@ class JobStore:
             conn.execute("ALTER TABLE jobs ADD COLUMN visibility TEXT NOT NULL DEFAULT 'private'")
         if "share_permission" not in cols:
             conn.execute("ALTER TABLE jobs ADD COLUMN share_permission TEXT NOT NULL DEFAULT 'listen_only'")
+        if "metadata_json" not in cols:
+            conn.execute("ALTER TABLE jobs ADD COLUMN metadata_json TEXT")
 
         # audio_uploads table migrations (best-effort, backward-compatible)
         try:
@@ -474,6 +492,7 @@ def _row_to_job(row: sqlite3.Row | tuple[object, ...]) -> JobRecord:
         user_id=int(row[10]) if len(row) > 10 and row[10] is not None else None,
         visibility=str(row[11]) if len(row) > 11 and row[11] is not None else "private",  # type: ignore[arg-type]
         share_permission=str(row[12]) if len(row) > 12 and row[12] is not None else "listen_only",  # type: ignore[arg-type]
+        metadata_json=str(row[13]) if len(row) > 13 and row[13] is not None else None,
     )
 
 

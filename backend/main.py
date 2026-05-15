@@ -156,6 +156,14 @@ class PublishRequest(BaseModel):
     share_permission: str = Field(default="listen_only", max_length=32)
 
 
+class MetadataUpdateRequest(BaseModel):
+    title: str | None = Field(default=None, max_length=200)
+    author: str | None = Field(default=None, max_length=100)
+    album: str | None = Field(default=None, max_length=100)
+    tags: list[str] | None = None
+    description: str | None = Field(default=None, max_length=1000)
+
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
     install_windows_asyncio_connection_reset_suppression()
@@ -1363,6 +1371,44 @@ def unpublish_job(job_id: str, current_user: UserRecord = Depends(get_current_us
     if not (_is_admin(current_user) or rec.user_id == current_user.id):
         raise HTTPException(status_code=403, detail="job is private")
     STATE.store.set_sharing(job_id, visibility="private", share_permission="listen_only")
+    updated = STATE.store.get(job_id)
+    if not updated:
+        raise HTTPException(status_code=404, detail="job not found")
+    return {"job": _serialize_job(updated)}
+
+
+@app.patch("/api/jobs/{job_id}/metadata")
+def update_job_metadata(job_id: str, req: MetadataUpdateRequest, current_user: UserRecord = Depends(get_current_user)) -> dict[str, Any]:
+    rec = STATE.store.get(job_id)
+    if not rec:
+        raise HTTPException(status_code=404, detail="job not found")
+    if not (_is_admin(current_user) or rec.user_id == current_user.id):
+        raise HTTPException(status_code=403, detail="job is private")
+    if rec.status != "succeeded":
+        raise HTTPException(status_code=409, detail="只能编辑已完成的作品")
+
+    existing: dict[str, Any] = {}
+    if rec.metadata_json:
+        try:
+            existing = json.loads(rec.metadata_json)
+            if not isinstance(existing, dict):
+                existing = {}
+        except (json.JSONDecodeError, TypeError):
+            existing = {}
+
+    if req.title is not None:
+        existing["title"] = req.title.strip()
+    if req.author is not None:
+        existing["author"] = req.author.strip()
+    if req.album is not None:
+        existing["album"] = req.album.strip()
+    if req.tags is not None:
+        cleaned = [t.strip() for t in req.tags if t.strip()]
+        existing["tags"] = cleaned[:10]
+    if req.description is not None:
+        existing["description"] = req.description.strip()
+
+    STATE.store.set_metadata(job_id, json.dumps(existing, ensure_ascii=False, separators=(",", ":")))
     updated = STATE.store.get(job_id)
     if not updated:
         raise HTTPException(status_code=404, detail="job not found")

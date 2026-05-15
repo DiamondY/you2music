@@ -185,6 +185,7 @@ def _serialize_job(rec: Any, *, include_download: bool = True) -> dict[str, Any]
         "provider": rec.provider,
         "prompt": rec.prompt,
         "params": _safe_json_loads(rec.params_json),
+        "metadata": _safe_json_loads(rec.metadata_json),
         "audio_url": audio_url,
         "download_url": download_url,
         "error": rec.error,
