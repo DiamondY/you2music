@@ -1382,7 +1382,7 @@ def update_job_metadata(job_id: str, req: MetadataUpdateRequest, current_user: U
     rec = STATE.store.get(job_id)
     if not rec:
         raise HTTPException(status_code=404, detail="job not found")
-    if not (_is_admin(current_user) or rec.user_id == current_user.id):
+    if rec.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="job is private")
     if rec.status != "succeeded":
         raise HTTPException(status_code=409, detail="只能编辑已完成的作品")
