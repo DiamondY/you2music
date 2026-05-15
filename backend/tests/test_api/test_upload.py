@@ -37,3 +37,14 @@ def test_upload_audio_rejects_non_audio(client, auth_headers) -> None:
     )
     assert resp.status_code == 400
 
+
+def test_upload_audio_rejects_oversized_file(client, auth_headers, monkeypatch) -> None:
+    import main
+
+    monkeypatch.setattr(main, "_UPLOAD_MAX_BYTES", 10)
+    resp = client.post(
+        "/api/uploads/audio",
+        headers=auth_headers,
+        files={"file": ("a.wav", _wav_bytes(), "audio/wav")},
+    )
+    assert resp.status_code == 413

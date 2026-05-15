@@ -108,6 +108,8 @@ async def test_worker_test_mode_forced_error_marks_failed(monkeypatch: Any, isol
     st = isolated_state
     monkeypatch.setenv("AI_MUSIC_TEST_FORCE_ERROR", "1")
     user = _create_user(st=st, username="u2")
+    st.user_store.consume_quota(user_id=int(user.id), amount=1, daily_quota=int(user.daily_quota))
+    assert int(st.user_store.quota_status(user_id=int(user.id), daily_quota=int(user.daily_quota))["used"]) == 1
 
     params = {"provider": "acestep", "duration_sec": 30, "vocals": True, "seed": None, "provider_params": {}}
     job_id = st.store.create_job(provider="acestep", prompt="boom", params=params, user_id=int(user.id))
@@ -120,6 +122,7 @@ async def test_worker_test_mode_forced_error_marks_failed(monkeypatch: Any, isol
     assert failed is not None
     assert failed.status == "failed"
     assert "forced error for testing" in str(failed.error or "")
+    assert int(st.user_store.quota_status(user_id=int(user.id), daily_quota=int(user.daily_quota))["used"]) == 0
 
 
 @pytest.mark.asyncio

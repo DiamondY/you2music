@@ -869,6 +869,7 @@ async def admin_cancel_job(
         cancelled_from_queue = pq.cancel(job_id)
     STATE.store.set_status(job_id, status="failed", error="管理员取消排队")
     if rec.user_id is not None:
+        STATE.user_store.refund_quota(user_id=int(rec.user_id), amount=1)
         # Push realtime update to the owner.
         asyncio.create_task(
             STATE.event_hub.publish(int(rec.user_id), {"type": "job_updated", "job_id": job_id, "status": "failed"})
@@ -1169,21 +1170,39 @@ async def generate_store(req: GenerateRequest, current_user: UserRecord = Depend
             msg = "今日配额已用完"
         raise HTTPException(status_code=429, detail=msg) from e
 
-    job_id = STATE.store.create_job(
-        provider=provider_name,
-        prompt=prompt,
-        params=params,
-        kind="store",
-        user_id=current_user.id,
-    )
+    job_id: str | None = None
+    submitted = False
+    try:
+        job_id = STATE.store.create_job(
+            provider=provider_name,
+            prompt=prompt,
+            params=params,
+            kind="store",
+            user_id=current_user.id,
+        )
 
-    await STATE.event_hub.publish(
-        int(current_user.id),
-        {"type": "job_created", "job_id": job_id, "status": "queued", "provider": provider_name},
-    )
+        await STATE.event_hub.publish(
+            int(current_user.id),
+            {"type": "job_created", "job_id": job_id, "status": "queued", "provider": provider_name},
+        )
 
-    # Submit to provider queue (job starts in "queued" status, worker picks it up)
-    await STATE.provider_queues[provider_name].submit(job_id)
+        # Submit to provider queue (job starts in "queued" status, worker picks it up)
+        await STATE.provider_queues[provider_name].submit(job_id)
+        submitted = True
+    except Exception:
+        if not submitted:
+            STATE.user_store.refund_quota(user_id=current_user.id, amount=1)
+            if job_id:
+                STATE.store.set_status(job_id, status="failed", error="提交生成任务失败")
+                try:
+                    await STATE.event_hub.publish(
+                        int(current_user.id),
+                        {"type": "job_updated", "job_id": job_id, "status": "failed"},
+                    )
+                except Exception:
+                    pass
+        raise
+    assert job_id is not None
     return {"job_id": job_id, "quota": quota}
 
 
@@ -1294,6 +1313,8 @@ async def cancel_job(job_id: str, current_user: UserRecord = Depends(get_current
     # Mark as failed in store
     STATE.store.set_status(job_id, status="failed", error="用户取消排队")
     if rec.user_id is not None:
+        STATE.user_store.refund_quota(user_id=int(rec.user_id), amount=1)
+    if rec.user_id is not None:
         asyncio.create_task(
             STATE.event_hub.publish(int(rec.user_id), {"type": "job_updated", "job_id": job_id, "status": "failed"})
         )
@@ -1368,6 +1389,8 @@ def list_community(
 @app.get("/api/audio/{job_id}")
 def get_audio(job_id: str, current_user: UserRecord | None = Depends(_optional_current_user)) -> FileResponse:
     rec = STATE.store.get(job_id)
+    if not rec and job_id.endswith(".mp3"):
+        rec = STATE.store.get(job_id[: -len(".mp3")])
     if not rec:
         raise HTTPException(status_code=404, detail="job not found")
     if not _can_access_job(rec, current_user):

@@ -142,6 +142,7 @@ async def _job_worker_handler(job_id: str) -> None:
     provider_name = str(params.get("provider") or "acestep")
     if provider_name != "acestep":
         STATE.store.set_status(job_id, status="failed", error=f"unsupported provider: {provider_name}")
+        _refund_job_quota(rec)
         await _publish_job_status(
             user_id=getattr(rec, "user_id", None),
             job_id=job_id,
@@ -193,6 +194,7 @@ async def _execute_queued_job(*, job_id: str, rec: Any, params: dict[str, Any]) 
                 status="failed",
                 error=f"排队超时：等待了 {elapsed_sec:.0f} 秒，超过上限 {queue_timeout_sec:.0f} 秒",
             )
+            _refund_job_quota(rec)
             await _publish_job_status(
                 user_id=getattr(rec, "user_id", None),
                 job_id=job_id,
@@ -240,6 +242,7 @@ async def _execute_queued_job(*, job_id: str, rec: Any, params: dict[str, Any]) 
     except Exception as e:
         # run_with_retry exhausted retries or non-retryable error
         STATE.store.set_status(job_id, status="failed", error=str(e))
+        _refund_job_quota(rec)
         await _publish_job_status(
             user_id=getattr(rec, "user_id", None),
             job_id=job_id,
@@ -250,6 +253,16 @@ async def _execute_queued_job(*, job_id: str, rec: Any, params: dict[str, Any]) 
     finally:
         if _provider_cooldown_seconds(provider_name) > 0:
             STATE.provider_last_finished_at[provider_name] = time.monotonic()
+
+
+def _refund_job_quota(rec: Any) -> None:
+    user_id = getattr(rec, "user_id", None)
+    if user_id is None:
+        return
+    try:
+        STATE.user_store.refund_quota(user_id=int(user_id), amount=1)
+    except Exception:
+        logger.warning("Failed to refund quota for job owner %s", user_id, exc_info=True)
 
 
 def _provider_cooldown_seconds(provider_name: str) -> float:
