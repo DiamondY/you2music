@@ -8,6 +8,7 @@ Thank you for your interest in contributing!
 
 - Python 3.10+
 - [ACE-Step](https://acemusic.ai/) API key
+- Node.js 20+ for Playwright E2E tests
 
 ### 1. Clone & Install
 
@@ -15,6 +16,7 @@ Thank you for your interest in contributing!
 git clone <your-fork-url>
 cd you2music
 pip install -r backend/requirements.txt
+pip install -r backend/requirements-dev.txt
 ```
 
 ### 2. Configure
@@ -26,10 +28,37 @@ cp config/providers.local.example.json config/providers.local.json
 
 ### 3. Run Tests
 
-```bash
-cd backend
-python -m pytest tests/ -v
+```powershell
+# Backend: unit + API integration tests
+python -X utf8 -m pytest -c backend\pytest.ini backend\tests -q
+
+# Backend: API integration tests only
+python -X utf8 -m pytest -c backend\pytest.ini backend\tests\test_api -q
+
+# Lint
+ruff check .
 ```
+
+API integration tests are isolated from local runtime data. They set test-only environment variables in `backend/tests/test_api/test_env.py`, use a temporary data directory, and run provider success paths through `AI_MUSIC_TEST_MODE=1`. Test-mode audio is WAV; assertions check `RIFF/WAVE` bytes instead of MP3 fixtures.
+
+#### Frontend E2E
+
+```powershell
+cd frontend\e2e
+npm install
+npx playwright install chromium webkit
+
+# PR-sized smoke subset
+npm run test:smoke
+
+# Full E2E suite
+npm test
+
+# Interactive debugging
+npm run test:ui
+```
+
+Playwright starts the backend automatically through `frontend/e2e/playwright.config.ts`. It uses an isolated temporary `AI_MUSIC_DATA_DIR`, fake provider credentials, and `AI_MUSIC_TEST_MODE=1`. Override the default `8000` port with `YOU2MUSIC_E2E_PORT` when needed.
 
 ### 4. Start the Server
 
@@ -69,8 +98,9 @@ backend/
 
 1. Fork the repo and create a branch from `master`
 2. Make your changes and add tests if applicable
-3. Ensure `python -m pytest backend/tests/ -v` passes
-4. Open a PR with a clear description of what changed and why
+3. Ensure `python -X utf8 -m pytest -c backend\pytest.ini backend\tests -q` and `ruff check .` pass
+4. For UI changes, also run `cd frontend\e2e; npm run test:smoke`
+5. Open a PR with a clear description of what changed and why
 
 ## Reporting Issues
 

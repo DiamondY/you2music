@@ -31,6 +31,7 @@
 
 - Python 3.10+（支持 3.14）
 - ACE-Step 的 API Key
+- Node.js 20+（仅运行 Playwright E2E 测试时需要）
 - Windows / Linux / macOS
 
 ---
@@ -98,7 +99,9 @@ you2music/
 │   ├── key_pool.py          # 多 Key 轮询 + 健康追踪
 │   ├── providers/           # ACE-Step 客户端
 │   ├── static/              # 前端 HTML
-│   └── tests/               # pytest 单元测试
+│   └── tests/               # pytest 单元 + API 集成测试
+├── frontend/
+│   └── e2e/                 # Playwright E2E 测试
 ├── config/
 │   └── providers.local.example.json   # 配置示例（勿提交真实 keys）
 ├── docs/
@@ -110,6 +113,52 @@ you2music/
 │   └── py314_tempfile_fix/             # sitecustomize.py 补丁
 └── data/                    # SQLite DB + 生成的音频文件（运行时创建）
 ```
+
+---
+
+## 测试
+
+### Backend
+
+```powershell
+# 安装运行时依赖 + 测试依赖
+pip install -r backend/requirements.txt -r backend/requirements-dev.txt
+
+# 全量 backend 测试
+python -X utf8 -m pytest -c backend\pytest.ini backend\tests -q
+
+# 仅 API 集成测试
+python -X utf8 -m pytest -c backend\pytest.ini backend\tests\test_api -q
+
+# Lint
+ruff check .
+```
+
+API 测试通过 `backend/tests/test_api/test_env.py` 自动启用隔离环境和 `AI_MUSIC_TEST_MODE=1`，不会依赖本机 `data/` 或真实 ACE-Step API。测试模式下 worker 生成固定短 WAV，音频测试会校验 `RIFF/WAVE` magic bytes。
+
+### Frontend E2E
+
+```powershell
+cd frontend\e2e
+npm install
+npx playwright install chromium webkit
+
+# Smoke 子集
+npm run test:smoke
+
+# 全量 E2E
+npm test
+
+# UI 调试
+npm run test:ui
+```
+
+Playwright 会按 `frontend/e2e/playwright.config.ts` 自动启动后端，并设置独立的临时 `AI_MUSIC_DATA_DIR`、`AI_MUSIC_TEST_MODE=1` 和假 API Key。默认端口是 `8000`，可用 `YOU2MUSIC_E2E_PORT` 覆盖。
+
+### CI
+
+- `.github/workflows/ci.yml` 运行 backend tests 与 `ruff check .`。
+- `.github/workflows/test.yml` 运行 API integration tests；E2E 由仓库变量 `ENABLE_E2E=1` 启用，PR/push 跑 `@smoke`，定时任务跑全量。
 
 ---
 
