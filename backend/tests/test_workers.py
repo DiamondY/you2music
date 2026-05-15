@@ -102,6 +102,20 @@ async def test_worker_test_mode_succeeds_and_writes_audio(isolated_state: Any) -
 
 
 @pytest.mark.asyncio
+async def test_worker_test_mode_disables_provider_cooldown(isolated_state: Any) -> None:
+    import workers as workers_module
+
+    st = isolated_state
+    cc = dict(st.settings.concurrency_config or {})
+    acestep_cfg = dict(cc.get("acestep") or {})
+    acestep_cfg["cooldown_sec"] = 30.0
+    cc["acestep"] = acestep_cfg
+    st.settings = replace(st.settings, concurrency_config=cc)
+
+    assert workers_module._provider_cooldown_seconds("acestep") == 0.0
+
+
+@pytest.mark.asyncio
 async def test_worker_test_mode_forced_error_marks_failed(monkeypatch: Any, isolated_state: Any) -> None:
     import workers as workers_module
 

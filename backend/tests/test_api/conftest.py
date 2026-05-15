@@ -32,12 +32,22 @@ def setup_test_env() -> Any:
 
 
 @pytest.fixture(scope="session")
-def app() -> Any:
+def app(setup_test_env: Any) -> Any:
     assert os.environ.get("AI_MUSIC_TEST_MODE") == "1", "Test env not initialized"
     assert os.environ.get("AI_MUSIC_JWT_SECRET"), "AI_MUSIC_JWT_SECRET not set"
     assert os.environ.get("AI_MUSIC_DATA_DIR"), "AI_MUSIC_DATA_DIR not set"
-    from main import app as _app
-    return _app
+    from app_state import AppState
+    import deps as deps_module
+    import main as main_module
+    import state as state_module
+    import workers as workers_module
+
+    test_state = AppState.create()
+    deps_module.STATE = test_state
+    state_module.STATE = test_state
+    main_module.STATE = test_state
+    workers_module.STATE = test_state
+    return main_module.app
 
 
 @pytest.fixture(scope="session")

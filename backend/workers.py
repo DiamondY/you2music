@@ -266,6 +266,8 @@ def _refund_job_quota(rec: Any) -> None:
 
 
 def _provider_cooldown_seconds(provider_name: str) -> float:
+    if str(os.getenv("AI_MUSIC_TEST_MODE") or "").strip() == "1":
+        return 0.0
     provider_cfg = STATE.settings.concurrency_config.get(provider_name)
     if not isinstance(provider_cfg, dict):
         return 0.0
